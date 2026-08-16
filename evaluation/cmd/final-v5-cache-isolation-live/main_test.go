@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -205,13 +207,15 @@ func TestTaskFinalizationUsesSourceControlledQueryPolicy(t *testing.T) {
 	}
 	archivedBudget := queryBudget(1, 1, 0)
 	disposition, err := taskFinalizationDisposition(nonceAuthorization,
-		taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget, true)
+		taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget,
+		taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true})
 	if err != nil || disposition != "accept_automatic_budget_archive" {
 		t.Fatalf("source-controlled one-query archive disposition = %q, %v", disposition, err)
 	}
 	activeBudget := queryBudget(128, 1, 127)
 	disposition, err = taskFinalizationDisposition(analyticsAuthorization,
-		taskStatus{State: "ACTIVE"}, activeBudget, true)
+		taskStatus{State: "ACTIVE"}, activeBudget,
+		taskFinalizationRequirement{QueryEvidenceCaptured: true, SemanticVerdictCaptured: true})
 	if err != nil || disposition != "complete_active_task" {
 		t.Fatalf("source-controlled 128-query active disposition = %q, %v", disposition, err)
 	}
@@ -220,26 +224,136 @@ func TestTaskFinalizationUsesSourceControlledQueryPolicy(t *testing.T) {
 		authorization taskAuthorization
 		status        taskStatus
 		budget        taskBudget
-		verdict       bool
+		requirement   taskFinalizationRequirement
 	}{
 		"TASK_NOT_ACTIVE for manual completion is not swallowed": {
-			analyticsAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "completed"}, activeBudget, true},
+			analyticsAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "completed"}, activeBudget,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, SemanticVerdictCaptured: true}},
 		"archive before policy exhaustion": {
-			analyticsAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, activeBudget, true},
+			analyticsAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, activeBudget,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true}},
 		"live budget differs from Catalog": {
-			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, queryBudget(2, 2, 0), true},
-		"semantic verdict not captured": {
-			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget, false},
+			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, queryBudget(2, 2, 0),
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true}},
+		"query evidence not captured": {
+			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget,
+			taskFinalizationRequirement{RequiredBeforeSwitch: true}},
+		"post-query semantic verdict not captured": {
+			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true}},
+		"pre-switch falsely claims later verdict": {
+			nonceAuthorization, taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"}, archivedBudget,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, SemanticVerdictCaptured: true, RequiredBeforeSwitch: true}},
 		"exhausted task unexpectedly active": {
-			nonceAuthorization, taskStatus{State: "ACTIVE"}, archivedBudget, true},
+			nonceAuthorization, taskStatus{State: "ACTIVE"}, archivedBudget,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if disposition, err := taskFinalizationDisposition(testCase.authorization, testCase.status,
-				testCase.budget, testCase.verdict); err == nil {
+				testCase.budget, testCase.requirement); err == nil {
 				t.Fatalf("unsafe task finalization was accepted as %q", disposition)
 			}
 		})
 	}
+}
+
+func TestLeftTaskReachesDrainBeforeVerifiedActivatorRuns(t *testing.T) {
+	var order []string
+	evidence, err := finalizeBeforeProfileSwitch(func() (taskFinalizationEvidence, error) {
+		order = append(order, "finalize-left")
+		return taskFinalizationEvidence{FinalTaskState: "ARCHIVED", FinalTerminalReason: "completed",
+			ActivationDrainReady: true, RequiredBeforeSwitch: true, QueryEvidenceCaptured: true, Status: "pass"}, nil
+	}, func() error {
+		order = append(order, "final-v5-profile-activate")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(order, []string{"finalize-left", "final-v5-profile-activate"}) ||
+		!evidence.ActivationDrainReady {
+		t.Fatalf("left drain / activation order = %v, evidence=%+v", order, evidence)
+	}
+
+	for name, finalization := range map[string]taskFinalizationEvidence{
+		"still ACTIVE":        {FinalTaskState: "ACTIVE", ActivationDrainReady: false, Status: "pass"},
+		"drain not ready":     {FinalTaskState: "ARCHIVED", ActivationDrainReady: false, Status: "pass"},
+		"failed finalization": {FinalTaskState: "ARCHIVED", ActivationDrainReady: true, Status: "fail"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			activated := false
+			if _, err := finalizeBeforeProfileSwitch(func() (taskFinalizationEvidence, error) {
+				return finalization, nil
+			}, func() error { activated = true; return nil }); err == nil || activated {
+				t.Fatalf("unsafe left finalization reached the activator: activated=%t", activated)
+			}
+		})
+	}
+}
+
+type finalizationClient struct {
+	status, completed taskStatus
+	budget            taskBudget
+	calls             []string
+}
+
+func (client *finalizationClient) call(_ context.Context, tool string, _, output any) error {
+	client.calls = append(client.calls, tool)
+	switch tool {
+	case "get_task_status":
+		*(output.(*taskStatus)) = client.status
+	case "get_budget":
+		*(output.(*taskBudget)) = client.budget
+	case "complete_task":
+		*(output.(*taskStatus)) = client.completed
+	default:
+		return errors.New("unexpected tool")
+	}
+	return nil
+}
+
+func TestFinalizeTaskProvesTheActivationDrainPrerequisite(t *testing.T) {
+	authorization := taskAuthorization{BudgetProfile: "catalog-budget", MaxQueries: 128,
+		MaxQueriesSource: "config/profiles/test.catalog.yaml:42"}
+	client := &finalizationClient{status: taskStatus{State: "ACTIVE"}, budget: queryBudget(128, 1, 127),
+		completed: taskStatus{State: "ARCHIVED", TerminalReason: "completed"}}
+	evidence, err := finalizeTask(context.Background(), client, "task-left", authorization,
+		taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(client.calls, []string{"get_task_status", "get_budget", "complete_task"}) ||
+		!evidence.QueryEvidenceCaptured || evidence.SemanticVerdictCaptured || !evidence.RequiredBeforeSwitch ||
+		!evidence.CompleteTaskCalled || evidence.FinalTaskState != "ARCHIVED" ||
+		evidence.FinalTerminalReason != "completed" || !evidence.ActivationDrainReady || evidence.Status != "pass" {
+		t.Fatalf("pre-switch finalization evidence = %+v, calls=%v", evidence, client.calls)
+	}
+
+	t.Run("automatic policy archive does not call complete", func(t *testing.T) {
+		autoAuthorization := taskAuthorization{BudgetProfile: "one-query", MaxQueries: 1,
+			MaxQueriesSource: "config/profiles/test.catalog.yaml:43"}
+		auto := &finalizationClient{status: taskStatus{State: "ARCHIVED", TerminalReason: "budget_exhausted"},
+			budget: queryBudget(1, 1, 0)}
+		evidence, err := finalizeTask(context.Background(), auto, "task-auto", autoAuthorization,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(auto.calls, []string{"get_task_status", "get_budget"}) ||
+			evidence.CompleteTaskCalled || !evidence.ActivationDrainReady ||
+			evidence.FinalTerminalReason != "budget_exhausted" {
+			t.Fatalf("automatic archive evidence = %+v, calls=%v", evidence, auto.calls)
+		}
+	})
+
+	t.Run("complete response must actually archive", func(t *testing.T) {
+		bad := &finalizationClient{status: taskStatus{State: "ACTIVE"}, budget: queryBudget(128, 1, 127),
+			completed: taskStatus{State: "ACTIVE"}}
+		if _, err := finalizeTask(context.Background(), bad, "task-bad", authorization,
+			taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true}); err == nil {
+			t.Fatal("non-terminal complete_task response was accepted")
+		}
+	})
 }
 
 func queryBudget(limit, used, remaining int64) taskBudget {

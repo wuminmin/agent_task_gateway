@@ -33,10 +33,11 @@ import (
 )
 
 const (
-	recordName           = "taskgate-final-v5-same-query-cross-profile-live-evidence-v2"
+	recordName           = "taskgate-final-v5-same-query-cross-profile-live-evidence-v3"
 	queryPath            = "evaluation/final-v5-wsl2/sql/contracts/S1-bdg.sql"
 	selectedRows         = "5000"
 	negativeProbeProduct = "expense_detail"
+	schemaAttestations   = "config/profiles/schema-attestations-v1.json"
 )
 
 type options struct {
@@ -191,12 +192,21 @@ type taskFinalizationEvidence struct {
 	ObservedTerminalReason  string `json:"observed_terminal_reason"`
 	UsedQueries             int64  `json:"used_queries"`
 	RemainingQueries        int64  `json:"remaining_queries"`
+	QueryEvidenceCaptured   bool   `json:"query_evidence_captured"`
 	SemanticVerdictCaptured bool   `json:"semantic_verdict_captured"`
+	RequiredBeforeSwitch    bool   `json:"required_before_profile_switch"`
 	CompleteTaskCalled      bool   `json:"complete_task_called"`
 	FinalTaskState          string `json:"final_task_state"`
 	FinalTerminalReason     string `json:"final_terminal_reason"`
+	ActivationDrainReady    bool   `json:"activation_drain_ready"`
 	Disposition             string `json:"disposition"`
 	Status                  string `json:"status"`
+}
+
+type taskFinalizationRequirement struct {
+	QueryEvidenceCaptured   bool
+	SemanticVerdictCaptured bool
+	RequiredBeforeSwitch    bool
 }
 
 type taskStatus struct {
@@ -291,7 +301,7 @@ func run(ctx context.Context, opts options) error {
 		return errors.New("S1 live-evidence query template does not bind exactly one parameter")
 	}
 	query := strings.Replace(string(template), "$1", selectedRows, 1)
-	document := evidenceDocument{SchemaVersion: 2, Record: recordName,
+	document := evidenceDocument{SchemaVersion: 3, Record: recordName,
 		ContractRelease: registry.ContractRelease, ProfileRegistrySHA256: digest(registryBytes),
 		ProfileRoutingIdentitySHA256:    routingIdentity,
 		ProductIntersectionMatrixSHA256: digest(intersectionBytes), DeploymentID: opts.deploymentID,
@@ -348,8 +358,14 @@ func run(ctx context.Context, opts options) error {
 		if err != nil {
 			return writeFailure(fmt.Errorf("execute left profile for pair %d: %w", index, err))
 		}
-		if err := activate(ctx, opts, current, pair.rightID, sequence); err != nil {
-			return writeFailure(fmt.Errorf("activate right profile for pair %d: %w", index, err))
+		leftFinalization, err := finalizeBeforeProfileSwitch(func() (taskFinalizationEvidence, error) {
+			return finalizeTask(ctx, alice, firstRun.TaskID, authorizations[pair.leftID],
+				taskFinalizationRequirement{QueryEvidenceCaptured: true, RequiredBeforeSwitch: true})
+		}, func() error {
+			return activate(ctx, opts, current, pair.rightID, sequence)
+		})
+		if err != nil {
+			return writeFailure(fmt.Errorf("drain left task and activate right profile for pair %d: %w", index, err))
 		}
 		current, sequence = pair.rightID, sequence+1
 		secondRun, err := executeQuery(ctx, opts, alice, control, observer,
@@ -374,17 +390,14 @@ func run(ctx context.Context, opts options) error {
 			SecondSemanticReplayAudits: second.SemanticReplayAudits, SecondSettlementAudits: second.SettlementAudits,
 			SecondBusinessVisibleCallsDelta: delta.visible, SecondBusinessCompanionCallsDelta: delta.companion,
 			SecondSemanticReplay: second.SemanticReplay, SecondIdempotentReplay: second.IdempotentReplay,
-			SecondNovelExecution: novel, Status: "fail"}
+			SecondNovelExecution: novel, LeftTaskFinalization: leftFinalization, Status: "fail"}
 		if novel {
-			entry.LeftTaskFinalization, err = finalizeTask(ctx, alice, firstRun.TaskID,
-				authorizations[pair.leftID], true)
-			if err == nil {
-				entry.RightTaskFinalization, err = finalizeTask(ctx, alice, secondRun.TaskID,
-					authorizations[pair.rightID], true)
-			}
+			entry.RightTaskFinalization, err = finalizeTask(ctx, alice, secondRun.TaskID,
+				authorizations[pair.rightID], taskFinalizationRequirement{
+					QueryEvidenceCaptured: true, SemanticVerdictCaptured: true})
 			if err != nil {
 				document.Pairs = append(document.Pairs, entry)
-				return writeFailure(fmt.Errorf("finalize profile pair %s/%s after semantic verdict: %w",
+				return writeFailure(fmt.Errorf("finalize right task for profile pair %s/%s after semantic verdict: %w",
 					pair.leftAlias, pair.rightAlias, err))
 			}
 		}
@@ -530,16 +543,19 @@ func pairKey(pair intersectionWirePair) string { return pair.leftID + "/" + pair
 
 func activate(ctx context.Context, opts options, previous, profile string, sequence int) error {
 	output := filepath.Join(opts.activationEvidenceDir, fmt.Sprintf("%03d-%s.json", sequence, profile))
-	args := []string{"run", "./evaluation/cmd/final-v5-profile-activate", "-root", opts.root,
-		"-compose-project", opts.composeProject, "-compose-files", opts.composeFiles,
-		"-deployment-id", opts.deploymentID, "-profile-id", profile, "-registry", opts.registryPath,
-		"-gateway-url", opts.gatewayURL, "-previous-profile-id", previous,
-		"-activation-sequence", fmt.Sprint(sequence), "-evidence-out", output,
-		"-profile-artifact-dir", filepath.Join(opts.artifactRoot, profile),
-		"-profile-artifact-manifest", opts.artifactManifest, "-business-dsn-env", opts.businessDSNEnv,
-		"-admin-token-env", opts.adminTokenEnv,
-		"-outside-products", negativeProbeProduct,
-		"-ready-timeout", opts.readyTimeout.String()}
+	arguments, err := (finalv5profile.ActivationInvocation{Root: opts.root,
+		ComposeProject: opts.composeProject, ComposeFiles: opts.composeFiles,
+		DeploymentID: opts.deploymentID, ProfileID: profile, RegistryPath: opts.registryPath,
+		GatewayURL: opts.gatewayURL, AdminTokenEnv: opts.adminTokenEnv, PreviousProfileID: previous,
+		Sequence: sequence, EvidenceOut: output, OutsideProducts: negativeProbeProduct,
+		ProfileArtifactDir:      filepath.Join(opts.artifactRoot, profile),
+		ProfileArtifactManifest: opts.artifactManifest, BusinessDSNEnv: opts.businessDSNEnv,
+		SchemaAttestations: schemaAttestations, ProbeTokenEnv: opts.aliceTokenEnv,
+		ReadyTimeout: opts.readyTimeout}).Arguments()
+	if err != nil {
+		return err
+	}
+	args := append([]string{"run", "-buildvcs=false", "./evaluation/cmd/final-v5-profile-activate"}, arguments...)
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = opts.root
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
@@ -662,11 +678,17 @@ WHERE q.task_id=$1 AND q.request_id=$2`, created.TaskID, requestID).Scan(&snapsh
 			companion: after.companion - before.companion, reset: after.reset, dealloc: after.dealloc}}, nil
 }
 
-func finalizeTask(ctx context.Context, alice *mcpClient, taskID string,
-	authorization taskAuthorization, semanticVerdictCaptured bool) (taskFinalizationEvidence, error) {
+type taskToolCaller interface {
+	call(context.Context, string, any, any) error
+}
+
+func finalizeTask(ctx context.Context, alice taskToolCaller, taskID string,
+	authorization taskAuthorization, requirement taskFinalizationRequirement) (taskFinalizationEvidence, error) {
 	evidence := taskFinalizationEvidence{BudgetProfile: authorization.BudgetProfile,
 		PolicyMaxQueries: authorization.MaxQueries, PolicySource: authorization.MaxQueriesSource,
-		SemanticVerdictCaptured: semanticVerdictCaptured, Status: "fail"}
+		QueryEvidenceCaptured:   requirement.QueryEvidenceCaptured,
+		SemanticVerdictCaptured: requirement.SemanticVerdictCaptured,
+		RequiredBeforeSwitch:    requirement.RequiredBeforeSwitch, Status: "fail"}
 	var status taskStatus
 	if err := alice.call(ctx, "get_task_status", map[string]string{"task_id": taskID}, &status); err != nil {
 		return evidence, fmt.Errorf("read task state: %w", err)
@@ -677,7 +699,7 @@ func finalizeTask(ctx context.Context, alice *mcpClient, taskID string,
 	}
 	evidence.ObservedTaskState, evidence.ObservedTerminalReason = status.State, status.TerminalReason
 	evidence.UsedQueries, evidence.RemainingQueries = budget.Budget.Used.Queries, budget.Budget.Remaining.Queries
-	disposition, err := taskFinalizationDisposition(authorization, status, budget, semanticVerdictCaptured)
+	disposition, err := taskFinalizationDisposition(authorization, status, budget, requirement)
 	evidence.Disposition = disposition
 	if err != nil {
 		return evidence, err
@@ -696,12 +718,17 @@ func finalizeTask(ctx context.Context, alice *mcpClient, taskID string,
 	} else {
 		evidence.FinalTaskState, evidence.FinalTerminalReason = status.State, status.TerminalReason
 	}
+	evidence.ActivationDrainReady = evidence.FinalTaskState == "ARCHIVED" &&
+		(evidence.FinalTerminalReason == "completed" || evidence.FinalTerminalReason == "budget_exhausted")
+	if !evidence.ActivationDrainReady {
+		return evidence, errors.New("task finalization did not make the activation drain ready")
+	}
 	evidence.Status = "pass"
 	return evidence, nil
 }
 
 func taskFinalizationDisposition(authorization taskAuthorization, status taskStatus,
-	budget taskBudget, semanticVerdictCaptured bool) (string, error) {
+	budget taskBudget, requirement taskFinalizationRequirement) (string, error) {
 	if authorization.BudgetProfile == "" || authorization.MaxQueries <= 0 || authorization.MaxQueriesSource == "" {
 		return "", errors.New("source-controlled query policy identity is incomplete")
 	}
@@ -709,8 +736,15 @@ func taskFinalizationDisposition(authorization taskAuthorization, status taskSta
 	if limits != authorization.MaxQueries || used < 0 || remaining < 0 || used+remaining != limits {
 		return "", errors.New("live task budget does not match the source-controlled max_queries policy")
 	}
-	if !semanticVerdictCaptured {
-		return "", errors.New("task finalization was attempted before the semantic verdict was captured")
+	if !requirement.QueryEvidenceCaptured {
+		return "", errors.New("task finalization was attempted before query evidence was captured")
+	}
+	if requirement.RequiredBeforeSwitch {
+		if requirement.SemanticVerdictCaptured {
+			return "", errors.New("pre-switch task finalization misstates the later cross-profile verdict as captured")
+		}
+	} else if !requirement.SemanticVerdictCaptured {
+		return "", errors.New("post-query task finalization was attempted before the semantic verdict was captured")
 	}
 	switch status.State {
 	case "ACTIVE":
@@ -729,6 +763,25 @@ func taskFinalizationDisposition(authorization taskAuthorization, status taskSta
 	default:
 		return "", fmt.Errorf("task is neither ACTIVE nor ARCHIVED after query: %s", status.State)
 	}
+}
+
+// finalizeBeforeProfileSwitch makes the ordering constraint explicit: the
+// outgoing task must reach a terminal state before the already-verified
+// activator is invoked. The activator then independently re-observes all four
+// Control drain gates; this helper does not replace or predict that check.
+func finalizeBeforeProfileSwitch(finalize func() (taskFinalizationEvidence, error),
+	switchProfile func() error) (taskFinalizationEvidence, error) {
+	evidence, err := finalize()
+	if err != nil {
+		return evidence, err
+	}
+	if !evidence.ActivationDrainReady || evidence.FinalTaskState != "ARCHIVED" || evidence.Status != "pass" {
+		return evidence, errors.New("left task did not reach the activation-machine drain prerequisite")
+	}
+	if err := switchProfile(); err != nil {
+		return evidence, err
+	}
+	return evidence, nil
 }
 
 func businessSQLSnapshot(ctx context.Context, observer *pgxpool.Pool) (businessSnapshot, error) {

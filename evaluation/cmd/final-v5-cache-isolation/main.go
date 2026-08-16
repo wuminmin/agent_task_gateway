@@ -43,6 +43,7 @@ const (
 	isolationRecordV2      = "taskgate-final-v5-semantic-cache-isolation-evidence-v2"
 	sameQueryLiveRecord    = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
 	sameQueryLiveRecordV2  = "taskgate-final-v5-same-query-cross-profile-live-evidence-v2"
+	sameQueryLiveRecordV3  = "taskgate-final-v5-same-query-cross-profile-live-evidence-v3"
 	proofMode              = "disjoint_formal_profiles_plus_exhaustive_live_route_refusal_plus_production_lookup"
 	proofModeV2            = "formal_profile_intersection_plus_same_query_cross_profile_live_plus_exhaustive_live_route_refusal_plus_production_lookup"
 	notApplicableStatus    = "not_applicable_by_formal_profile_contract"
@@ -206,7 +207,8 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 			return fmt.Errorf("decode same-query cross-profile live evidence: %w", err)
 		}
 		routingIdentity := ""
-		if live.SchemaVersion == 2 && live.Record == sameQueryLiveRecordV2 {
+		if live.SchemaVersion == 2 && live.Record == sameQueryLiveRecordV2 ||
+			live.SchemaVersion == 3 && live.Record == sameQueryLiveRecordV3 {
 			routingIdentity, err = finalv5profile.ProfileRoutingIdentitySHA256(registryBytes)
 			if err != nil {
 				return err
@@ -601,10 +603,13 @@ type sameQueryTaskFinalization struct {
 	ObservedTerminalReason  string `json:"observed_terminal_reason"`
 	UsedQueries             int64  `json:"used_queries"`
 	RemainingQueries        int64  `json:"remaining_queries"`
+	QueryEvidenceCaptured   bool   `json:"query_evidence_captured,omitempty"`
 	SemanticVerdictCaptured bool   `json:"semantic_verdict_captured"`
+	RequiredBeforeSwitch    bool   `json:"required_before_profile_switch,omitempty"`
 	CompleteTaskCalled      bool   `json:"complete_task_called"`
 	FinalTaskState          string `json:"final_task_state"`
 	FinalTerminalReason     string `json:"final_terminal_reason"`
+	ActivationDrainReady    bool   `json:"activation_drain_ready,omitempty"`
 	Disposition             string `json:"disposition"`
 	Status                  string `json:"status"`
 }
@@ -619,11 +624,12 @@ func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocum
 	profiles map[string]registryProfile, intersection intersectionDocument,
 	registryDigest, routingIdentity, intersectionDigest string) (sameQueryLiveAnalysis, error) {
 	legacy := document.SchemaVersion == 1 && document.Record == sameQueryLiveRecord
-	policyBound := document.SchemaVersion == 2 && document.Record == sameQueryLiveRecordV2
-	if !legacy && !policyBound {
+	policyBoundV2 := document.SchemaVersion == 2 && document.Record == sameQueryLiveRecordV2
+	activationBoundV3 := document.SchemaVersion == 3 && document.Record == sameQueryLiveRecordV3
+	if !legacy && !policyBoundV2 && !activationBoundV3 {
 		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence identity is not recognised")
 	}
-	registryBound := legacy && document.ProfileRegistrySHA256 == registryDigest || policyBound &&
+	registryBound := legacy && document.ProfileRegistrySHA256 == registryDigest || (policyBoundV2 || activationBoundV3) &&
 		isSHA256(document.ProfileRegistrySHA256) && document.ProfileRoutingIdentitySHA256 == routingIdentity
 	if document.ContractRelease != registry.ContractRelease || !registryBound ||
 		document.ProductIntersectionMatrixSHA256 != intersectionDigest {
@@ -655,8 +661,11 @@ func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocum
 		for _, product := range want.Intersection {
 			selected = selected || product == pair.SelectedProduct
 		}
-		finalizationValid := legacy || (validSameQueryTaskFinalization(pair.LeftTaskFinalization) &&
-			validSameQueryTaskFinalization(pair.RightTaskFinalization))
+		finalizationValid := legacy || policyBoundV2 &&
+			validSameQueryTaskFinalization(pair.LeftTaskFinalization) &&
+			validSameQueryTaskFinalization(pair.RightTaskFinalization) || activationBoundV3 &&
+			validSameQueryTaskFinalizationV3(pair.LeftTaskFinalization, true) &&
+			validSameQueryTaskFinalizationV3(pair.RightTaskFinalization, false)
 		novel := leftOK && rightOK && pair.LeftAlias == want.LeftAlias && pair.RightAlias == want.RightAlias &&
 			reflect.DeepEqual(pair.SharedProducts, want.Intersection) && selected &&
 			pair.LeftCatalogSHA256 == left.CatalogSHA256 && pair.RightCatalogSHA256 == right.CatalogSHA256 &&
@@ -702,6 +711,29 @@ func validSameQueryTaskFinalization(evidence sameQueryTaskFinalization) bool {
 		!validPolicySource(evidence.PolicySource) || !evidence.SemanticVerdictCaptured ||
 		evidence.UsedQueries != 1 || evidence.RemainingQueries != evidence.PolicyMaxQueries-1 ||
 		evidence.FinalTaskState != "ARCHIVED" || evidence.Status != passedStatus {
+		return false
+	}
+	switch evidence.Disposition {
+	case "complete_active_task":
+		return evidence.PolicyMaxQueries > 1 && evidence.ObservedTaskState == "ACTIVE" &&
+			evidence.ObservedTerminalReason == "" && evidence.CompleteTaskCalled &&
+			evidence.FinalTerminalReason == "completed"
+	case "accept_automatic_budget_archive":
+		return evidence.PolicyMaxQueries == 1 && evidence.ObservedTaskState == "ARCHIVED" &&
+			evidence.ObservedTerminalReason == "budget_exhausted" && !evidence.CompleteTaskCalled &&
+			evidence.FinalTerminalReason == "budget_exhausted"
+	default:
+		return false
+	}
+}
+
+func validSameQueryTaskFinalizationV3(evidence sameQueryTaskFinalization, requiredBeforeSwitch bool) bool {
+	if evidence.BudgetProfile == "" || evidence.PolicyMaxQueries < 1 ||
+		!validPolicySource(evidence.PolicySource) || !evidence.QueryEvidenceCaptured ||
+		evidence.RequiredBeforeSwitch != requiredBeforeSwitch ||
+		evidence.SemanticVerdictCaptured == requiredBeforeSwitch ||
+		evidence.UsedQueries != 1 || evidence.RemainingQueries != evidence.PolicyMaxQueries-1 ||
+		evidence.FinalTaskState != "ARCHIVED" || !evidence.ActivationDrainReady || evidence.Status != passedStatus {
 		return false
 	}
 	switch evidence.Disposition {

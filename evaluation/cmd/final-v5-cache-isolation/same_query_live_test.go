@@ -205,6 +205,75 @@ func TestSameQueryLiveV2RequiresPolicyBoundTaskFinalization(t *testing.T) {
 	})
 }
 
+func TestSameQueryLiveV3BindsLeftDrainToTheVerifiedProfileSwitch(t *testing.T) {
+	passing := func(beforeSwitch bool) sameQueryTaskFinalization {
+		return sameQueryTaskFinalization{BudgetProfile: "source-controlled-budget", PolicyMaxQueries: 128,
+			PolicySource: "config/profiles/test.catalog.yaml:42", ObservedTaskState: "ACTIVE",
+			UsedQueries: 1, RemainingQueries: 127, QueryEvidenceCaptured: true,
+			SemanticVerdictCaptured: !beforeSwitch, RequiredBeforeSwitch: beforeSwitch,
+			CompleteTaskCalled: true, FinalTaskState: "ARCHIVED", FinalTerminalReason: "completed",
+			ActivationDrainReady: true, Disposition: "complete_active_task", Status: passedStatus}
+	}
+	newLive := func(t *testing.T) (*commandFixture, sameQueryLiveDocument) {
+		t.Helper()
+		fixture := newCommandFixture(t)
+		live := installSingleOverlap(t, fixture)
+		live.SchemaVersion, live.Record = 3, sameQueryLiveRecordV3
+		live.ProfileRoutingIdentitySHA256 = fixtureRoutingIdentity(t, fixture)
+		live.Pairs[0].LeftTaskFinalization = passing(true)
+		live.Pairs[0].RightTaskFinalization = passing(false)
+		fixture.opts.sameQueryLivePath = "live-v3.json"
+		return fixture, live
+	}
+
+	t.Run("left drained before switch and right closed after verdict pass", func(t *testing.T) {
+		fixture, live := newLive(t)
+		writeJSONFixture(t, fixture.root, fixture.opts.sameQueryLivePath, live)
+		if err := run(context.Background(), fixture.opts, runProductionTests); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	for name, mutate := range map[string]func(*sameQueryLivePair){
+		"left query evidence absent": func(pair *sameQueryLivePair) {
+			pair.LeftTaskFinalization.QueryEvidenceCaptured = false
+		},
+		"left not required before switch": func(pair *sameQueryLivePair) {
+			pair.LeftTaskFinalization.RequiredBeforeSwitch = false
+		},
+		"left falsely claims later verdict": func(pair *sameQueryLivePair) {
+			pair.LeftTaskFinalization.SemanticVerdictCaptured = true
+		},
+		"left activation drain not ready": func(pair *sameQueryLivePair) {
+			pair.LeftTaskFinalization.ActivationDrainReady = false
+		},
+		"left remains active": func(pair *sameQueryLivePair) {
+			pair.LeftTaskFinalization.FinalTaskState = "ACTIVE"
+		},
+		"right verdict absent": func(pair *sameQueryLivePair) {
+			pair.RightTaskFinalization.SemanticVerdictCaptured = false
+		},
+		"right mislabeled pre-switch": func(pair *sameQueryLivePair) {
+			pair.RightTaskFinalization.RequiredBeforeSwitch = true
+		},
+		"right activation drain not ready": func(pair *sameQueryLivePair) {
+			pair.RightTaskFinalization.ActivationDrainReady = false
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture, live := newLive(t)
+			mutate(&live.Pairs[0])
+			writeJSONFixture(t, fixture.root, fixture.opts.sameQueryLivePath, live)
+			requireIsolationFailure(t, run(context.Background(), fixture.opts, runProductionTests))
+			evidence, _ := readEvidence(t, fixture)
+			if evidence.SameQueryLiveTestStatus == passedStatus ||
+				!containsText(evidence.Failures, "did not prove a catalog-bound novel second execution") {
+				t.Fatalf("invalid v3 switch-bound finalization passed: %+v", evidence)
+			}
+		})
+	}
+}
+
 func TestSameQueryLiveV2SurvivesRegistryReadinessFixedPoint(t *testing.T) {
 	fixture := newCommandFixture(t)
 	live := installSingleOverlap(t, fixture)

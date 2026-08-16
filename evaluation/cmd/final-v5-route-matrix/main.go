@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -862,21 +861,18 @@ func executeLive(ctx context.Context, opts options, plan probePlan, stderr io.Wr
 	previous := opts.previousProfileID
 	for index, profile := range plan.Profiles {
 		evidencePath := filepath.Join(evidenceDirectory, profile.ProfileAlias+".json")
-		arguments := []string{"-root", opts.root, "-compose-project", opts.composeProject,
-			"-compose-files", opts.composeFiles, "-deployment-id", opts.deploymentID,
-			"-profile-id", profile.ProfileID, "-registry", registryArgument,
-			"-gateway-url", opts.gatewayURL, "-admin-token-env", opts.adminTokenEnv,
-			"-activation-sequence", strconv.Itoa(opts.activationSequenceStart + index),
-			"-evidence-out", evidencePath, "-outside-products", strings.Join(profile.OutsideProducts, ","),
-			"-profile-artifact-dir", filepath.Join(artifactRoot, profile.ProfileID),
-			"-profile-artifact-manifest", artifactManifest, "-business-dsn-env", opts.businessDSNEnv,
-			"-schema-attestations", attestationsArgument, "-probe-token-env", opts.probeTokenEnv,
-			"-ready-timeout", opts.readyTimeout.String()}
-		if previous != "" {
-			arguments = append(arguments, "-previous-profile-id", previous)
-		}
-		if datasetBinding != "" {
-			arguments = append(arguments, "-dataset-binding", datasetBinding)
+		arguments, err := (finalv5profile.ActivationInvocation{Root: opts.root,
+			ComposeProject: opts.composeProject, ComposeFiles: opts.composeFiles,
+			DeploymentID: opts.deploymentID, ProfileID: profile.ProfileID, RegistryPath: registryArgument,
+			GatewayURL: opts.gatewayURL, AdminTokenEnv: opts.adminTokenEnv, PreviousProfileID: previous,
+			Sequence: opts.activationSequenceStart + index, EvidenceOut: evidencePath,
+			OutsideProducts:         strings.Join(profile.OutsideProducts, ","),
+			ProfileArtifactDir:      filepath.Join(artifactRoot, profile.ProfileID),
+			ProfileArtifactManifest: artifactManifest, BusinessDSNEnv: opts.businessDSNEnv,
+			SchemaAttestations: attestationsArgument, ProbeTokenEnv: opts.probeTokenEnv,
+			ReadyTimeout: opts.readyTimeout, DatasetBinding: datasetBinding}).Arguments()
+		if err != nil {
+			return fmt.Errorf("activation invocation for profile %s: %w", profile.ProfileAlias, err)
 		}
 		executable := opts.activatorBinary
 		if executable == "" {
