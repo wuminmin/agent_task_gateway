@@ -37,7 +37,7 @@ const (
 type options struct {
 	root, registryPath, intersectionPath, outputPath                string
 	composeProject, composeFiles, deploymentID, currentProfileID    string
-	artifactRoot, artifactManifestDir, activationEvidenceDir        string
+	artifactRoot, artifactManifest, activationEvidenceDir           string
 	gatewayURL, oaURL, controlDSNEnv, observerDSNEnv                string
 	aliceTokenEnv, alicePasswordEnv, bobPasswordEnv, businessDSNEnv string
 	sequence                                                        int
@@ -55,7 +55,7 @@ func main() {
 	flag.StringVar(&opts.deploymentID, "deployment-id", "", "deployment identity")
 	flag.StringVar(&opts.currentProfileID, "current-profile-id", "", "profile served when the runner starts")
 	flag.StringVar(&opts.artifactRoot, "profile-artifact-root", "", "root holding one artifact directory per profile")
-	flag.StringVar(&opts.artifactManifestDir, "profile-artifact-manifest-dir", "", "directory holding per-profile artifact manifests")
+	flag.StringVar(&opts.artifactManifest, "profile-artifact-manifest", "", "combined profile artifact manifest set")
 	flag.StringVar(&opts.activationEvidenceDir, "activation-evidence-dir", "", "separate directory for runner switch evidence")
 	flag.StringVar(&opts.gatewayURL, "gateway-url", "http://127.0.0.1:8082", "Gateway base URL")
 	flag.StringVar(&opts.oaURL, "oa-url", "http://127.0.0.1:8092", "OA base URL")
@@ -154,7 +154,7 @@ type businessSnapshot struct{ visible, companion, dealloc, reset int64 }
 
 func run(ctx context.Context, opts options) error {
 	if opts.outputPath == "" || opts.composeProject == "" || opts.deploymentID == "" ||
-		opts.currentProfileID == "" || opts.artifactRoot == "" || opts.artifactManifestDir == "" ||
+		opts.currentProfileID == "" || opts.artifactRoot == "" || opts.artifactManifest == "" ||
 		opts.activationEvidenceDir == "" || opts.sequence <= 0 {
 		return errors.New("evidence-out, compose-project, deployment-id, current-profile-id, artifact paths and activation sequence are required")
 	}
@@ -314,7 +314,6 @@ type intersectionWirePair struct {
 func pairKey(pair intersectionWirePair) string { return pair.leftID + "/" + pair.rightID }
 
 func activate(ctx context.Context, opts options, previous, profile string, sequence int) error {
-	manifest := filepath.Join(opts.artifactManifestDir, profile+".profile-artifact-manifest.json")
 	output := filepath.Join(opts.activationEvidenceDir, fmt.Sprintf("%03d-%s.json", sequence, profile))
 	args := []string{"run", "./evaluation/cmd/final-v5-profile-activate", "-root", opts.root,
 		"-compose-project", opts.composeProject, "-compose-files", opts.composeFiles,
@@ -322,7 +321,7 @@ func activate(ctx context.Context, opts options, previous, profile string, seque
 		"-gateway-url", opts.gatewayURL, "-previous-profile-id", previous,
 		"-activation-sequence", fmt.Sprint(sequence), "-evidence-out", output,
 		"-profile-artifact-dir", filepath.Join(opts.artifactRoot, profile),
-		"-profile-artifact-manifest", manifest, "-business-dsn-env", opts.businessDSNEnv,
+		"-profile-artifact-manifest", opts.artifactManifest, "-business-dsn-env", opts.businessDSNEnv,
 		"-ready-timeout", opts.readyTimeout.String()}
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = opts.root
