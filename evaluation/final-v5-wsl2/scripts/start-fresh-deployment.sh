@@ -140,6 +140,15 @@ if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
     echo "running Gateway image ID differs from the verified formal build manifest" >&2; exit 1;
   }
   unset gateway_container_id running_gateway_image_id
+else
+  gateway_container_id="$("${compose[@]}" ps -q gateway)"
+  [[ "$gateway_container_id" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "pilot deployment did not resolve exactly one Gateway container" >&2; exit 1;
+  }
+  gateway_image_output="${TASKGATE_FRESH_PROOF_OUTPUT%.fresh.json}.gateway-image.json"
+  evaluation/final-v5-wsl2/scripts/record-pilot-gateway-image.sh \
+    "$gateway_container_id" "$gateway_image_output" "$repo"
+  unset gateway_container_id gateway_image_output
 fi
 
 proof_dir="$(dirname "$TASKGATE_FRESH_PROOF_OUTPUT")"

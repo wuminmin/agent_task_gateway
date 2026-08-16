@@ -11,6 +11,11 @@ observer_mountpoint=db/init/09-final-v5-pg-stat-statements.sql
 
 grep -Fq '"${compose[@]}" config --no-interpolate > "$compose_config_output"' "$fresh_script"
 ! grep -Fq '"${compose[@]}" config > "$compose_config_output"' "$fresh_script"
+grep -Fq 'record-pilot-gateway-image.sh' "$fresh_script"
+grep -Fq 'pilot deployment did not resolve exactly one Gateway container' "$fresh_script"
+grep -Fq 'observation_only_not_publication_verification' evaluation/final-v5-wsl2/scripts/record-pilot-gateway-image.sh
+grep -Fq 'repo_digests: ($image.RepoDigests // [])' evaluation/final-v5-wsl2/scripts/record-pilot-gateway-image.sh
+grep -Fq 'image_source_equivalence_asserted: false' evaluation/final-v5-wsl2/scripts/record-pilot-gateway-image.sh
 grep -Fq 'go build -buildvcs=false -o "$adapter_bin"' "$smoke_script"
 grep -Fq 'go build -trimpath -buildvcs=false -o "$adapter_bin"' "$real_script"
 test -f "$observer_mountpoint"
