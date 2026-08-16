@@ -330,7 +330,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": false,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -340,12 +340,6 @@
             "code": "live_activation_smoke_not_executed",
             "subject": "profile-5b48ad2a02c5446d",
             "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-          },
-          {
-            "state": "live_route_available",
-            "code": "no_approval_route_for_closure",
-            "subject": "provsql_lineitem,provsql_orders",
-            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
           },
           {
             "state": "targeted_validation_passed",
@@ -360,12 +354,6 @@
           "code": "live_activation_smoke_not_executed",
           "subject": "profile-5b48ad2a02c5446d",
           "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-        },
-        {
-          "state": "live_route_available",
-          "code": "no_approval_route_for_closure",
-          "subject": "provsql_lineitem,provsql_orders",
-          "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
         },
         {
           "state": "targeted_validation_passed",
@@ -562,7 +550,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": false,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -572,12 +560,6 @@
             "code": "live_activation_smoke_not_executed",
             "subject": "profile-f60ec5752f501da0",
             "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-          },
-          {
-            "state": "live_route_available",
-            "code": "no_approval_route_for_closure",
-            "subject": "provsql_orders",
-            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
           },
           {
             "state": "targeted_validation_passed",
@@ -592,12 +574,6 @@
           "code": "live_activation_smoke_not_executed",
           "subject": "profile-f60ec5752f501da0",
           "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-        },
-        {
-          "state": "live_route_available",
-          "code": "no_approval_route_for_closure",
-          "subject": "provsql_orders",
-          "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
         },
         {
           "state": "targeted_validation_passed",
