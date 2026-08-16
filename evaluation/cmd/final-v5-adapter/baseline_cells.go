@@ -17,10 +17,11 @@ var (
 )
 
 // baselineImplementedWorkloads names the Baseline workloads whose execution
-// path exists. It is deliberately not the whole contract: S3--S6 have frozen
-// cells but no implementation, and advertising them would turn an unrun cell
-// into a claimed capability.
-var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true}
+// path exists. It is deliberately not the whole contract: S3, S4 and S5 have
+// frozen cells but no implementation, and advertising them would turn an unrun
+// cell into a claimed capability. S6 joined the list because its Product, route
+// and templates are the ones the Artifact cells already execute end to end.
+var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true, "S6": true}
 
 // baselineProductBinding is how one frozen Product reaches a real deployment:
 // the columns the OA approves, and the two relations the Observer counts calls
@@ -45,6 +46,18 @@ var baselineProductBindings = map[string]baselineProductBinding{
 		VisibleRelation:   "reporting.provsql_lineitem",
 		CompanionRelation: "taskgate_ordinal.provsql_lineitem_v1",
 	},
+	// S6 shares this Product and these templates with the Artifact cells, which
+	// have already executed them end to end. Its sixteen fields are the frozen
+	// x16 projection; the x4 cells select the first four of them.
+	"final_v5_result_heavy": {
+		Columns: []string{
+			"row_id", "category", "amount", "event_date", "sequence_no", "approved",
+			"event_timestamp", "description", "quantity", "unit_price", "tax_amount",
+			"settled_date", "processed_at", "region", "revision", "active",
+		},
+		VisibleRelation:   "reporting.final_v5_result_heavy",
+		CompanionRelation: "taskgate_ordinal.final_v5_result_heavy_v1",
+	},
 }
 
 // baselinePartitionScope is the mandatory scope every frozen Baseline cell runs
@@ -52,6 +65,18 @@ var baselineProductBindings = map[string]baselineProductBinding{
 // allowed value is "1", and both arm templates filter on it, so a task that
 // omitted it could not execute the frozen query at all.
 var baselinePartitionScope = map[string][]string{"partition_key": {"1"}}
+
+// baselineScopesFor returns the mandatory scope a cell's Products declare. S6's
+// result-heavy Product is scoped by category over the complete frozen domain,
+// not by partition key, and its templates filter on exactly those four values.
+func baselineScopesFor(productIDs []string) map[string][]string {
+	for _, product := range productIDs {
+		if product == "final_v5_result_heavy" {
+			return map[string][]string{"category": {"alpha", "beta", "gamma", "delta"}}
+		}
+	}
+	return baselinePartitionScope
+}
 
 // baselineExecutionCell is one frozen cell resolved all the way to the bytes a
 // measured sample runs: the contract coordinate, the approved task, and the
@@ -86,7 +111,7 @@ func resolveBaselineExecutionCell(operation experiment.AdapterOperation) (baseli
 		Objective:    "Final V5 baseline " + contract.Identity.String(),
 		DataProducts: append([]string(nil), contract.ProductIDs...),
 		Columns:      map[string][]string{},
-		Scopes:       baselinePartitionScope,
+		Scopes:       baselineScopesFor(contract.ProductIDs),
 	}
 	for _, product := range contract.ProductIDs {
 		binding, bound := baselineProductBindings[product]

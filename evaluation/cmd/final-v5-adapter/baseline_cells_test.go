@@ -96,17 +96,43 @@ func TestNormalizedRewriteChangesOnlyLayout(t *testing.T) {
 }
 
 // TestUnimplementedBaselineWorkloadsDoNotResolve keeps the resolver honest
-// about its own coverage: S3--S6 are frozen in the contract but have no
+// about its own coverage: S3, S4 and S5 are frozen in the contract but have no
 // execution path, and a substituted query would be worse than a refusal.
 func TestUnimplementedBaselineWorkloadsDoNotResolve(t *testing.T) {
 	for _, cell := range []struct{ workload, scale, mode string }{
 		{"S3", "10k-50k", "novel"},
 		{"S4", "depth-4", "novel"},
 		{"S5", "SF10", "novel"},
-		{"S6", "100k-x16", "novel"},
 	} {
 		if _, err := resolveBaselineExecutionCell(baselineOperation(cell.workload, cell.scale, cell.mode)); err == nil {
 			t.Fatalf("%s/%s/%s resolved without an execution path", cell.workload, cell.scale, cell.mode)
+		}
+	}
+}
+
+// TestBaselineSSixReusesTheArtifactBinding records why S6 was the cheapest
+// remaining workload: it is the same Product, relations and templates the
+// Artifact cells have already executed, differing only in that Baseline also
+// measures the Direct arm.
+func TestBaselineSSixReusesTheArtifactBinding(t *testing.T) {
+	for _, scale := range []string{"100x4", "10k-x4", "100k-x4", "100x16", "10k-x16", "100k-x16"} {
+		for _, mode := range []string{"direct", "novel"} {
+			cell, err := resolveBaselineExecutionCell(baselineOperation("S6", scale, mode))
+			if err != nil {
+				t.Fatalf("resolve S6/%s/%s: %v", scale, mode, err)
+			}
+			if got := cell.Task.DataProducts; len(got) != 1 || got[0] != "final_v5_result_heavy" {
+				t.Fatalf("S6/%s approved products %v", scale, got)
+			}
+			if values := cell.Task.Scopes["category"]; len(values) != 4 {
+				t.Fatalf("S6/%s scopes = %v, want the complete frozen category domain", scale, cell.Task.Scopes)
+			}
+			if !strings.Contains(cell.DirectSQL, "reporting.final_v5_result_heavy") {
+				t.Fatalf("S6/%s Direct arm does not read the reporting view", scale)
+			}
+			if cell.Contract.ExpectedColumns != 4 && cell.Contract.ExpectedColumns != 16 {
+				t.Fatalf("S6/%s expects %d columns", scale, cell.Contract.ExpectedColumns)
+			}
 		}
 	}
 }

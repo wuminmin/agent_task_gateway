@@ -145,16 +145,17 @@ func TestBaselinePilotCannotEnableFormalCapability(t *testing.T) {
 	if implementedCapabilities()["baseline"] {
 		t.Fatal("baseline formal capability was advertised before all publication cells were implemented")
 	}
-	// S1 and S2 gained a real execution path on 2026-08-16. Every implemented
-	// cell must be one of theirs, and 20 of 58 is still incomplete, so the two
+	// S1, S2 and S6 gained a real execution path on 2026-08-16. Every implemented
+	// cell must be one of theirs, and 32 of 58 is still incomplete, so the two
 	// assertions above continue to hold. A cell registered from any other
 	// workload would mean the resolver accepted something Execute cannot run.
-	if len(baselineImplementedPublicationCells) != 20 {
-		t.Fatalf("formal baseline registry contains %d cells, want S1 and S2's 20",
+	implementedWorkloads := map[string]bool{"S1": true, "S2": true, "S6": true}
+	if len(baselineImplementedPublicationCells) != 32 {
+		t.Fatalf("formal baseline registry contains %d cells, want S1, S2 and S6's 32",
 			len(baselineImplementedPublicationCells))
 	}
 	for _, cell := range baselineImplementedPublicationCells {
-		if cell.WorkloadID != "S1" && cell.WorkloadID != "S2" {
+		if !implementedWorkloads[cell.WorkloadID] {
 			t.Fatalf("baseline registered %s/%s/%s, which has no execution path",
 				cell.WorkloadID, cell.Scale, cell.Mode)
 		}
@@ -194,9 +195,9 @@ func TestEveryUnimplementedBaselineCellFailsClosed(t *testing.T) {
 		}
 		refused++
 	}
-	if refused != len(baselinePublicationRequirements)-20 {
+	if refused != len(baselinePublicationRequirements)-len(baselineImplementedPublicationCells) {
 		t.Fatalf("%d unimplemented cells failed closed, want %d",
-			refused, len(baselinePublicationRequirements)-20)
+			refused, len(baselinePublicationRequirements)-len(baselineImplementedPublicationCells))
 	}
 }
 

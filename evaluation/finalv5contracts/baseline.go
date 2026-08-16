@@ -149,6 +149,14 @@ func (runtime *Runtime) decodeBaselineCell(source cell) (BaselineCell, error) {
 	switch identity.WorkloadID {
 	case "S1", "S2":
 		renderName, renderValue = "orderkey_max", query.Parameters.OrderkeyMax
+	case "S6":
+		// S6 parameterises on rows, like the Artifact cells that execute its
+		// templates byte-identically, and its projection is carried by which of
+		// the two templates the cell names rather than by the parameter.
+		renderName, renderValue = "rows", query.Parameters.Rows
+		if query.Parameters.Projection == "" {
+			return BaselineCell{}, fmt.Errorf("baseline cell %s names no projection", identity)
+		}
 	}
 	if renderName != "" && renderValue <= 0 {
 		return BaselineCell{}, fmt.Errorf("baseline cell %s carries no frozen %s parameter", identity, renderName)
