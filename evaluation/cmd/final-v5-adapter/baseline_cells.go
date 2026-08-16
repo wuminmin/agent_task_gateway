@@ -24,7 +24,7 @@ var (
 // frozen cells but no implementation, and advertising them would turn an unrun
 // cell into a claimed capability. S6 joined the list because its Product, route
 // and templates are the ones the Artifact cells already execute end to end.
-var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true, "S3": true, "S5": true, "S6": true}
+var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true, "S3": true, "S4": true, "S5": true, "S6": true}
 
 // baselineProductBinding is how one frozen Product reaches a real deployment:
 // the columns the OA approves, and the two relations the Observer counts calls
@@ -57,6 +57,16 @@ var baselineProductBindings = map[string]baselineProductBinding{
 		VisibleRelation:   "reporting.final_v5_exposure_scale",
 		CompanionRelation: "taskgate_ordinal.final_v5_exposure_scale_v1",
 	},
+	// S4 binds one Product that is itself the four-layer aggregate: its governed
+	// arm selects the View's three columns while its Direct arm recomputes the
+	// same aggregate from the base relations. The two partition keys are public
+	// scopes rather than projected columns, so they are approved but not
+	// selected.
+	"final_v5_analytics_depth4": {
+		Columns:           []string{"status", "total_extendedprice", "line_count", "orders_partition_key", "lineitem_partition_key"},
+		VisibleRelation:   "reporting.final_v5_analytics_depth4",
+		CompanionRelation: "taskgate_ordinal.provsql_orders_v1",
+	},
 	// S6 shares this Product and these templates with the Artifact cells, which
 	// have already executed them end to end. Its sixteen fields are the frozen
 	// x16 projection; the x4 cells select the first four of them.
@@ -82,8 +92,15 @@ var baselinePartitionScope = map[string][]string{"partition_key": {"1"}}
 // not by partition key, and its templates filter on exactly those four values.
 func baselineScopesFor(productIDs []string) map[string][]string {
 	for _, product := range productIDs {
-		if product == "final_v5_result_heavy" {
+		switch product {
+		case "final_v5_result_heavy":
 			return map[string][]string{"category": {"alpha", "beta", "gamma", "delta"}}
+		case "final_v5_analytics_depth4":
+			// The depth-4 View carries one partition scope per joined side.
+			return map[string][]string{
+				"orders_partition_key":   {"1"},
+				"lineitem_partition_key": {"1"},
+			}
 		}
 	}
 	return baselinePartitionScope

@@ -95,6 +95,17 @@ scopes:
     type: enum
     description: Final-V5 result-heavy complete category domain
     allowed_values: [alpha, beta, gamma, delta]
+  # S4's semantic View exposes each side's partition key as its own public
+  # scope, because a View's scopes must be columns an approved task can bind
+  # and the join carries two of them.
+  - name: orders_partition_key
+    type: enum
+    description: Final-V5 depth-4 View 的订单侧分区键
+    allowed_values: ["1"]
+  - name: lineitem_partition_key
+    type: enum
+    description: Final-V5 depth-4 View 的明细侧分区键
+    allowed_values: ["1"]
 
 products:
   - name: expense_summary
@@ -508,6 +519,49 @@ products:
     fact_namespace: final_v5.exposure_scale
     stable_relation_role: final_v5_exposure_scale
 
+
+  # Baseline S4's Product. It is the reviewed candidate's declaration verbatim,
+  # except that the four view-contract digests are the ones evaluation/cmd/
+  # view-contract compiled against a live deployment: the candidate carries
+  # all-zero sentinels on purpose because only a deployment can produce them.
+  # The compiled dependency set is the four-layer chain plus the two frozen
+  # ProvSQL relations it reads, which is what makes this a depth-4 View rather
+  # than a flat aggregate.
+  - name: final_v5_analytics_depth4
+    source: travel_demo
+    reporting_view: reporting.final_v5_analytics_depth4
+    description: Final-V5 governed four-layer fixed-filter join aggregate View
+    sensitivity: low
+    snapshot: final-v5-provsql-2026-v1
+    entity_key: [status, orders_partition_key, lineitem_partition_key]
+    fact_namespace: final_v5.analytics_depth4
+    stable_relation_role: final_v5_analytics_depth4
+    scopes: [orders_partition_key, lineitem_partition_key]
+    allowed_functions: []
+    allowed_operators: []
+    allowed_aggregates: []
+    view_contract:
+      profile_version: taskgate-view-contract-v1
+      definition_digest: d645f31e2218d7c6feb5fd5129513443c7c03a387653cba8e6aafd7a5880f9db
+      dependency_digest: f9e5680f967493b96e71ae414f3b0a172d6a09094a9d0c83d465aefe66f6087d
+      canonical_plan_digest: 3426cb667fcf8929dd2c9e11734525aff053895ad162cd5b976b30e9d4422920
+      interface_digest: ae5044ee713e8aadf58519f93860191e538604bff7dea6759aa6cf981895c49b
+    fields:
+      - name: status
+        type: bigint
+        description: Frozen order status
+      - name: total_extendedprice
+        type: numeric
+        description: Sum of filtered lineitem extended prices
+      - name: line_count
+        type: bigint
+        description: Count of filtered joined lineitems
+      - name: orders_partition_key
+        type: integer
+        description: Public scope mapped to provsql_orders.partition_key
+      - name: lineitem_partition_key
+        type: integer
+        description: Public scope mapped to provsql_lineitem.partition_key
 
 approval_routes:
   # The reviewed Catalog candidate routes every benchmark low Product through

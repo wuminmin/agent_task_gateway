@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Targeted execution of every implemented Baseline cell against a fresh
-# isolated full topology. S4 is absent because it binds a Product the live
-# Catalog does not publish.
+# isolated full topology.
+
 #
 # NOT a Campaign and NOT publication-eligible. It runs with
 # campaign_class=pilot and pilot_kind=baseline_targeted, changes no capability
@@ -136,9 +136,9 @@ jq -s -e --argjson samples "$samples" '
     $before.visible_calls == $after.visible_calls and
     $before.companion_calls == $after.companion_calls;
   ([.[] | select(.warmup | not)]) as $measured |
-  ($measured | length) == 55 * $samples and
+  ($measured | length) == 58 * $samples and
   all($measured[]; .status == "pass" and .publication_eligible == false) and
-  ([$measured[] | .cell_id] | unique | length) == 55 and
+  ([$measured[] | .cell_id] | unique | length) == 58 and
   all($measured[] | select(.mode == "direct"); .system == "postgresql") and
   all($measured[] | select(.mode != "direct"); .system == "taskgate" and .receipt_verified) and
   all($measured[] | select(.mode == "novel");

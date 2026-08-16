@@ -165,6 +165,11 @@ func (runtime *Runtime) decodeBaselineCell(source cell) (BaselineCell, error) {
 		if query.Parameters.OverlapBranchMax <= 0 {
 			return BaselineCell{}, fmt.Errorf("baseline cell %s carries no overlap branch bound", identity)
 		}
+	case "S4":
+		// S4's threshold is baked into the semantic View rather than passed at
+		// query time; the contract still names it so the Direct arm can render
+		// the same fixed filter the View was built with.
+		renderName, renderValue = "fixed_view_orderkey_max", query.Parameters.FixedViewOrderkeyMax
 	case "S3":
 		// S3 walks a frozen family's members, so its threshold is a member rank
 		// rather than an order key.
@@ -220,12 +225,12 @@ func (runtime *Runtime) BaselineQueryContract(target BaselineCell) (QueryContrac
 		return QueryContract{}, fmt.Errorf("baseline cell %s has no renderable frozen parameter", target.Identity)
 	}
 	var bdg RenderedQuery
-	if target.SecondaryParameter > 0 {
+	switch {
+	case target.SecondaryParameter > 0:
 		// S5's governed arm is a declarative plan, not SQL.
 		bdg, err = runtime.BaselinePlanContract(target)
-	} else {
-		bdg, err = runtime.RenderIndexedTemplate(target.BDGTemplate, target.RenderParameter)
-		bdg.Role, bdg.Entrypoint, bdg.PublicTool = "bdg", EntrypointBDGQuery, PublicBDGTool
+	default:
+		bdg, err = runtime.renderBaselineGoverned(target)
 	}
 	if err != nil {
 		return QueryContract{}, err
@@ -413,5 +418,36 @@ func (runtime *Runtime) renderBaselineDirect(target BaselineCell) (RenderedQuery
 			{Ordinal: 1, Name: "orderkey_max", SQLType: "bigint", Literal: strconv.FormatInt(target.RenderParameter, 10)},
 			{Ordinal: 2, Name: "overlap_branch_max", SQLType: "bigint", Literal: strconv.FormatInt(target.SecondaryParameter, 10)},
 		},
+	}, nil
+}
+
+// renderBaselineGoverned renders a SQL governed arm. Most Baseline cells bind
+// their threshold at query time, but S4's governed arm reads a semantic View
+// whose fixed filter is part of the View definition, so its template carries no
+// positional parameter at all. Rendering it verbatim is therefore correct, and
+// the check below is what keeps that from becoming a hole: a template with a
+// parameter must still bind exactly one, so a cell cannot silently skip
+// substitution and execute an unparameterised query.
+func (runtime *Runtime) renderBaselineGoverned(target BaselineCell) (RenderedQuery, error) {
+	digest, err := runtime.ContractSHA256(target.BDGTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	template, err := runtime.readContract(target.BDGTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	if strings.Contains(string(template), "$") {
+		rendered, err := runtime.RenderIndexedTemplate(target.BDGTemplate, target.RenderParameter)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		rendered.Role, rendered.Entrypoint, rendered.PublicTool = "bdg", EntrypointBDGQuery, PublicBDGTool
+		return rendered, nil
+	}
+	return RenderedQuery{
+		Role: "bdg", Entrypoint: EntrypointBDGQuery, PublicTool: PublicBDGTool,
+		TemplatePath: target.BDGTemplate, TemplateSHA256: digest,
+		SQL: string(template), SQLSHA256: digestBytes(template),
 	}, nil
 }

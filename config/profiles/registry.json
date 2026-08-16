@@ -348,8 +348,8 @@
       },
       "status": {
         "closure_complete": true,
-        "catalog_materializable": false,
-        "live_route_available": false,
+        "catalog_materializable": true,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -361,17 +361,6 @@
             "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
           },
           {
-            "state": "catalog_materializable",
-            "code": "product_absent_from_live_catalog",
-            "subject": "final_v5_analytics_depth4",
-            "detail": "the live Catalog does not publish this Product"
-          },
-          {
-            "state": "live_route_available",
-            "code": "route_not_evaluable",
-            "detail": "the closure is not materializable, so no live route can be resolved"
-          },
-          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -380,7 +369,9 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": null,
+      "budget_profiles": [
+        "final-v5-baseline-low-v1"
+      ],
       "workload_cells": [
         "baseline/S4/depth-4/direct",
         "baseline/S4/depth-4/novel",
@@ -389,13 +380,24 @@
       "experiments": [
         "baseline"
       ],
-      "catalog_sha256": "",
-      "catalog_path": "",
-      "hot_artifacts": null,
-      "total_hot_bytes": 0,
+      "catalog_sha256": "3a14024492dcb86927215bd04fa04627e6470b00c463400ff1cb0e29cfd6881d",
+      "catalog_path": "config/profiles/depth4-semantic-view.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 117607276,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": false
+      "within_hot_limit": true
     },
     {
       "profile_id": "profile-5b48ad2a02c5446d",

@@ -82,6 +82,18 @@ var baselinePublicationRequirements = expandPublicationWorkloads([]publicationWo
 // contributes nothing here and never could: it is not a frozen cell.
 var baselineImplementedPublicationCells = baselineImplementedPublicationCellsFromContract()
 
+// baselineRealSystemValidated records whether a retained, non-publication
+// real-system run has executed every frozen Baseline cell end to end. It
+// mirrors artifactRealSystemValidated and exists for the same reason: source
+// resolution proves the Adapter would attempt a cell, never that the cell runs.
+//
+// S1, S2, S3, S5 and S6 have such a run (baseline-targeted-20260816T114115Z:
+// 55 samples, every status pass, every workload/scale pair agreeing between its
+// Direct and governed arms). S4's three cells resolve but have never executed,
+// so this stays false and Baseline stays false with it. Flip it only together
+// with retained evidence of a run covering all 58.
+const baselineRealSystemValidated = false
+
 // Scale has real handler code for its microbenchmark arms, but the frozen
 // Catalog cannot currently grant a task that carries the complete
 // dependency-e2e pair at the 1,035,000-Fact scale.
@@ -308,7 +320,7 @@ var (
 var publicationCoverageGates = map[string]publicationProfileCoverage{
 	"baseline": {
 		required:    baselinePublicationRequirements,
-		implemented: baselineImplementedPublicationCells,
+		implemented: baselineRealSystemValidatedCells(),
 	},
 	"scale": {
 		required:    scalePublicationRequirements,
@@ -347,4 +359,16 @@ var publicationCoverageGates = map[string]publicationProfileCoverage{
 func publicationCoverageGateSatisfied(experimentID string) bool {
 	coverage, gated := publicationCoverageGates[experimentID]
 	return gated && coverage.complete()
+}
+
+// baselineRealSystemValidatedCells is what the coverage gate sees. Until a
+// retained run has covered every frozen cell it reports nothing, so a Baseline
+// capability cannot be advertised on resolution alone; afterwards it reports
+// exactly the resolved set, which the gate still compares against the frozen
+// requirements.
+func baselineRealSystemValidatedCells() []publicationCell {
+	if !baselineRealSystemValidated {
+		return nil
+	}
+	return baselineImplementedPublicationCells
 }

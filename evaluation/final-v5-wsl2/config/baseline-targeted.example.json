@@ -55,6 +55,17 @@
       ]
     },
     {
+      "id": "S4",
+      "scales": [
+        "depth-4"
+      ],
+      "modes": [
+        "direct",
+        "novel",
+        "semantic_replay"
+      ]
+    },
+    {
       "id": "S5",
       "scales": [
         "SF1",

@@ -140,27 +140,27 @@ func TestMissingGateOrFutureCellDisablesCapability(t *testing.T) {
 
 func TestBaselinePilotCannotEnableFormalCapability(t *testing.T) {
 	if publicationCoverageGates["baseline"].complete() {
-		t.Fatal("S1/tiny Pilot was treated as complete S1--S6 publication coverage")
+		t.Fatal("Baseline coverage was reported complete without a retained run covering every frozen cell")
 	}
 	if implementedCapabilities()["baseline"] {
-		t.Fatal("baseline formal capability was advertised before all publication cells were implemented")
+		t.Fatal("baseline formal capability was advertised before a retained run covered every cell")
 	}
-	// Every workload except S4 gained a real execution path on 2026-08-16. S4
-	// binds a Product the live Catalog does not publish, so 55 of 58 is still
-	// incomplete, so the two
+	// Resolution alone must never satisfy the gate. Every frozen cell now
+	// resolves, so what keeps Baseline false is the evidence requirement, and
+	// this asserts that distinction rather than assuming it.
+	if len(baselineImplementedPublicationCells) != len(baselinePublicationRequirements) {
+		t.Fatalf("%d of %d frozen Baseline cells resolve; the gate below is meant to be the only thing holding the capability",
+			len(baselineImplementedPublicationCells), len(baselinePublicationRequirements))
+	}
+	if baselineRealSystemValidated {
+		t.Fatal("baselineRealSystemValidated is true; this guard must be restated together with the retained evidence")
+	}
+	if len(publicationCoverageGates["baseline"].implemented) != 0 {
+		t.Fatal("the coverage gate advertised cells while no retained run covers them all")
+	}
+	// Every frozen workload resolves as of 2026-08-16, so the two
 	// assertions above continue to hold. A cell registered from any other
 	// workload would mean the resolver accepted something Execute cannot run.
-	implementedWorkloads := map[string]bool{"S1": true, "S2": true, "S3": true, "S5": true, "S6": true}
-	if len(baselineImplementedPublicationCells) != 55 {
-		t.Fatalf("formal baseline registry contains %d cells, want every workload but S4's 55",
-			len(baselineImplementedPublicationCells))
-	}
-	for _, cell := range baselineImplementedPublicationCells {
-		if !implementedWorkloads[cell.WorkloadID] {
-			t.Fatalf("baseline registered %s/%s/%s, which has no execution path",
-				cell.WorkloadID, cell.Scale, cell.Mode)
-		}
-	}
 }
 
 // TestEveryUnimplementedBaselineCellFailsClosed holds the resolver to the

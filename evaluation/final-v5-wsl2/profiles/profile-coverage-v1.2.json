@@ -259,8 +259,8 @@
       "targeted_run_eligible": false,
       "status": {
         "closure_complete": true,
-        "catalog_materializable": false,
-        "live_route_available": false,
+        "catalog_materializable": true,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -270,17 +270,6 @@
             "code": "live_activation_smoke_not_executed",
             "subject": "profile-46b22367d1386567",
             "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
-          },
-          {
-            "state": "catalog_materializable",
-            "code": "product_absent_from_live_catalog",
-            "subject": "final_v5_analytics_depth4",
-            "detail": "the live Catalog does not publish this Product"
-          },
-          {
-            "state": "live_route_available",
-            "code": "route_not_evaluable",
-            "detail": "the closure is not materializable, so no live route can be resolved"
           },
           {
             "state": "targeted_validation_passed",
@@ -297,24 +286,13 @@
           "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
         },
         {
-          "state": "catalog_materializable",
-          "code": "product_absent_from_live_catalog",
-          "subject": "final_v5_analytics_depth4",
-          "detail": "the live Catalog does not publish this Product"
-        },
-        {
-          "state": "live_route_available",
-          "code": "route_not_evaluable",
-          "detail": "the closure is not materializable, so no live route can be resolved"
-        },
-        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "",
-      "total_hot_bytes": 0,
+      "catalog_sha256": "3a14024492dcb86927215bd04fa04627e6470b00c463400ff1cb0e29cfd6881d",
+      "total_hot_bytes": 117607276,
       "cells": [
         "baseline/S4/depth-4/direct",
         "baseline/S4/depth-4/novel",

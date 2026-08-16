@@ -99,15 +99,41 @@ func TestNormalizedRewriteChangesOnlyLayout(t *testing.T) {
 }
 
 // TestUnimplementedBaselineWorkloadsDoNotResolve keeps the resolver honest
-// about its own coverage: S4 is frozen in the contract but binds a Product the
-// live Catalog does not publish, so it has no execution path, and a substituted query would be worse than a refusal.
+// about its own coverage, and a substituted query would be worse than a refusal.
 func TestUnimplementedBaselineWorkloadsDoNotResolve(t *testing.T) {
+	// Every frozen workload resolves now, so the refusal this guards is the
+	// coordinate that is not frozen at all.
 	for _, cell := range []struct{ workload, scale, mode string }{
-		{"S4", "depth-4", "novel"},
+		{"S4", "depth-9", "novel"},
+		{"S9", "depth-4", "novel"},
+		{"S4", "depth-4", "no-such-mode"},
 	} {
 		if _, err := resolveBaselineExecutionCell(baselineOperation(cell.workload, cell.scale, cell.mode)); err == nil {
-			t.Fatalf("%s/%s/%s resolved without an execution path", cell.workload, cell.scale, cell.mode)
+			t.Fatalf("%s/%s/%s resolved without being a frozen cell", cell.workload, cell.scale, cell.mode)
 		}
+	}
+}
+
+// TestBaselineSFourReadsTheSemanticView covers the one Baseline workload whose
+// governed arm carries no parameter: its threshold is part of the View
+// definition, so the template must render verbatim while the Direct arm still
+// renders the same fixed filter.
+func TestBaselineSFourReadsTheSemanticView(t *testing.T) {
+	cell, err := resolveBaselineExecutionCell(baselineOperation("S4", "depth-4", "novel"))
+	if err != nil {
+		t.Fatalf("resolve S4/depth-4/novel: %v", err)
+	}
+	if strings.Contains(cell.BDGSQL, "$") {
+		t.Fatalf("S4's governed arm kept a positional parameter: %s", cell.BDGSQL)
+	}
+	if !strings.Contains(cell.BDGSQL, "final_v5_analytics_depth4") {
+		t.Fatalf("S4's governed arm does not read the semantic View: %s", cell.BDGSQL)
+	}
+	if !strings.Contains(cell.DirectSQL, "5000") {
+		t.Fatalf("S4's Direct arm does not carry the View's fixed filter: %s", cell.DirectSQL)
+	}
+	if got := cell.Task.Scopes; len(got["orders_partition_key"]) != 1 || len(got["lineitem_partition_key"]) != 1 {
+		t.Fatalf("S4 scopes = %v, want one partition key per joined side", got)
 	}
 }
 
