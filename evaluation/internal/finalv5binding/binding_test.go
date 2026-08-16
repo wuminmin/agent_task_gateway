@@ -529,9 +529,25 @@ func TestCatalogAwareGateRejectsUnknownProductsColumnsAndInsufficientBudget(t *t
 	if err := validateTaskCatalogCapacity(parsed, prov.Task, []BoundQueryExpectation{one}); err != nil {
 		t.Fatalf("one frozen ProvSQL operation should fit its exact route: %v", err)
 	}
-	if err := validateTaskCatalogCapacity(parsed, prov.Task, []BoundQueryExpectation{one, one}); err == nil ||
+	// Derive the over-budget case from the route the Catalog actually resolves
+	// instead of hardcoding two. The frozen ProvSQL relations moved off their
+	// own one-query route onto the shared default low ceiling, and a test that
+	// assumed the old number was testing the number rather than the rule.
+	routed, err := parsed.ResolveTaskPolicy(prov.Task.DataProducts)
+	if err != nil {
+		t.Fatalf("resolve the frozen ProvSQL route: %v", err)
+	}
+	if routed.Budget.MaxQueries < 1 {
+		t.Fatalf("frozen ProvSQL route grants %d queries", routed.Budget.MaxQueries)
+	}
+	overBudget := make([]BoundQueryExpectation, routed.Budget.MaxQueries+1)
+	for index := range overBudget {
+		overBudget[index] = one
+	}
+	if err := validateTaskCatalogCapacity(parsed, prov.Task, overBudget); err == nil ||
 		!strings.Contains(err.Error(), "max_queries") {
-		t.Fatalf("two-query task was not rejected by the one-query route: %v", err)
+		t.Fatalf("a task of %d queries was not rejected by a %d-query route: %v",
+			len(overBudget), routed.Budget.MaxQueries, err)
 	}
 	policy, err := parsed.ResolveTaskPolicy(prov.Task.DataProducts)
 	if err != nil {

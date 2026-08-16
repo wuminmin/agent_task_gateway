@@ -108,9 +108,33 @@ func TestRepositoryCatalog(t *testing.T) {
 	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v5" || policy.Budget.PredicateFootprint == nil {
 		t.Fatalf("repository V5 policy = %#v, err=%v", policy, err)
 	}
-	provsql, err := parsed.ResolveTaskPolicy([]string{"provsql_lineitem", "provsql_nonce", "provsql_orders"})
-	if err != nil || provsql.BudgetProfile != "final-v5-provsql-low-v1" || provsql.Budget.MaxInfluenceFacts < 1_000_000 {
-		t.Fatalf("repository ProvSQL policy = %#v, err=%v", provsql, err)
+	// The three frozen ProvSQL relations carry no scoped route of their own, as
+	// the reviewed Catalog candidate has it: Baseline S1 requests provsql_orders
+	// alone and S2 requests it with provsql_lineitem, and a Product may hold at
+	// most one scoped route, so all three closures resolve through the default
+	// low route.
+	for _, closure := range [][]string{
+		{"provsql_orders"},
+		{"provsql_lineitem", "provsql_orders"},
+		{"provsql_lineitem", "provsql_nonce", "provsql_orders"},
+	} {
+		provsql, err := parsed.ResolveTaskPolicy(closure)
+		if err != nil || provsql.BudgetProfile != "final-v5-baseline-low-v1" || provsql.Budget.MaxInfluenceFacts < 1_000_000 {
+			t.Fatalf("repository closure %v policy = %#v, err=%v", closure, provsql, err)
+		}
+		// max_rows is a cumulative per-Task ledger and one Baseline Task carries
+		// a cell's novel query plus its three replays, so anything below four
+		// S1/SF10 results refuses the cell's third governed query.
+		if provsql.Budget.MaxRows < 4*50_000 {
+			t.Fatalf("closure %v grants %d rows; one S1/SF10 Task settles %d",
+				closure, provsql.Budget.MaxRows, 4*50_000)
+		}
+	}
+	// expense_summary keeps the historical summary ceiling through its own
+	// scoped route, so the wider default low route did not widen it.
+	summary, err := parsed.ResolveTaskPolicy([]string{"expense_summary"})
+	if err != nil || summary.BudgetProfile != "summary-manual-v5" {
+		t.Fatalf("repository expense_summary policy = %#v, err=%v", summary, err)
 	}
 }
 

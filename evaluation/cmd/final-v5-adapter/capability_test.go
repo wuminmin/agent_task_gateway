@@ -298,7 +298,12 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 		// The reviewed result-heavy route also grants many queries; the Scale
 		// route must instead bind the exposure-scale Product alone to its narrow
 		// aggregate-result budget.
-		if policy.Budget.MaxQueries < 2 || onlyResultHeavy(policy) {
+		// The reviewed shape puts every benchmark low Product without a scoped
+		// route of its own on one default ceiling, so result-heavy is no longer
+		// the only wide route. Scale still binds its own Product to its own
+		// route, which is what this block checks; the default-low closures are
+		// checked by the wide-grant block further down.
+		if policy.Budget.MaxQueries < 2 || onlyResultHeavy(policy) || onlyDefaultLowBenchmarkProducts(policy) {
 			continue
 		}
 		reviewedScaleRoutes++
@@ -309,7 +314,11 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 			t.Fatalf("reviewed Scale route resolved for %d products; it must bind final_v5_exposure_scale alone", len(policy.Products))
 		}
 		budget := policy.Budget
-		if budget.MaxQueries != 8 || budget.MaxRows != 16 || budget.MaxDBTime.String() != "30m0s" ||
+		// max_rows moved from 16 to 200,000 when Baseline S3 joined this Product:
+		// S3/45k-225k returns 45,000 rows on each of four governed queries of one
+		// Task, and a Product may hold at most one scoped route. Every other
+		// member of this budget is still asserted byte for byte.
+		if budget.MaxQueries != 8 || budget.MaxRows != 200_000 || budget.MaxDBTime.String() != "30m0s" ||
 			budget.PerQueryTimeout.String() != "30m0s" || budget.TaskTTL.String() != "2h0m0s" ||
 			budget.MaxReleaseFacts != 1_250_000 || budget.MaxInfluenceFacts != 2_500_000 ||
 			budget.MaxOutcomeFacts != 128 || budget.ExposureProfileVersion != "taskgate-exposure-v5" {
@@ -359,26 +368,73 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 		for _, product := range policy.Products {
 			columns += len(product.Fields)
 		}
-		wide := policy.Budget.MaxRows >= 10_000 || columns >= 16
+		// Width is judged from the budget itself. Summing columns across an
+		// arbitrary Product union stopped being a usable proxy once mixed sets
+		// became resolvable: a hundred-row detail grant is narrow no matter how
+		// many columns the union exposes.
+		wide := policy.Budget.MaxRows >= 10_000 || policy.Budget.MaxReleaseFacts >= 100_000
 		if !wide {
 			continue
 		}
-		if policy.BudgetProfile != "final-v5-benchmark-low-v1" {
-			t.Fatalf("Catalog profile %q now grants %d rows and %d columns; only the reviewed result-heavy route may",
-				policy.BudgetProfile, policy.Budget.MaxRows, columns)
-		}
-		if len(policy.Products) != 1 || policy.Products[0].Name != "final_v5_result_heavy" {
-			t.Fatalf("the reviewed benchmark route resolved for %d products; it must bind final_v5_result_heavy alone", len(policy.Products))
-		}
-		if policy.Budget.MaxRows != 100_000 || columns != 16 {
-			t.Fatalf("reviewed result-heavy route grants %d rows and %d columns; the frozen cells need exactly 100000 and 16",
-				policy.Budget.MaxRows, columns)
-		}
-		if policy.Budget.MaxReleaseFacts < 100_000*16 {
-			t.Fatalf("reviewed result-heavy route grants %d release Facts; the 100k x16 cell needs %d",
-				policy.Budget.MaxReleaseFacts, 100_000*16)
+		switch {
+		case onlyResultHeavy(policy):
+			if policy.BudgetProfile != "final-v5-benchmark-low-v1" {
+				t.Fatalf("result-heavy resolved budget %q, want the reviewed benchmark ceiling", policy.BudgetProfile)
+			}
+			if policy.Budget.MaxRows != 100_000 || columns != 16 {
+				t.Fatalf("reviewed result-heavy route grants %d rows and %d columns; the frozen cells need exactly 100000 and 16",
+					policy.Budget.MaxRows, columns)
+			}
+			if policy.Budget.MaxReleaseFacts < 100_000*16 {
+				t.Fatalf("reviewed result-heavy route grants %d release Facts; the 100k x16 cell needs %d",
+					policy.Budget.MaxReleaseFacts, 100_000*16)
+			}
+		case len(policy.Products) == 1 && policy.Products[0].Name == "final_v5_exposure_scale":
+			// Scale shares its Product with Baseline S3, which returns 45,000
+			// rows on each of four governed queries of one Task.
+			if policy.BudgetProfile != "final-v5-exposure-scale-v1" || policy.Budget.MaxRows < 4*45_000 {
+				t.Fatalf("Scale route = %q at %d rows; S3 settles %d on one Task",
+					policy.BudgetProfile, policy.Budget.MaxRows, 4*45_000)
+			}
+		case onlyDefaultLowBenchmarkProducts(policy):
+			// Baseline S1/S2/S5 and the ProvSQL nonce-join share the default low
+			// ceiling. S1/SF10 settles four 50,000-row results on one Task.
+			if policy.BudgetProfile != "final-v5-baseline-low-v1" || policy.Budget.MaxRows < 4*50_000 {
+				t.Fatalf("default low route = %q at %d rows; S1/SF10 settles %d on one Task",
+					policy.BudgetProfile, policy.Budget.MaxRows, 4*50_000)
+			}
+		default:
+			t.Fatalf("a wide ceiling resolved for %v; only result-heavy, exposure-scale or the frozen default-low benchmark Products may reach one",
+				productNames(policy))
 		}
 	}
+}
+
+// onlyDefaultLowBenchmarkProducts reports whether every Product in the policy is
+// one the reviewed shape leaves on the default low route. It is a closed
+// membership test on purpose: a new Product added there would not satisfy it.
+func onlyDefaultLowBenchmarkProducts(policy catalog.TaskPolicy) bool {
+	frozen := map[string]bool{
+		"provsql_orders": true, "provsql_lineitem": true, "provsql_nonce": true,
+		"final_v5_analytics_depth4": true,
+	}
+	if len(policy.Products) == 0 {
+		return false
+	}
+	for _, product := range policy.Products {
+		if !frozen[product.Name] {
+			return false
+		}
+	}
+	return true
+}
+
+func productNames(policy catalog.TaskPolicy) []string {
+	names := make([]string, 0, len(policy.Products))
+	for _, product := range policy.Products {
+		names = append(names, product.Name)
+	}
+	return names
 }
 
 func onlyResultHeavy(policy catalog.TaskPolicy) bool {

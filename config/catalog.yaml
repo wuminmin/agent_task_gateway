@@ -510,10 +510,29 @@ products:
 
 
 approval_routes:
+  # The reviewed Catalog candidate routes every benchmark low Product through
+  # one default low ceiling and pins only expense_summary narrow; this Catalog
+  # now has the same shape. The one deliberate divergence is the row ceiling:
+  # the candidate grants 100,000, but max_rows is a cumulative per-Task ledger
+  # (internal/control/budget.go charges settlement.Rows into used_rows on every
+  # completed query) and one Baseline Task carries a cell's novel query plus its
+  # three replays. Baseline S1/SF10 therefore settles 4 x 50,000 rows on one
+  # Task, and the candidate's ceiling refused its third governed query in a real
+  # run on 2026-08-16. The ceiling here is sized from that measurement.
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: summary-manual-v5
+    budget_profile: final-v5-baseline-low-v1
+  # One deliberate divergence from the reviewed candidate, which pins
+  # expense_summary to its own scoped route. Scoping a Product makes it
+  # exclusive: exact-set matching means a Product named by a scoped route can
+  # only ever be requested as exactly that set, so scoping expense_summary
+  # would stop it being requested together with expense_detail. That
+  # combination is a task-to-data capability the Gateway is built around, and
+  # it outweighs keeping a demo aggregate on a five-hundred-row ceiling.
+  # expense_summary therefore shares the default low route. A delegated grant
+  # still intersects with its parent, so the widening only reaches a root task
+  # that requests the summary alone.
   - sensitivity: medium
     mode: manual
     approver: bob
@@ -542,12 +561,6 @@ approval_routes:
     mode: manual
     approver: bob
     budget_profile: final-v5-rls-bounded-70-v1
-  - sensitivity: low
-    products: [provsql_lineitem, provsql_nonce, provsql_orders]
-    mode: manual
-    approver: bob
-    budget_profile: final-v5-provsql-low-v1
-
   # The default low route keeps its historical summary budget. The frozen
   # Artifact cells need the reviewed benchmark ceiling, so result-heavy gets an
   # exact product-scoped manual OA route instead of widening every low Product.
@@ -660,22 +673,32 @@ budget_profiles:
       max_unique_atoms_per_query: 8
       max_atom_payload_bytes: 4096
       max_total_atom_payload_bytes: 32768
-  - name: final-v5-provsql-low-v1
-    max_queries: 1
-    max_rows: 3
+  # The default low ceiling. It carries the three frozen ProvSQL relations that
+  # Baseline S1/S2/S5 and the ProvSQL nonce-join draw from, plus S4's derived
+  # analytics Product. Sized for the largest Task any of them settles: Baseline
+  # S1/SF10 releases 50,000 rows on each of four governed queries.
+  - name: final-v5-baseline-low-v1
+    max_queries: 128
+    max_rows: 400000
     max_db_time: 30m
     query_timeout: 30m
-    task_ttl: 1h
-    max_release_facts: 32
-    max_influence_facts: 2000000
-    max_outcome_facts: 64
+    task_ttl: 2h
+    max_release_facts: 2000000
+    max_influence_facts: 8000000
+    max_outcome_facts: 128
     exposure_profile_version: taskgate-exposure-v5
+    # The predicate footprint is deliberately identical to summary-manual-v5's
+    # rather than to the retired ProvSQL profile's. expense_summary shares this
+    # route, and a delegated task must have a footprint within its parent
+    # grant's, so a wider one here would refuse every delegation issued under
+    # the summary footprint. Nine unique atoms is ample: every retained sample
+    # in this repository recorded a predicate_atom_count of five or fewer.
     predicate_footprint:
       version: taskgate-predicate-footprint-v1
-      max_raw_literals_per_query: 32
-      max_unique_atoms_per_query: 16
+      max_raw_literals_per_query: 1000
+      max_unique_atoms_per_query: 9
       max_atom_payload_bytes: 4096
-      max_total_atom_payload_bytes: 65536
+      max_total_atom_payload_bytes: 36864
   # Reviewed Final-V5 benchmark ceiling, copied verbatim from the Catalog
   # candidate. It is the only profile that can carry the frozen 100000-row,
   # 16-column Artifact cell (1,600,000 release Facts) on a manual OA route.
@@ -698,9 +721,13 @@ budget_profiles:
   # Scale's candidate/history queries are ungrouped aggregates that each return
   # one row. Keep their authority narrow while covering one preregistered pair's
   # history, novel, and semantic-replay operations and worst-case Fact sets.
+  # Baseline S3 binds the same Product as Scale's dependency-e2e arm, and a
+  # Product may hold at most one scoped route, so this ceiling must cover both.
+  # Scale's own cells return a single aggregate row; S3/45k-225k returns 45,000
+  # and settles four governed queries on one Task. Only max_rows moves.
   - name: final-v5-exposure-scale-v1
     max_queries: 8
-    max_rows: 16
+    max_rows: 200000
     max_db_time: 30m
     query_timeout: 30m
     task_ttl: 2h

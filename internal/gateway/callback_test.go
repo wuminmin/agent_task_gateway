@@ -205,7 +205,11 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
 		"scopes":        map[string]any{"department": []any{"销售部"}},
 	})
-	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v5" {
+	// expense_summary resolves through the default low route now that the frozen
+	// benchmark relations share it. Only the profile name moved: the assertions
+	// below still require every delegated limit to be the parent's, because
+	// constrainDelegatedBudget intersects rather than inherits.
+	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "final-v5-baseline-low-v1" {
 		t.Fatalf("delegated budget provenance = %#v", request)
 	}
 	delegatedBudget, ok := request["budget"].(map[string]any)
