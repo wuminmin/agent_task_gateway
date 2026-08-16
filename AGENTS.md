@@ -72,6 +72,10 @@ env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/v
 - **不得安装宿主机 PostgreSQL**：digest-pinned 的 16.14 容器就是整套记账被认证的环境。
 - **跑活体（canary / N4 / campaign）前必须 `./scripts/db-test-env.sh down`**：
   与测试环境争同一批宿主端口；runner 自检只报告占用者、不代劳删除。
+- **活体轮昂贵（一轮 fresh 部署几十分钟），静态审计先行（2026-08-17 作者定）**：
+  凡 runner/工具对 profile 路由策略的隐含假设，先零部署静态审计一次修齐，
+  再烧活体轮——隐含假设一轮只暴露一个（P26 closure、P27 max_queries，
+  各烧一轮，见台账）。派工任务书必须显式包含静态审计阶段。
 - **改了 `internal/` 的实跑必须带 `TASKGATE_REAL_PILOT_BUILD=1`**：Compose 镜像不自动
   重建，不带等于跑旧代码，而运行照样成功照样出数字——假结论比没数据更危险
   （台账 P15-image-staleness）。pilot 类运行现不记录镜像 ID，此缺口未补前尤其要小心。
