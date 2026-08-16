@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
@@ -101,6 +102,13 @@ type baselineExecutionCell struct {
 	BDGSQL         string
 	RewriteSQL     string
 	PlanEntrypoint bool
+	// ResultSchema is the contract's typed result schema, present only for the
+	// cells that have one. Both arms must reduce through it before their
+	// digests are compared: raw pgx values and raw Parquet values are different
+	// Go representations of the same row, so comparing them directly reports a
+	// mismatch for every rich type. S6 shares the Artifact schema because the
+	// contract makes it execute byte-identical Artifact templates.
+	ResultSchema []finalv5oracle.ResultColumn
 }
 
 // resolveBaselineExecutionCell turns one AdapterOperation into the frozen cell
@@ -144,10 +152,18 @@ func resolveBaselineExecutionCell(operation experiment.AdapterOperation) (baseli
 	if err := validateBoundTask(task); err != nil {
 		return baselineExecutionCell{}, fmt.Errorf("baseline cell %s task: %w", contract.Identity, err)
 	}
+	var schema []finalv5oracle.ResultColumn
+	if contract.Identity.WorkloadID == "S6" {
+		schema, err = finalv5oracle.ArtifactSchema(contract.ExpectedColumns)
+		if err != nil {
+			return baselineExecutionCell{}, fmt.Errorf("baseline cell %s result schema: %w", contract.Identity, err)
+		}
+	}
 	plan := rendered.BDG.Entrypoint == finalv5contracts.EntrypointExecutePlan
 	cell := baselineExecutionCell{
 		Contract: contract, Task: task,
 		DirectSQL: rendered.Direct.SQL, BDGSQL: rendered.BDG.SQL, PlanEntrypoint: plan,
+		ResultSchema: schema,
 	}
 	// A normalized rewrite only means anything for a text query: it proves the
 	// Gateway recognises an equivalent statement it has already settled. A

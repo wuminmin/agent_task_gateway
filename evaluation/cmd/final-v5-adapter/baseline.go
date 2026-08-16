@@ -22,6 +22,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/parquet-go/parquet-go"
 
+	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/releasedartifact"
 	"taskbound.local/agent-data-gateway/internal/control"
@@ -287,8 +289,12 @@ type baselinePlan struct {
 	planEntrypoint  bool
 	expectedRows    int64
 	expectedColumns int
-	provision       func(context.Context, experiment.AdapterOperation) (string, error)
-	snapshot        func(context.Context) (experiment.BusinessSQLSnapshot, error)
+	// resultSchema is the contract's typed schema. When present both arms
+	// reduce through it, so the digests being compared describe the same
+	// logical rows rather than two Go representations of them.
+	resultSchema []finalv5oracle.ResultColumn
+	provision    func(context.Context, experiment.AdapterOperation) (string, error)
+	snapshot     func(context.Context) (experiment.BusinessSQLSnapshot, error)
 }
 
 // pilotPlan is the retained non-publication S1/tiny path. Its expected shape is
@@ -311,6 +317,7 @@ func (adapter *realAdapter) contractPlan(cell baselineExecutionCell) baselinePla
 		planEntrypoint:  cell.PlanEntrypoint,
 		expectedRows:    cell.Contract.ExpectedRows,
 		expectedColumns: cell.Contract.ExpectedColumns,
+		resultSchema:    cell.ResultSchema,
 		provision: func(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
 			return adapter.provisionBoundTask(ctx, operation, cell.Task)
 		},
@@ -398,7 +405,7 @@ func (adapter *realAdapter) direct(ctx context.Context, operation experiment.Ada
 		return experiment.Sample{}, err
 	}
 	elapsed := durationMS(time.Since(started))
-	digest, err := experiment.CanonicalResultHash(values)
+	digest, err := baselineResultDigest(plan.resultSchema, values)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -478,9 +485,21 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	sample, err := adapter.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot, started, availableMS, sqlText, response)
+	sample, parquetBytes, err := adapter.completeTaskgateSampleWithParquet(ctx, operation, state,
+		beforeRoot, afterRoot, started, availableMS, sqlText, response)
 	if err != nil {
 		return experiment.Sample{}, err
+	}
+	// Reduce the released artifact through the contract schema so the governed
+	// digest is comparable with the Direct arm's. Without this the pair differs
+	// for every rich type even when both arms read identical rows.
+	if len(plan.resultSchema) != 0 {
+		observed, normalizeErr := finalv5contracts.NormalizeBDG(plan.resultSchema,
+			finalv5contracts.ParquetInput(bytes.NewReader(parquetBytes), int64(len(parquetBytes))))
+		if normalizeErr != nil {
+			return experiment.Sample{}, normalizeErr
+		}
+		sample.ResultSHA256 = observed.Summary.CanonicalResultSHA256
 	}
 	if businessAfter.VisibleCalls < businessBefore.VisibleCalls || businessAfter.CompanionCalls < businessBefore.CompanionCalls {
 		return experiment.Sample{}, errors.New("Business SQL observer counters regressed")
@@ -1660,4 +1679,27 @@ func readExactlyBounded(reader io.Reader, maximum int64) ([]byte, error) {
 		return nil, errors.New("evidence body exceeds limit")
 	}
 	return value, nil
+}
+
+// baselineResultDigest reduces a drained Direct result to its canonical digest.
+// A cell whose contract carries a typed schema reduces through the shared
+// normalizer, which is the only reduction comparable with the released
+// artifact's; a cell without one keeps the harness's structural hash, which its
+// simpler column types already make comparable.
+func baselineResultDigest(schema []finalv5oracle.ResultColumn, values [][]any) (string, error) {
+	if len(schema) == 0 {
+		return experiment.CanonicalResultHash(values)
+	}
+	observed, err := finalv5contracts.NormalizeDirect(schema, func(yield func([]any) error) error {
+		for _, row := range values {
+			if err := yield(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return observed.Summary.CanonicalResultSHA256, nil
 }

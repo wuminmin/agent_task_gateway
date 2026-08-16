@@ -225,3 +225,44 @@ func TestBaselineClientTimeoutCoversItsApprovedQueryTimeout(t *testing.T) {
 		t.Fatal("no Baseline closure was checked")
 	}
 }
+
+// TestBaselineSSixCarriesTheContractResultSchema pins the reduction the paired
+// comparison depends on. S6 releases dates, timestamps and booleans, and raw
+// pgx values and raw Parquet values are different Go representations of those,
+// so a cell that compared them directly reported a mismatch on every S6 cell
+// while both arms had read identical rows.
+func TestBaselineSSixCarriesTheContractResultSchema(t *testing.T) {
+	for _, scale := range []string{"100x4", "100k-x16"} {
+		cell, err := resolveBaselineExecutionCell(baselineOperation("S6", scale, "novel"))
+		if err != nil {
+			t.Fatalf("resolve S6/%s/novel: %v", scale, err)
+		}
+		if len(cell.ResultSchema) != cell.Contract.ExpectedColumns {
+			t.Fatalf("S6/%s carries %d schema columns for a %d-column result",
+				scale, len(cell.ResultSchema), cell.Contract.ExpectedColumns)
+		}
+	}
+	// The workloads whose columns are simple keep the structural hash, and must
+	// not silently acquire an Artifact schema that does not describe them.
+	for _, workload := range []string{"S1", "S2", "S3"} {
+		cell, err := resolveBaselineExecutionCell(baselineOperation(workload, workloadFirstScale(t, workload), "novel"))
+		if err != nil {
+			t.Fatalf("resolve %s novel: %v", workload, err)
+		}
+		if len(cell.ResultSchema) != 0 {
+			t.Fatalf("%s acquired a %d-column contract schema it does not declare",
+				workload, len(cell.ResultSchema))
+		}
+	}
+}
+
+func workloadFirstScale(t *testing.T, workload string) string {
+	t.Helper()
+	for _, cell := range baselineImplementedPublicationCells {
+		if cell.WorkloadID == workload {
+			return cell.Scale
+		}
+	}
+	t.Fatalf("workload %s has no implemented cell", workload)
+	return ""
+}
