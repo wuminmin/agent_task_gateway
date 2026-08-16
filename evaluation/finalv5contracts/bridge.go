@@ -336,6 +336,14 @@ func (runtime *Runtime) ProtocolProfileCells(profileID string) ([]CellIdentity, 
 type contractParameters struct {
 	Rows       int64  `json:"rows"`
 	Projection string `json:"projection"`
+	// The remaining members are Baseline's frozen workload thresholds. Every
+	// Baseline workload parameterises on exactly one of them except S5, which
+	// pairs its key threshold with the overlap branch bound; Artifact and S6
+	// parameterise on rows and projection instead and leave all four zero.
+	OrderkeyMax          int64 `json:"orderkey_max"`
+	MemberMax            int64 `json:"member_max"`
+	FixedViewOrderkeyMax int64 `json:"fixed_view_orderkey_max"`
+	OverlapBranchMax     int64 `json:"overlap_branch_max"`
 }
 
 type contractQuery struct {

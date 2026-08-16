@@ -32,6 +32,9 @@ import (
 const (
 	pilotDirectSQL   = "SELECT receipt_no, department FROM reporting.expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 3"
 	pilotTaskGateSQL = "SELECT receipt_no, department FROM expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 3"
+	// pilotRewriteSQL is the Pilot's normalized_rewrite_replay text: the same
+	// statement with different padding and spacing and no other change.
+	pilotRewriteSQL = "  SELECT receipt_no, department FROM expense_detail WHERE department='销售部' ORDER BY receipt_no ASC LIMIT 3  "
 )
 
 type realAdapter struct {
@@ -270,11 +273,64 @@ func (adapter *realAdapter) Close() {
 	adapter.control.Close()
 }
 
+// baselinePlan is everything one Baseline cell executes with: the exact bytes
+// of each arm, how its Task is provisioned, and which relations the Observer
+// counts against. The non-publication S1/tiny Pilot and the frozen contract
+// cells differ only in this value, so both run the same measured code.
+type baselinePlan struct {
+	directSQL       string
+	taskGateSQL     string
+	rewriteSQL      string
+	expectedRows    int64
+	expectedColumns int
+	provision       func(context.Context, experiment.AdapterOperation) (string, error)
+	snapshot        func(context.Context) (experiment.BusinessSQLSnapshot, error)
+}
+
+// pilotPlan is the retained non-publication S1/tiny path. Its expected shape is
+// left zero because the Pilot asserts no contract row count.
+func (adapter *realAdapter) pilotPlan() baselinePlan {
+	return baselinePlan{
+		directSQL:   pilotDirectSQL,
+		taskGateSQL: pilotTaskGateSQL,
+		rewriteSQL:  pilotRewriteSQL,
+		provision:   adapter.provisionTask,
+		snapshot:    adapter.businessSQLSnapshot,
+	}
+}
+
+func (adapter *realAdapter) contractPlan(cell baselineExecutionCell) baselinePlan {
+	return baselinePlan{
+		directSQL:       cell.DirectSQL,
+		taskGateSQL:     cell.BDGSQL,
+		rewriteSQL:      cell.RewriteSQL,
+		expectedRows:    cell.Contract.ExpectedRows,
+		expectedColumns: cell.Contract.ExpectedColumns,
+		provision: func(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
+			return adapter.provisionBoundTask(ctx, operation, cell.Task)
+		},
+		snapshot: func(ctx context.Context) (experiment.BusinessSQLSnapshot, error) {
+			return adapter.businessSQLSnapshotFor(ctx, cell.Task)
+		},
+	}
+}
+
 func (adapter *realAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
-	if operation.ExperimentID != "baseline" || operation.WorkloadID != "S1" || operation.Scale != "tiny" {
+	if operation.ExperimentID != "baseline" {
 		return invalidSample(operation, "unsupported_source_controlled_baseline_cell")
 	}
+	plan := adapter.pilotPlan()
+	if operation.WorkloadID != "S1" || operation.Scale != "tiny" {
+		cell, err := resolveBaselineExecutionCell(operation)
+		if err != nil {
+			return invalidSample(operation, "unsupported_source_controlled_baseline_cell")
+		}
+		plan = adapter.contractPlan(cell)
+	}
 	stateKey := operation.PairID + "\x00" + operation.RootGroupID
+	if adapter.pairs == nil {
+		adapter.pairs = map[string]*pairState{}
+	}
 	state := adapter.pairs[stateKey]
 	if state == nil {
 		state = &pairState{}
@@ -282,12 +338,15 @@ func (adapter *realAdapter) Execute(ctx context.Context, operation experiment.Ad
 	}
 	var sample experiment.Sample
 	var err error
-	if operation.Mode == "direct" {
-		sample, err = adapter.direct(ctx, operation)
-	} else if operation.Mode == "pending_recovery" {
+	switch operation.Mode {
+	case "direct":
+		sample, err = adapter.direct(ctx, operation, plan)
+	case "pending_recovery":
+		// Pending recovery is a Pilot-only diagnostic mode; no frozen contract
+		// cell declares it, so it never reaches a contract plan.
 		sample, err = adapter.pendingRecovery(ctx, operation, state)
-	} else {
-		sample, err = adapter.taskgate(ctx, operation, state)
+	default:
+		sample, err = adapter.taskgate(ctx, operation, state, plan)
 	}
 	if err != nil {
 		return invalidSample(operation, "real_measurement_failed")
@@ -295,13 +354,13 @@ func (adapter *realAdapter) Execute(ctx context.Context, operation experiment.Ad
 	return sample
 }
 
-func (adapter *realAdapter) direct(ctx context.Context, operation experiment.AdapterOperation) (experiment.Sample, error) {
+func (adapter *realAdapter) direct(ctx context.Context, operation experiment.AdapterOperation, plan baselinePlan) (experiment.Sample, error) {
 	started := time.Now()
 	tx, err := adapter.business.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	rows, err := tx.Query(ctx, pilotDirectSQL)
+	rows, err := tx.Query(ctx, plan.directSQL)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		return experiment.Sample{}, err
@@ -331,26 +390,33 @@ func (adapter *realAdapter) direct(ctx context.Context, operation experiment.Ada
 	if err != nil {
 		return experiment.Sample{}, err
 	}
+	// A contract cell states its result shape, so a Direct arm that drained a
+	// different one is a failed sample rather than a quietly recorded number.
+	// The Pilot leaves the expectation zero and is not checked.
+	if plan.expectedRows > 0 && (int64(len(values)) != plan.expectedRows || columnCount != plan.expectedColumns) {
+		return experiment.Sample{}, fmt.Errorf("direct arm drained %dx%d, contract expects %dx%d",
+			len(values), columnCount, plan.expectedRows, plan.expectedColumns)
+	}
 	sample := baseSample(operation, "postgresql")
 	sample.ClientAvailableMS, sample.ClientFullDrainMS = elapsed, elapsed
 	sample.PipelineMS = zeroPipeline()
 	sample.PipelineMS["execute_and_derive"], sample.PipelineMS["server_total"] = elapsed, elapsed
 	sample.RowCount, sample.ColumnCount, sample.ResultSHA256 = int64(len(values)), columnCount, digest
-	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256, sample.QueryPlanSHA256 = sha(pilotDirectSQL), sha(pilotTaskGateSQL), sha(pilotDirectSQL)
+	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256, sample.QueryPlanSHA256 = sha(plan.directSQL), sha(plan.taskGateSQL), sha(plan.directSQL)
 	sample.Status = "pass"
 	return sample, nil
 }
 
-func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.AdapterOperation, state *pairState) (experiment.Sample, error) {
+func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.AdapterOperation, state *pairState, plan baselinePlan) (experiment.Sample, error) {
 	if state.taskID == "" {
-		taskID, err := adapter.provisionTask(ctx, operation)
+		taskID, err := plan.provision(ctx, operation)
 		if err != nil {
 			return experiment.Sample{}, err
 		}
 		state.taskID = taskID
 	}
 	requestID := "final-v5-" + sha(operation.PairID)[:20] + "-novel"
-	sqlText := pilotTaskGateSQL
+	sqlText := plan.taskGateSQL
 	switch operation.Mode {
 	case "novel":
 		state.novelRequestID = requestID
@@ -358,7 +424,7 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		requestID = "final-v5-" + sha(operation.SampleID)[:20] + "-semantic"
 	case "normalized_rewrite_replay":
 		requestID = "final-v5-" + sha(operation.SampleID)[:20] + "-normalized"
-		sqlText = "  SELECT receipt_no, department FROM expense_detail WHERE department='销售部' ORDER BY receipt_no ASC LIMIT 3  "
+		sqlText = plan.rewriteSQL
 	case "idempotent_replay":
 		if state.novelRequestID == "" {
 			return experiment.Sample{}, errors.New("idempotent replay lacks novel anchor")
@@ -379,7 +445,7 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		}
 		idempotentBefore = &snapshot
 	}
-	businessBefore, err := adapter.businessSQLSnapshot(ctx)
+	businessBefore, err := plan.snapshot(ctx)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -392,7 +458,7 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		return experiment.Sample{}, err
 	}
 	availableMS := durationMS(time.Since(started))
-	businessAfter, err := adapter.businessSQLSnapshot(ctx)
+	businessAfter, err := plan.snapshot(ctx)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -424,7 +490,7 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		sample.ReplayVerification.SourceObservationSHA256 = state.novelObservationSHA256
 		sample.ReplayVerification.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
 		if operation.Mode == "semantic_replay" {
-			cross, crossErr := adapter.crossBindingVerification(ctx, operation, state)
+			cross, crossErr := adapter.crossBindingVerification(ctx, operation, state, plan)
 			if crossErr != nil {
 				return experiment.Sample{}, crossErr
 			}
@@ -1243,7 +1309,7 @@ func saltedIdentityHash(operation experiment.AdapterOperation, kind, value strin
 }
 
 func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operation experiment.AdapterOperation,
-	state *pairState) (experiment.CrossBindingVerificationEvidence, error) {
+	state *pairState, plan baselinePlan) (experiment.CrossBindingVerificationEvidence, error) {
 	var evidence experiment.CrossBindingVerificationEvidence
 	if state.taskID == "" || state.novelRequestID == "" || state.novelQueryID == "" {
 		return evidence, errors.New("cross-binding check lacks its novel anchor")
@@ -1252,7 +1318,7 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	if err != nil {
 		return evidence, err
 	}
-	secondTaskID, err := adapter.provisionTask(ctx, operation)
+	secondTaskID, err := plan.provision(ctx, operation)
 	if err != nil {
 		return evidence, err
 	}
@@ -1260,7 +1326,7 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	if err != nil {
 		return evidence, err
 	}
-	businessBefore, err := adapter.businessSQLSnapshot(ctx)
+	businessBefore, err := plan.snapshot(ctx)
 	if err != nil {
 		return evidence, err
 	}
@@ -1268,12 +1334,12 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	started := time.Now()
 	var response queryResponse
 	if err := adapter.alice.call(ctx, "query_sql", map[string]any{
-		"task_id": secondTaskID, "request_id": requestID, "sql": pilotTaskGateSQL,
+		"task_id": secondTaskID, "request_id": requestID, "sql": plan.taskGateSQL,
 	}, &response); err != nil {
 		return evidence, err
 	}
 	availableMS := durationMS(time.Since(started))
-	businessAfter, err := adapter.businessSQLSnapshot(ctx)
+	businessAfter, err := plan.snapshot(ctx)
 	if err != nil {
 		return evidence, err
 	}
@@ -1288,7 +1354,7 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	crossOperation := operation
 	crossOperation.Mode = "novel"
 	verifiedSample, err := adapter.completeTaskgateSample(ctx, crossOperation, secondState, beforeRoot, afterRoot,
-		started, availableMS, pilotTaskGateSQL, response)
+		started, availableMS, plan.taskGateSQL, response)
 	if err != nil {
 		return evidence, err
 	}

@@ -145,14 +145,43 @@ func TestBaselinePilotCannotEnableFormalCapability(t *testing.T) {
 	if implementedCapabilities()["baseline"] {
 		t.Fatal("baseline formal capability was advertised before all publication cells were implemented")
 	}
-	if len(baselineImplementedPublicationCells) != 0 {
-		t.Fatalf("formal baseline registry contains %d cells without a complete implementation", len(baselineImplementedPublicationCells))
+	// S1 and S2 gained a real execution path on 2026-08-16. Every implemented
+	// cell must be one of theirs, and 20 of 58 is still incomplete, so the two
+	// assertions above continue to hold. A cell registered from any other
+	// workload would mean the resolver accepted something Execute cannot run.
+	if len(baselineImplementedPublicationCells) != 20 {
+		t.Fatalf("formal baseline registry contains %d cells, want S1 and S2's 20",
+			len(baselineImplementedPublicationCells))
+	}
+	for _, cell := range baselineImplementedPublicationCells {
+		if cell.WorkloadID != "S1" && cell.WorkloadID != "S2" {
+			t.Fatalf("baseline registered %s/%s/%s, which has no execution path",
+				cell.WorkloadID, cell.Scale, cell.Mode)
+		}
 	}
 }
 
-func TestEveryFormalBaselineCellFailsClosedUntilImplemented(t *testing.T) {
+// TestEveryUnimplementedBaselineCellFailsClosed holds the resolver to the
+// workloads that really have an execution path. S1 and S2 must resolve, and
+// every other frozen cell must still be refused by name rather than attempted
+// with a substituted query.
+func TestEveryUnimplementedBaselineCellFailsClosed(t *testing.T) {
 	adapter := &realAdapter{}
+	implemented := map[publicationCell]bool{}
+	for _, cell := range baselineImplementedPublicationCells {
+		implemented[cell] = true
+	}
+	refused := 0
 	for _, cell := range baselinePublicationRequirements {
+		if implemented[cell] {
+			if _, err := resolveBaselineExecutionCell(experiment.AdapterOperation{
+				ExperimentID: "baseline", WorkloadID: cell.WorkloadID,
+				Scale: cell.Scale, Mode: cell.Mode,
+			}); err != nil {
+				t.Fatalf("registered cell %+v does not resolve: %v", cell, err)
+			}
+			continue
+		}
 		operation := experiment.AdapterOperation{
 			ExperimentID: "baseline",
 			WorkloadID:   cell.WorkloadID,
@@ -163,6 +192,11 @@ func TestEveryFormalBaselineCellFailsClosedUntilImplemented(t *testing.T) {
 		if sample.Status != "invalid" || sample.ErrorCode != "unsupported_source_controlled_baseline_cell" {
 			t.Fatalf("formal cell %+v returned status=%q code=%q", cell, sample.Status, sample.ErrorCode)
 		}
+		refused++
+	}
+	if refused != len(baselinePublicationRequirements)-20 {
+		t.Fatalf("%d unimplemented cells failed closed, want %d",
+			refused, len(baselinePublicationRequirements)-20)
 	}
 }
 

@@ -72,12 +72,15 @@ var baselinePublicationRequirements = expandPublicationWorkloads([]publicationWo
 	{ID: "S6", Scales: []string{"100x4", "10k-x4", "100k-x4", "100x16", "10k-x16", "100k-x16"}, Modes: []string{"direct", "novel"}},
 })
 
-// The source-controlled baseline currently implements only the non-publication
-// S1/tiny Pilot. Pilot coverage is intentionally absent here: it cannot satisfy
-// any SF1/SF10 or S1--S6 publication cell. Add a cell only together with its
-// real workload SQL, dataset binding, task definition, oracle, and execution
-// path.
-var baselineImplementedPublicationCells = []publicationCell{}
+// Baseline coverage is derived from the frozen contract and from the real
+// resolver Execute uses, never from a hand-kept list: a cell counts as
+// implemented only when its contract entry decodes, both arm templates render
+// from the Contract Index, and its Products resolve to an approvable Task.
+//
+// S1 and S2 satisfy that as of 2026-08-16; S3--S6 do not, so Baseline stays
+// 20 of 58 and its capability stays false. The non-publication S1/tiny Pilot
+// contributes nothing here and never could: it is not a frozen cell.
+var baselineImplementedPublicationCells = baselineImplementedPublicationCellsFromContract()
 
 // Scale has real handler code for its microbenchmark arms, but the frozen
 // Catalog cannot currently grant a task that carries the complete
