@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "campaign_class": "pilot",
+  "pilot_kind": "baseline_targeted",
+  "campaign_id": "pilot-local-only",
+  "experiment_id": "baseline",
+  "submission_commit": "",
+  "deployments": 1,
+  "warmups": 0,
+  "samples": 1,
+  "random_seed": 20260801,
+  "fresh_root_per_sample": true,
+  "workloads": [
+    {
+      "id": "S1",
+      "scales": [
+        "SF1",
+        "SF10"
+      ],
+      "modes": [
+        "direct",
+        "novel",
+        "semantic_replay",
+        "idempotent_replay",
+        "normalized_rewrite_replay"
+      ]
+    },
+    {
+      "id": "S2",
+      "scales": [
+        "SF1",
+        "SF10"
+      ],
+      "modes": [
+        "direct",
+        "novel",
+        "semantic_replay",
+        "idempotent_replay",
+        "normalized_rewrite_replay"
+      ]
+    }
+  ]
+}

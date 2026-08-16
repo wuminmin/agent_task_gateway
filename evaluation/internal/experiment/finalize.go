@@ -136,6 +136,17 @@ type Summary struct {
 // profileBindingRequired says when a run must bind every arm to a deployment
 // profile. Synthetic framework smoke stays exempt; anything that can become
 // evidence about a real system does not.
+//
+// baseline_targeted is exempt for a different reason than synthetic_smoke, and
+// the distinction matters: it does run against a real system, but against the
+// master Catalog rather than an activated profile Catalog, because Baseline
+// S1's and S2's closures resolve through the master Catalog's default low
+// route and their registry profiles are not cleared for a targeted run. What a
+// profile binding would prove -- which Catalog bytes the arms executed against
+// -- is proved for those runs by start-fresh-deployment.sh instead, which reads
+// the Catalog back out of the live Gateway, refuses the deployment unless it is
+// byte-identical to config/catalog.yaml, and retains both in the fresh proof.
+// A run that did activate a profile must still bind it.
 func profileBindingRequired(config Config) bool {
 	return config.CampaignClass == "publication" || config.PilotKind == "real_system" ||
 		config.PilotKind == "profile_activation_smoke" || config.PilotKind == "artifact_targeted"

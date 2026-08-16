@@ -340,9 +340,10 @@ func consumeStrictJSONValue(decoder *json.Decoder) error {
 // PilotKinds are the reviewed non-publication run classes.
 // profile_activation_smoke exercises Catalog-bound activation and isolation
 // without executing a workload cell; artifact_targeted executes the frozen
-// Artifact cells for validation only. Both bind every arm to a deployment
-// profile; synthetic_smoke never does.
-var PilotKinds = [...]string{"synthetic_smoke", "real_system", "profile_activation_smoke", "artifact_targeted"}
+// Artifact cells for validation only, and baseline_targeted does the same for
+// Baseline S1 and S2. All three bind every arm to a deployment profile;
+// synthetic_smoke never does.
+var PilotKinds = [...]string{"synthetic_smoke", "real_system", "profile_activation_smoke", "artifact_targeted", "baseline_targeted"}
 
 // ValidPilotKind reports whether a pilot declares a reviewed run class.
 func ValidPilotKind(kind string) bool {
