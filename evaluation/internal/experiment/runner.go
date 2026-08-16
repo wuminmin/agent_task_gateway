@@ -172,9 +172,15 @@ func executeAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 
 	var adapterStderr io.WriteCloser
 	if adapterStderrPath != "" {
-		if config.CampaignClass != "pilot" || config.PilotKind != "artifact_targeted" ||
-			config.ExperimentID != "artifact" {
-			return errors.New("adapter stderr output is restricted to targeted Artifact diagnostics")
+		// Adapter stderr is a diagnostic channel, not evidence, so it stays shut
+		// for anything that could become publication evidence. Both targeted
+		// pilot kinds may open it: the Adapter deliberately reports only
+		// real_measurement_failed into a sample, so without this a targeted run
+		// can observe that a cell failed and never why.
+		targetedDiagnostic := (config.PilotKind == "artifact_targeted" && config.ExperimentID == "artifact") ||
+			(config.PilotKind == "baseline_targeted" && config.ExperimentID == "baseline")
+		if config.CampaignClass != "pilot" || !targetedDiagnostic {
+			return errors.New("adapter stderr output is restricted to targeted diagnostics")
 		}
 		adapterStderr, err = os.OpenFile(adapterStderrPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {

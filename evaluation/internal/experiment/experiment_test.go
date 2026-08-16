@@ -155,8 +155,20 @@ func TestTargetedRunnerCanRetainExactAdapterStderrPrivately(t *testing.T) {
 	nonTargeted.ExperimentID = "attack"
 	nonTargeted.Workloads = []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}}
 	if err := executeAdapterCampaignWithProfile(nonTargeted, "deployment-01", os.Args[0],
-		filepath.Join(directory, "non-targeted.jsonl"), nil, filepath.Join(directory, "forbidden.log")); err == nil || !strings.Contains(err.Error(), "restricted to targeted Artifact diagnostics") {
+		filepath.Join(directory, "non-targeted.jsonl"), nil, filepath.Join(directory, "forbidden.log")); err == nil || !strings.Contains(err.Error(), "restricted to targeted diagnostics") {
 		t.Fatalf("non-targeted stderr retention was not refused: %v", err)
+	}
+	// A targeted pilot kind does not open the channel for a different family:
+	// the kind and the experiment must agree, so baseline_targeted cannot be
+	// used to retain another experiment's adapter stderr.
+	crossFamily := config
+	crossFamily.PilotKind = "baseline_targeted"
+	crossFamily.ExperimentID = "attack"
+	crossFamily.Workloads = []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}}
+	if err := executeAdapterCampaignWithProfile(crossFamily, "deployment-01", os.Args[0],
+		filepath.Join(directory, "cross-family.jsonl"), nil, filepath.Join(directory, "cross.log")); err == nil ||
+		!strings.Contains(err.Error(), "restricted to targeted diagnostics") {
+		t.Fatalf("a mismatched targeted kind opened the stderr channel: %v", err)
 	}
 }
 
