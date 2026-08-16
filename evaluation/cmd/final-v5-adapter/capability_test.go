@@ -212,9 +212,47 @@ func TestIncompleteScaleProfileCannotEnableCapabilities(t *testing.T) {
 		if implementedCapabilities()[experimentID] {
 			t.Fatalf("%s capability was advertised without a routable full matrix", experimentID)
 		}
-		if len(coverage.implemented) != 0 {
-			t.Fatalf("%s registry contains %d cells before real full-profile support", experimentID, len(coverage.implemented))
+		// Scale registers its two kernel workloads, which resolve from frozen
+		// scale specifications alone and bind no Product. dependency-e2e is the
+		// one arm needing an approved Task, and it has never executed, so it
+		// must stay out until it does -- that is what keeps Scale incomplete.
+		for _, cell := range coverage.implemented {
+			if cell.WorkloadID == "dependency-e2e" {
+				t.Fatalf("%s registered dependency-e2e cell %s/%s before it ever executed",
+					experimentID, cell.Scale, cell.Mode)
+			}
+			if cell.WorkloadID != "outcome-merkle" && cell.WorkloadID != "taskgate_scale_extreme" {
+				t.Fatalf("%s registered unknown workload %q", experimentID, cell.WorkloadID)
+			}
 		}
+		if len(coverage.implemented) != 38 {
+			t.Fatalf("%s registry contains %d cells, want the 38 kernel-only cells", experimentID, len(coverage.implemented))
+		}
+	}
+}
+
+// TestScaleKernelCellsMatchTheDispatchTheyClaim pins the registration to the
+// same predicate scale.go dispatches on. A cell advertised here that Execute
+// would refuse is worse than one left unadvertised.
+func TestScaleKernelCellsMatchTheDispatchTheyClaim(t *testing.T) {
+	adapter := &scaleAdapter{}
+	for _, cell := range publicationCoverageGates["scale"].implemented {
+		sample := adapter.Execute(t.Context(), experiment.AdapterOperation{
+			ExperimentID: "scale", WorkloadID: cell.WorkloadID, Scale: cell.Scale, Mode: cell.Mode,
+		})
+		// The cell must get past dispatch. It still fails on the deployment
+		// binding, which is environment rather than implementation, so the one
+		// code it must never return is the dispatch refusal.
+		if sample.ErrorCode == "unsupported_frozen_scale_cell" || sample.ErrorCode == "unsupported_frozen_scale_workload" {
+			t.Fatalf("registered scale cell %s/%s/%s is refused by dispatch",
+				cell.WorkloadID, cell.Scale, cell.Mode)
+		}
+	}
+	refused := adapter.Execute(t.Context(), experiment.AdapterOperation{
+		ExperimentID: "scale", WorkloadID: "outcome-merkle", Scale: "not-frozen", Mode: "merkle_control",
+	})
+	if refused.ErrorCode != "unsupported_frozen_scale_cell" {
+		t.Fatalf("an unfrozen scale was accepted by dispatch: %q", refused.ErrorCode)
 	}
 }
 
@@ -303,8 +341,13 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 	if implementedCapabilities()["scale"] {
 		t.Fatal("Scale capability was advertised when only its reviewed Catalog route is available")
 	}
-	if implemented := len(publicationCoverageGates["scale"].implemented); implemented != 0 {
-		t.Fatalf("Scale coverage advertises %d implemented cells before real full-profile support", implemented)
+	// Scale's registered cells are all kernel-only, so none of them depends on
+	// this route. The route exists and stays unadvertised until dependency-e2e
+	// actually runs through it.
+	for _, cell := range publicationCoverageGates["scale"].implemented {
+		if cell.WorkloadID == "dependency-e2e" {
+			t.Fatalf("Scale advertises dependency-e2e cell %s/%s against an unexercised route", cell.Scale, cell.Mode)
+		}
 	}
 
 	// The reviewed benchmark route deliberately reaches the frozen 100,000-row,

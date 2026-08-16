@@ -119,7 +119,17 @@ var scalePublicationRequirements = append(
 	})...,
 )
 
-var scaleImplementedPublicationCells = []publicationCell{}
+// Scale coverage is derived from the same predicates Execute dispatches on,
+// so a registered cell is one the Adapter can really run. The two kernel
+// workloads qualify: Outcome-Merkle and the extreme storage arm resolve from
+// frozen scale specifications alone, provision no Task and bind no Product, so
+// nothing about the Catalog can make or break them.
+//
+// dependency-e2e is deliberately withheld even though its handler exists. It
+// is the one Scale arm that needs an approved Task over final_v5_exposure_scale
+// and it has never executed, so it stays unimplemented on evidence. Scale
+// therefore reports 38 of 62 and its capability stays false.
+var scaleImplementedPublicationCells = implementedPublicationCells("scale", scalePublicationRequirements)
 
 // artifactRealSystemValidated records whether a targeted, non-publication
 // real-system run has executed all six frozen result-heavy cells end to end --
@@ -258,6 +268,19 @@ func realPublicationCellImplemented(experimentID string, cell publicationCell) b
 			return false
 		}
 		return artifactContractRuntime.VerifyProjectionPrefix() == nil
+	case "scale":
+		// Mirror scale.go's dispatch exactly: same parser, same mode. A cell the
+		// Adapter would refuse must never be advertised as implemented.
+		switch cell.WorkloadID {
+		case "outcome-merkle":
+			_, err := experiment.ParseOutcomeMerkleScale(cell.Scale)
+			return err == nil && cell.Mode == "merkle_control"
+		case "taskgate_scale_extreme":
+			_, err := experiment.ParseExtremeScale(cell.Scale)
+			return err == nil && cell.Mode == "kernel_storage_only"
+		default:
+			return false
+		}
 	case "rq5":
 		for iteration := 1; iteration <= rq5fixture.CyclesPerDeployment; iteration++ {
 			if !rq5fixture.IsCell(cell.WorkloadID, cell.Scale, cell.Mode, iteration) {
