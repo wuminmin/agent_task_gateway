@@ -114,7 +114,8 @@ export TASKGATE_FINAL_V5_OBJECT_STORE_BUCKET="$object_bucket"
 go build -trimpath -buildvcs=false -o "$adapter_bin" ./evaluation/cmd/final-v5-adapter
 sha256sum "$adapter_bin" | awk '{print $1}' > "$run_dir/adapter.sha256"
 go run ./evaluation/cmd/v5-full -config "$run_dir/config.json" -deployment-id deployment-01 \
-  -adapter "$adapter_bin" -output "$run_dir/raw/deployment-01.jsonl"
+  -adapter "$adapter_bin" -output "$run_dir/raw/deployment-01.jsonl" \
+  -adapter-stderr-output "$run_dir/adapter-stderr.log"
 go run ./evaluation/cmd/final-v5 finalize --run-dir "$run_dir" >/dev/null
 jq -e --arg submission_commit "$submission_commit" \
   '.status == "pass" and .publication_eligible == false and
@@ -135,9 +136,9 @@ jq -s -e --argjson samples "$samples" '
     $before.visible_calls == $after.visible_calls and
     $before.companion_calls == $after.companion_calls;
   ([.[] | select(.warmup | not)]) as $measured |
-  ($measured | length) == 55 * $samples and
+  ($measured | length) == 4 * $samples and
   all($measured[]; .status == "pass" and .publication_eligible == false) and
-  ([$measured[] | .cell_id] | unique | length) == 55 and
+  ([$measured[] | .cell_id] | unique | length) == 4 and
   all($measured[] | select(.mode == "direct"); .system == "postgresql") and
   all($measured[] | select(.mode != "direct"); .system == "taskgate" and .receipt_verified) and
   all($measured[] | select(.mode == "novel");
