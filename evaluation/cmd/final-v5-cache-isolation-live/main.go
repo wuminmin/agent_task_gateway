@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"taskbound.local/agent-data-gateway/internal/catalog"
 )
 
 const (
@@ -84,16 +86,19 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
+type registryProfile struct {
+	ID            string `json:"profile_id"`
+	Alias         string `json:"alias"`
+	CatalogSHA256 string `json:"catalog_sha256"`
+	CatalogPath   string `json:"catalog_path"`
+	Closure       struct {
+		Products []string `json:"products"`
+	} `json:"closure"`
+}
+
 type registryDocument struct {
-	ContractRelease string `json:"contract_release"`
-	Profiles        []struct {
-		ID            string `json:"profile_id"`
-		Alias         string `json:"alias"`
-		CatalogSHA256 string `json:"catalog_sha256"`
-		Closure       struct {
-			Products []string `json:"products"`
-		} `json:"closure"`
-	} `json:"profiles"`
+	ContractRelease string            `json:"contract_release"`
+	Profiles        []registryProfile `json:"profiles"`
 }
 
 type intersectionWire struct {
@@ -158,6 +163,12 @@ type executionSnapshot struct {
 
 type businessSnapshot struct{ visible, companion, dealloc, reset int64 }
 
+type taskAuthorization struct {
+	Products []string
+	Columns  map[string][]string
+	Scopes   map[string]any
+}
+
 func run(ctx context.Context, opts options) error {
 	if opts.outputPath == "" || opts.composeProject == "" || opts.deploymentID == "" ||
 		opts.currentProfileID == "" || opts.artifactRoot == "" || opts.artifactManifest == "" ||
@@ -188,15 +199,9 @@ func run(ctx context.Context, opts options) error {
 	if wire.SchemaVersion != 1 || wire.Record != "taskgate-final-v5-product-intersection-v1" {
 		return errors.New("product-intersection identity is not recognised")
 	}
-	profiles := map[string]struct {
-		alias, catalog string
-		products       []string
-	}{}
+	profiles := map[string]registryProfile{}
 	for _, profile := range registry.Profiles {
-		profiles[profile.ID] = struct {
-			alias, catalog string
-			products       []string
-		}{profile.Alias, profile.CatalogSHA256, profile.Closure.Products}
+		profiles[profile.ID] = profile
 	}
 	var pairs []intersectionWirePair
 	for _, pair := range wire.Pairs {
@@ -207,6 +212,23 @@ func run(ctx context.Context, opts options) error {
 	}
 	if len(pairs) == 0 {
 		return errors.New("no overlapping profile pairs require live evidence")
+	}
+	authorizations := map[string]taskAuthorization{}
+	for _, pair := range pairs {
+		for _, profileID := range []string{pair.leftID, pair.rightID} {
+			if _, derived := authorizations[profileID]; derived {
+				continue
+			}
+			profile, found := profiles[profileID]
+			if !found {
+				return fmt.Errorf("profile %s is absent from the registry", profileID)
+			}
+			authorization, err := deriveTaskAuthorization(opts.root, profile, "provsql_orders")
+			if err != nil {
+				return fmt.Errorf("derive task authorization for profile %s: %w", profileID, err)
+			}
+			authorizations[profileID] = authorization
+		}
 	}
 	template, err := os.ReadFile(filepath.Join(opts.root, queryPath))
 	if err != nil {
@@ -260,7 +282,7 @@ func run(ctx context.Context, opts options) error {
 		left, leftOK := profiles[pair.leftID]
 		right, rightOK := profiles[pair.rightID]
 		if !leftOK || !rightOK || !contains(pair.shared, "provsql_orders") ||
-			contains(left.products, negativeProbeProduct) || contains(right.products, negativeProbeProduct) {
+			contains(left.Closure.Products, negativeProbeProduct) || contains(right.Closure.Products, negativeProbeProduct) {
 			return writeFailure(fmt.Errorf("pair %s/%s is not a resolvable provsql_orders overlap", pair.leftID, pair.rightID))
 		}
 		if err := activate(ctx, opts, current, pair.leftID, sequence); err != nil {
@@ -268,7 +290,7 @@ func run(ctx context.Context, opts options) error {
 		}
 		current, sequence = pair.leftID, sequence+1
 		first, _, err := executeQuery(ctx, opts, alice, control, observer,
-			pairKey(pair), "left", query)
+			pairKey(pair), "left", query, authorizations[pair.leftID])
 		if err != nil {
 			return writeFailure(fmt.Errorf("execute left profile for pair %d: %w", index, err))
 		}
@@ -277,11 +299,11 @@ func run(ctx context.Context, opts options) error {
 		}
 		current, sequence = pair.rightID, sequence+1
 		second, delta, err := executeQuery(ctx, opts, alice, control, observer,
-			pairKey(pair), "right", query)
+			pairKey(pair), "right", query, authorizations[pair.rightID])
 		if err != nil {
 			return writeFailure(fmt.Errorf("execute right profile for pair %d: %w", index, err))
 		}
-		novel := first.CatalogSHA256 == left.catalog && second.CatalogSHA256 == right.catalog &&
+		novel := first.CatalogSHA256 == left.CatalogSHA256 && second.CatalogSHA256 == right.CatalogSHA256 &&
 			isSHA256(first.CacheKeySHA256) && isSHA256(second.CacheKeySHA256) &&
 			isSHA256(first.SQLFingerprintSHA256) && isSHA256(second.SQLFingerprintSHA256) &&
 			first.CacheKeySHA256 != second.CacheKeySHA256 && first.SQLFingerprintSHA256 == second.SQLFingerprintSHA256 &&
@@ -320,6 +342,71 @@ func run(ctx context.Context, opts options) error {
 	}
 	fmt.Printf("same-query cross-profile live evidence: pass (%d/%d pairs)\n", document.PassedPairCount, document.PairCount)
 	return nil
+}
+
+func deriveTaskAuthorization(root string, profile registryProfile, selectedProduct string) (taskAuthorization, error) {
+	if profile.CatalogPath == "" || profile.CatalogSHA256 == "" || len(profile.Closure.Products) == 0 {
+		return taskAuthorization{}, errors.New("profile registry entry omits Catalog or Product closure identity")
+	}
+	logical, err := catalog.Load(filepath.Join(root, profile.CatalogPath))
+	if err != nil {
+		return taskAuthorization{}, err
+	}
+	if logical.SHA256 != profile.CatalogSHA256 {
+		return taskAuthorization{}, errors.New("profile Catalog bytes do not match the registry digest")
+	}
+	products := append([]string(nil), profile.Closure.Products...)
+	policy, err := logical.ResolveTaskPolicy(products)
+	if err != nil {
+		return taskAuthorization{}, fmt.Errorf("profile Product closure has no compatible approval route: %w", err)
+	}
+	columns := make(map[string][]string, len(policy.Products))
+	requiredScopes := map[string]bool{}
+	selected := false
+	for _, product := range policy.Products {
+		selected = selected || product.Name == selectedProduct
+		if len(product.Fields) == 0 {
+			return taskAuthorization{}, fmt.Errorf("profile Product %s declares no fields", product.Name)
+		}
+		columns[product.Name] = product.FieldNames()
+		for _, scope := range product.Scopes {
+			requiredScopes[scope] = true
+		}
+	}
+	if !selected {
+		return taskAuthorization{}, fmt.Errorf("profile Product closure omits selected Product %s", selectedProduct)
+	}
+	scopes := make(map[string]any, len(requiredScopes))
+	for name := range requiredScopes {
+		definition, found := catalogScope(logical, name)
+		if !found {
+			return taskAuthorization{}, fmt.Errorf("profile Product closure requires missing scope %s", name)
+		}
+		switch definition.Type {
+		case catalog.ScopeTypeEnum:
+			if len(definition.AllowedValues) == 0 {
+				return taskAuthorization{}, fmt.Errorf("profile scope %s has no allowed values", name)
+			}
+			scopes[name] = append([]string(nil), definition.AllowedValues...)
+		case catalog.ScopeTypeDateRange:
+			if definition.Min == "" || definition.Max == "" {
+				return taskAuthorization{}, fmt.Errorf("profile scope %s has no closed date range", name)
+			}
+			scopes[name] = map[string]any{"from": definition.Min, "to": definition.Max}
+		default:
+			return taskAuthorization{}, fmt.Errorf("profile scope %s has unsupported type", name)
+		}
+	}
+	return taskAuthorization{Products: products, Columns: columns, Scopes: scopes}, nil
+}
+
+func catalogScope(logical *catalog.Catalog, name string) (catalog.Scope, bool) {
+	for _, scope := range logical.Scopes {
+		if scope.Name == name {
+			return scope, true
+		}
+	}
+	return catalog.Scope{}, false
 }
 
 type intersectionWirePair struct {
@@ -371,7 +458,8 @@ func activate(ctx context.Context, opts options, previous, profile string, seque
 }
 
 func executeQuery(ctx context.Context, opts options, alice *mcpClient,
-	control, observer *pgxpool.Pool, pair, side, query string) (executionSnapshot, businessSnapshot, error) {
+	control, observer *pgxpool.Pool, pair, side, query string,
+	authorization taskAuthorization) (executionSnapshot, businessSnapshot, error) {
 	aliceOA, err := oaClient(opts.oaURL, "alice", os.Getenv(opts.alicePasswordEnv), opts.readyTimeout)
 	if err != nil {
 		return executionSnapshot{}, businessSnapshot{}, err
@@ -386,9 +474,9 @@ func executeQuery(ctx context.Context, opts options, alice *mcpClient,
 	}
 	if err := alice.call(ctx, "request_data_task", map[string]any{
 		"objective":     "P26 same-query cross-profile live " + pair + " " + side,
-		"data_products": []string{"provsql_orders"},
-		"columns":       map[string][]string{"provsql_orders": {"orderkey", "status", "partition_key"}},
-		"scopes":        map[string][]string{"partition_key": {"1"}},
+		"data_products": authorization.Products,
+		"columns":       authorization.Columns,
+		"scopes":        authorization.Scopes,
 	}, &created); err != nil {
 		return executionSnapshot{}, businessSnapshot{}, err
 	}
