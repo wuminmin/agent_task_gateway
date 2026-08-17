@@ -419,3 +419,25 @@ oracles, campaigns, or the paper are complete.
     binding: option C remains prohibited. It approves design and zero-deployment
     implementation work only; it does not approve a live run, measurement,
     capability flip, release, campaign, publication evidence, or tag.
+
+28. **Use delegated child tasks for the concurrency contenders.** (Taken
+    2026-08-17 by author wuminmin, answered exactly "选A" in the agent
+    conversation to the options reported from ledger row
+    `P34-concurrency-budget-model BLOCKED`.) The selected option was:
+    **"A（建议）以 `experiment-guide` 为权威，改 evaluation harness 为一个 root +
+    width 个 delegated child tasks，validator 强制 child task identities 各异但 root
+    相同，同时修 serial prefix 的独立 canonical identity；因 contract-indexed Catalog
+    明写 `never child tasks`，需按冻结流程修订相应声明/字节后再实现。"** The
+    concurrency experiment therefore retains concurrent settlement,
+    exactly-one-winner, and natural-CAS-conflict claims under one closed root
+    task family. Option C, changing Gateway `internal/` reservation semantics,
+    remains prohibited.
+
+    The Catalog declaration that says `never child tasks` is revised only
+    through the freeze process. Its candidate bytes and the v1.10 provenance
+    material are to be combined into one author-signing session; preparing a
+    review candidate does not install or approve frozen bytes. This decision
+    approves the zero-deployment evaluation harness, validator, fixture, and
+    freeze-candidate preparation work only. It does not approve any candidate
+    byte, contract release, provenance record, live run, measurement,
+    capability flip, campaign, publication evidence, or tag.
