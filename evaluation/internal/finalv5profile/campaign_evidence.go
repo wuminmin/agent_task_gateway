@@ -17,6 +17,8 @@ import (
 
 const ProfileCampaignEvidenceVersion = "taskgate-final-v5-profile-campaign-evidence-v1"
 
+const profileCampaignSampleV1Record = "taskgate-final-v5-profile-campaign-sample-v1"
+
 type CampaignEvidenceFile struct {
 	Kind       string `json:"kind"`
 	Experiment string `json:"experiment,omitempty"`
@@ -425,24 +427,12 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 	lines := 0
 	for scanner.Scan() {
 		lines++
-		var sample struct {
-			CampaignID          string `json:"campaign_id"`
-			CampaignClass       string `json:"campaign_class"`
-			DeploymentID        string `json:"deployment_id"`
-			ExperimentID        string `json:"experiment_id"`
-			CellID              string `json:"cell_id"`
-			Status              string `json:"status"`
-			PublicationEligible bool   `json:"publication_eligible"`
-			ProfileBinding      *struct {
-				ProfileID     string `json:"profile_id"`
-				CatalogSHA256 string `json:"catalog_sha256"`
-			} `json:"profile_binding"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &sample); err != nil {
+		sample, campaignClass, err := decodeCampaignJSONLLine(scanner.Bytes())
+		if err != nil {
 			return fmt.Errorf("decode JSONL line %d: %w", lines, err)
 		}
 		identity := sample.ExperimentID + "/" + sample.CellID
-		if sample.CampaignID != campaignID || sample.CampaignClass != "pilot" ||
+		if sample.CampaignID != campaignID || campaignClass != "pilot" ||
 			sample.DeploymentID != "deployment-01" || sample.ExperimentID != experiment ||
 			sample.Status != "pass" || sample.PublicationEligible || !allowed[identity] ||
 			sample.ProfileBinding == nil || sample.ProfileBinding.ProfileID != planned.ProfileID ||
@@ -461,6 +451,66 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 		return errors.New("raw JSONL is empty")
 	}
 	return nil
+}
+
+type campaignJSONLSample struct {
+	CampaignID          string `json:"campaign_id"`
+	CampaignClass       string `json:"campaign_class"`
+	DeploymentID        string `json:"deployment_id"`
+	ExperimentID        string `json:"experiment_id"`
+	CellID              string `json:"cell_id"`
+	Status              string `json:"status"`
+	PublicationEligible bool   `json:"publication_eligible"`
+	ProfileBinding      *struct {
+		ProfileID     string `json:"profile_id"`
+		CatalogSHA256 string `json:"catalog_sha256"`
+	} `json:"profile_binding"`
+}
+
+func decodeCampaignJSONLLine(line []byte) (campaignJSONLSample, string, error) {
+	var discriminator struct {
+		Record        string          `json:"record"`
+		CampaignClass string          `json:"campaign_class"`
+		Sample        json.RawMessage `json:"sample"`
+	}
+	if err := json.Unmarshal(line, &discriminator); err != nil {
+		return campaignJSONLSample{}, "", err
+	}
+	if discriminator.Sample != nil {
+		if discriminator.Record != profileCampaignSampleV1Record {
+			return campaignJSONLSample{}, "", errors.New("profile campaign sample envelope has a missing or unknown record")
+		}
+		var envelope struct {
+			SchemaVersion int             `json:"schema_version"`
+			Record        string          `json:"record"`
+			CampaignClass string          `json:"campaign_class"`
+			Sample        json.RawMessage `json:"sample"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(string(line)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&envelope); err != nil {
+			return campaignJSONLSample{}, "", fmt.Errorf("decode profile campaign sample envelope: %w", err)
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return campaignJSONLSample{}, "", errors.New("profile campaign sample envelope has trailing JSON")
+		}
+		if envelope.SchemaVersion != 1 || envelope.Record != profileCampaignSampleV1Record {
+			return campaignJSONLSample{}, "", errors.New("profile campaign sample envelope has an unknown record version")
+		}
+		if envelope.CampaignClass != "pilot" {
+			return campaignJSONLSample{}, "", errors.New("profile campaign sample envelope is not runner-stamped as pilot")
+		}
+		var sample campaignJSONLSample
+		if err := json.Unmarshal(envelope.Sample, &sample); err != nil {
+			return campaignJSONLSample{}, "", fmt.Errorf("decode nested profile campaign sample: %w", err)
+		}
+		return sample, envelope.CampaignClass, nil
+	}
+	var sample campaignJSONLSample
+	if err := json.Unmarshal(line, &sample); err != nil {
+		return campaignJSONLSample{}, "", err
+	}
+	return sample, sample.CampaignClass, nil
 }
 
 func validateCleanup(root string, files []CampaignEvidenceFile) error {

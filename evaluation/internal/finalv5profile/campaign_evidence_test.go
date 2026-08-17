@@ -46,7 +46,8 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 			"status": "pass", "containers": 0, "volumes": 0, "networks": 0,
 		}),
 		campaignFixtureFile(t, root, "selected_cells", "rls", "cells.json", []string{profile.Cells[0]}),
-		campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", json.RawMessage(`{"campaign_id":"p30","campaign_class":"pilot","deployment_id":"deployment-01","experiment_id":"rls","cell_id":"workload/scale/bounded","status":"pass","publication_eligible":false,"profile_binding":{"profile_id":"profile-1111111111111111","catalog_sha256":"`+profile.CatalogSHA256+`"}}`)),
+		campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", campaignEnvelopeFixture(
+			campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true)),
 	}
 	record := ProfileCampaignDeploymentRecord{SchemaVersion: 1, CampaignID: "p30", CampaignClass: "pilot",
 		SubmissionCommit: commit, ComposeProject: "project", ProfileID: profile.ProfileID, ProfileAlias: profile.Alias,
@@ -74,6 +75,129 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 	if _, err := MergeProfileCampaignEvidence(plan, strings.Repeat("f", 64), root, "p30", commit, 1,
 		[]string{profile.Alias}, []string{recordPath}); err == nil {
 		t.Fatal("a per-deployment commit drift was merged")
+	}
+}
+
+func TestCampaignEvidenceJSONLAcceptsBareSample(t *testing.T) {
+	profile := campaignJSONLTestProfile([]string{"rls/workload/scale/bounded"})
+	sample := campaignSampleFixture(profile, "workload/scale/bounded", false)
+	sample["campaign_class"] = "pilot"
+	path := filepath.Join(t.TempDir(), "bare.jsonl")
+	campaignWriteJSONL(t, path, sample)
+	observed := map[string]bool{}
+	if err := validateCampaignJSONL(path, "p30", "rls", profile, observed); err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != 1 {
+		t.Fatalf("observed cells = %d, want 1", len(observed))
+	}
+}
+
+func TestCampaignEvidenceJSONLAcceptsMixedEnvelopeAndBareSamples(t *testing.T) {
+	profile := campaignJSONLTestProfile([]string{
+		"rls/workload/scale/bounded",
+		"rls/workload-2/scale/bounded",
+	})
+	enveloped := campaignEnvelopeFixture(campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true)
+	bare := campaignSampleFixture(profile, "workload-2/scale/bounded", false)
+	bare["campaign_class"] = "pilot"
+	path := filepath.Join(t.TempDir(), "mixed.jsonl")
+	campaignWriteJSONL(t, path, enveloped, bare)
+	observed := map[string]bool{}
+	if err := validateCampaignJSONL(path, "p30", "rls", profile, observed); err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != 2 {
+		t.Fatalf("observed cells = %d, want 2", len(observed))
+	}
+}
+
+func TestCampaignEvidenceJSONLRejectsMalformedEnvelopes(t *testing.T) {
+	profile := campaignJSONLTestProfile([]string{"rls/workload/scale/bounded"})
+	unknownField := campaignEnvelopeFixture(
+		campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true)
+	unknownField["unexpected"] = true
+	tests := []struct {
+		name     string
+		envelope map[string]any
+	}{
+		{name: "missing record", envelope: campaignEnvelopeFixture(
+			campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", false)},
+		{name: "wrong campaign class", envelope: campaignEnvelopeFixture(
+			campaignSampleFixture(profile, "workload/scale/bounded", false), "publication", true)},
+		{name: "publication eligible nested sample", envelope: campaignEnvelopeFixture(
+			campaignSampleFixture(profile, "workload/scale/bounded", true), "pilot", true)},
+		{name: "unknown envelope field", envelope: unknownField},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "invalid.jsonl")
+			campaignWriteJSONL(t, path, test.envelope)
+			if err := validateCampaignJSONL(path, "p30", "rls", profile, map[string]bool{}); err == nil {
+				t.Fatal("malformed profile campaign envelope was accepted")
+			}
+		})
+	}
+}
+
+func campaignJSONLTestProfile(cells []string) PlannedDeploy {
+	return PlannedDeploy{
+		ProfileID:     "profile-1111111111111111",
+		CatalogSHA256: strings.Repeat("b", 64),
+		Cells:         cells,
+	}
+}
+
+func campaignSampleFixture(profile PlannedDeploy, cellID string, publicationEligible bool) map[string]any {
+	return map[string]any{
+		"schema_version":       1,
+		"campaign_id":          "p30",
+		"deployment_id":        "deployment-01",
+		"experiment_id":        "rls",
+		"cell_id":              cellID,
+		"sample_id":            "deployment-01-p01-sample-0001",
+		"iteration":            1,
+		"process_replicate":    1,
+		"status":               "pass",
+		"publication_eligible": publicationEligible,
+		"profile_binding": map[string]any{
+			"version":        "taskgate-final-v5-profile-binding-v1",
+			"profile_id":     profile.ProfileID,
+			"catalog_sha256": profile.CatalogSHA256,
+		},
+		"rls_verification":       map[string]any{"version": "taskgate-final-v5-rls-evidence-v1"},
+		"taskgate_acceptance_v3": nil,
+		"taskgate_rejection_v1":  nil,
+	}
+}
+
+func campaignEnvelopeFixture(sample map[string]any, campaignClass string, includeRecord bool) map[string]any {
+	envelope := map[string]any{
+		"schema_version": 1,
+		"campaign_class": campaignClass,
+		"sample":         sample,
+	}
+	if includeRecord {
+		envelope["record"] = profileCampaignSampleV1Record
+	}
+	return envelope
+}
+
+func campaignWriteJSONL(t *testing.T, path string, values ...any) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(file)
+	for _, value := range values {
+		if err := encoder.Encode(value); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
