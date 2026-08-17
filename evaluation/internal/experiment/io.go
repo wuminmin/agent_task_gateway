@@ -40,6 +40,17 @@ func (writer *JSONLWriter) Write(sample Sample) error {
 	return writer.encoder.Encode(sample)
 }
 
+func (writer *JSONLWriter) WriteProfileCampaignSample(campaignClass string, sample Sample) error {
+	if writer == nil || writer.file == nil {
+		return errors.New("JSONL writer is closed")
+	}
+	record := NewProfileCampaignSampleV1(campaignClass, sample)
+	if err := record.Validate(); err != nil {
+		return err
+	}
+	return writer.encoder.Encode(record)
+}
+
 func (writer *JSONLWriter) Close() error {
 	if writer == nil || writer.file == nil {
 		return nil
@@ -65,6 +76,23 @@ func ReadSamples(paths []string) ([]Sample, error) {
 		line := 0
 		for scanner.Scan() {
 			line++
+			var discriminator struct {
+				Record string `json:"record"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &discriminator); err == nil &&
+				discriminator.Record == ProfileCampaignSampleV1Record {
+				var record ProfileCampaignSampleV1
+				if err := StrictJSON(scanner.Bytes(), &record); err != nil {
+					file.Close()
+					return nil, fmt.Errorf("%s:%d: %w", path, line, err)
+				}
+				if err := record.Validate(); err != nil {
+					file.Close()
+					return nil, fmt.Errorf("%s:%d: %w", path, line, err)
+				}
+				samples = append(samples, record.Sample)
+				continue
+			}
 			var sample Sample
 			if err := StrictJSON(scanner.Bytes(), &sample); err != nil {
 				file.Close()

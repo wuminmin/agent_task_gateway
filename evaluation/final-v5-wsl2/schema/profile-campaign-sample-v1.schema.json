@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "taskgate-final-v5-profile-campaign-sample-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record",
+    "campaign_class",
+    "sample"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record": {
+      "const": "taskgate-final-v5-profile-campaign-sample-v1"
+    },
+    "campaign_class": {
+      "const": "pilot"
+    },
+    "sample": {
+      "oneOf": [
+        {
+          "$ref": "sample-v1.schema.json"
+        },
+        {
+          "$ref": "sample-v2.schema.json"
+        },
+        {
+          "$ref": "sample-v3.schema.json"
+        }
+      ]
+    }
+  }
+}

@@ -410,10 +410,9 @@ for alias in "${selected_profiles[@]}"; do
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id deployment-01 \
         -adapter "$adapter" -profile-binding "$profile_binding" -selected-cells "$selected" -output "$raw" \
         >"$current_dir/$experiment.log" 2>&1
-      jq -e -s --slurpfile selected "$selected" '
-        (map(.experiment_id + "/" + .cell_id) | sort) == ($selected[0] | sort) and
-        all(.[]; .campaign_class == "pilot" and .publication_eligible == false and .status == "pass" and
-          .taskgate_acceptance_v3 != null and .taskgate_rejection_v1 == null)' "$raw" >/dev/null || {
+      GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
+        -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
+        -campaign-class pilot -samples-per-cell 1 >/dev/null || {
         echo "$deployment_key/$experiment retained a failed or misrouted cell" >&2; exit 1; }
       echo "P30-STAGE: cells=pass deployment=$deployment_key experiment=$experiment count=$(jq -s 'length' "$raw")"
     done

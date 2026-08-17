@@ -20,6 +20,8 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`-profile-alias "$alias"`,
 		`export TASKGATE_FINAL_V5_PROFILE_ALIAS="$alias"`,
 		`-selected-cells "$selected"`,
+		`final-v5-launcher-gate`,
+		`-campaign-class pilot -samples-per-cell 1`,
 		`final-v5-profile-artifacts`,
 		`record-pilot-gateway-image.sh`,
 		`down --volumes --remove-orphans`,
@@ -30,6 +32,9 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		if !strings.Contains(script, required) {
 			t.Fatalf("profile campaign launcher lacks %q", required)
 		}
+	}
+	if strings.Contains(script, `.taskgate_acceptance_v3 != null and .taskgate_rejection_v1 == null`) {
+		t.Fatal("profile campaign launcher still applies one finalizer shape to every experiment")
 	}
 	if strings.Count(script, `git rev-parse HEAD`) != 1 {
 		t.Fatal("submission commit must be read only for the launch-time fixed-input assertion")

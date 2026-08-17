@@ -213,6 +213,12 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 			_ = writer.Close()
 		}
 	}()
+	writeRetained := writer.Write
+	if config.PilotKind == "real_system" {
+		writeRetained = func(sample Sample) error {
+			return writer.WriteProfileCampaignSample(config.CampaignClass, sample)
+		}
+	}
 
 	processes := config.ProcessReplicates
 	if processes == 0 {
@@ -229,7 +235,7 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 		for index := range operations {
 			op := operations[index]
 			if samples[index] == nil {
-				if writeErr := writer.Write(invalidAdapterSample(op, "adapter_process_failure")); writeErr != nil {
+				if writeErr := writeRetained(invalidAdapterSample(op, "adapter_process_failure")); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -237,7 +243,7 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 			sample := *samples[index]
 			if err := validateAdapterSample(config, op, sample, seenFreshRoots, rootGroups); err != nil {
 				campaignErrors = append(campaignErrors, fmt.Errorf("adapter sample %s: %w", op.SampleID, err))
-				if writeErr := writer.Write(invalidAdapterSample(op, "adapter_sample_validation_failure")); writeErr != nil {
+				if writeErr := writeRetained(invalidAdapterSample(op, "adapter_sample_validation_failure")); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -248,13 +254,13 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 				// retain it in JSONL so the requested operation is never erased.
 				if sample.Status != "pass" {
 					campaignErrors = append(campaignErrors, fmt.Errorf("adapter warmup %s returned status %s", op.SampleID, sample.Status))
-					if err := writer.Write(sample); err != nil {
+					if err := writeRetained(sample); err != nil {
 						return err
 					}
 				}
 				continue
 			}
-			if err := writer.Write(sample); err != nil {
+			if err := writeRetained(sample); err != nil {
 				return err
 			}
 		}
