@@ -2,14 +2,14 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-contract-sql-executability-v1",
   "contract_release": "final-v5-contracts-v1.10",
-  "contract_index_sha256": "5f775d848cee2bc51a64dc90029b7d64078da85b4a7d449cdf32c43214158aeb",
+  "contract_index_sha256": "d38122ed173bce4310083569c216685eebc098cf6e5480513f898321c8c46ff9",
   "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "postgresql_server_version_num": "160014",
   "checked_artifacts": [
     {
       "kind": "catalog_candidate",
       "path": "catalog/benchmark-contract-v1.yaml",
-      "sha256": "dcb26eaabe6e5612d4d58ddf09dcfbf9e7db00e1a37570ced6e6af0259bbd243",
+      "sha256": "9d43f8206879423cae808b9d8ffa10e1bf57334019f5672a86d6f0c23b8d4772",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",

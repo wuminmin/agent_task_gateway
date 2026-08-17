@@ -19,17 +19,17 @@ import (
 )
 
 const (
-	// C2ApprovalRelativePath is the v1.8 reseal approval accepted for P4.0-E1.
-	C2ApprovalRelativePath = "evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v2.json"
-	// C2CandidateRelativePath is the exact pre-generation candidate re-approved
-	// by Decision 23 for the v1.8 reseal. Generated evidence refers back to these
+	// C2ApprovalRelativePath is the v1.10 cascade-reseal approval candidate.
+	C2ApprovalRelativePath = "evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v3.json"
+	// C2CandidateRelativePath is the exact pre-generation candidate prepared
+	// under Decision 29 for the v1.10 reseal. Generated evidence refers back to these
 	// bytes instead of changing author_approved in place.
 	C2CandidateRelativePath = "evaluation/final-v5-wsl2/publication-review/exposure-scale-v1/review.json"
 
-	C2ApprovalSHA256  = "68ba0292d01b445041295e29ecf9c54fbb8f5fa8b901f8f5f53f3ea75949a317"
-	C2CandidateSHA256 = "f39e31dbc1fd8f2c4d33b98aa9734282eeb8fba22c78b238b42991f43345015f"
+	C2ApprovalSHA256  = "b7864905c8e257abc2c6688e5ef2dab478f6f338ab0fdc26723f69f07a76e6c6"
+	C2CandidateSHA256 = "84e8d53e3e635337917bb17ff263f6a3eed237d48d874541752dd28b2f164d55"
 
-	c2ApprovalBytes  = 1259
+	c2ApprovalBytes  = 1271
 	c2CandidateBytes = 10824
 	inputMaxBytes    = 1 << 20
 )
@@ -144,13 +144,13 @@ type reviewFile struct {
 
 var expectedC2Approval = approvalDocument{
 	Version:        "taskgate-final-v5-exposure-scale-review-approval-v1",
-	ApprovalID:     "APPROVE-C2-v1.8",
+	ApprovalID:     "APPROVE-C2-v1.10",
 	ApprovalStatus: "AUTHOR_APPROVED",
 	Author: approvalAuthor{
 		Name:             "wuminmin",
-		ApprovedOn:       "2026-08-14",
+		ApprovedOn:       "2026-08-17",
 		DecisionDocument: "docs/final_v5_author_decisions.md",
-		DecisionNumber:   23,
+		DecisionNumber:   29,
 	},
 	ApprovedCandidate: approvalCandidate{
 		Path: C2CandidateRelativePath, SHA256: C2CandidateSHA256, Bytes: c2CandidateBytes,
@@ -163,7 +163,7 @@ var expectedC2Approval = approvalDocument{
 		SetAlgebra:      "NOT_GENERATED",
 	},
 	Scope: approvalScope{
-		Task: "P4.0-E1", OutputStatus: "REVIEW_CANDIDATE",
+		Task: "P39-cascade-reseal", OutputStatus: "REVIEW_CANDIDATE",
 		ScaleCells: 12, ArtifactCells: 6, ProvSQLCells: 105,
 	},
 	Exclusions: approvalExclusions{
@@ -178,7 +178,7 @@ var expectedC2Approval = approvalDocument{
 	},
 }
 
-// ValidateC2Approval validates the fixed Decision-23 v1.8 reseal approval and
+// ValidateC2Approval validates the fixed Decision-29 v1.10 reseal approval candidate and
 // the exact four-file C2 review closure below repositoryRoot. It accepts tracked 0644
 // inputs but rejects group/world-writable inputs; generated private outputs
 // have the stricter mode-0600 contract implemented in io.go.
@@ -201,7 +201,7 @@ func ValidateC2Approval(repositoryRoot string) (ApprovalEvidence, error) {
 		return evidence, fmt.Errorf("decode C2 approval record: %w", err)
 	}
 	if !reflect.DeepEqual(approval, expectedC2Approval) {
-		return evidence, errors.New("C2 approval record differs from exact Decision 20 authority, scope, or exclusions")
+		return evidence, errors.New("C2 approval record differs from exact Decision 29 authority, scope, or exclusions")
 	}
 	if approvalInfo.Size() != c2ApprovalBytes || sha256Hex(approvalBytes) != C2ApprovalSHA256 {
 		return evidence, errors.New("C2 approval record bytes differ from the committed approval anchor")
@@ -242,7 +242,7 @@ func ValidateC2Approval(repositoryRoot string) (ApprovalEvidence, error) {
 		candidateInfo.Size() != c2CandidateBytes ||
 		sha256Hex(candidateBytes) != approval.ApprovedCandidate.SHA256 ||
 		sha256Hex(candidateBytes) != C2CandidateSHA256 {
-		return evidence, errors.New("C2 approved candidate bytes differ from Decision 20")
+		return evidence, errors.New("C2 approved candidate bytes differ from Decision 29")
 	}
 	if review.Version != approval.ApprovedCandidateState.Version ||
 		review.Status != approval.ApprovedCandidateState.Status ||

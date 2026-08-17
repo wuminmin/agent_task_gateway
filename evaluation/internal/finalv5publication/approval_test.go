@@ -18,9 +18,9 @@ func TestValidateC2Approval(t *testing.T) {
 	if evidence.Approval.SHA256 != C2ApprovalSHA256 || evidence.Candidate.SHA256 != C2CandidateSHA256 {
 		t.Fatalf("wrong approval anchors: %+v", evidence)
 	}
-	if evidence.ApprovalID != "APPROVE-C2-v1.8" || evidence.Author != "wuminmin" ||
-		evidence.ApprovedOn != "2026-08-14" || evidence.DecisionNumber != 23 || len(evidence.CompanionFiles) != 3 {
-		t.Fatalf("incomplete Decision-20 evidence: %+v", evidence)
+	if evidence.ApprovalID != "APPROVE-C2-v1.10" || evidence.Author != "wuminmin" ||
+		evidence.ApprovedOn != "2026-08-17" || evidence.DecisionNumber != 29 || len(evidence.CompanionFiles) != 3 {
+		t.Fatalf("incomplete Decision-29 evidence: %+v", evidence)
 	}
 	if evidence.CandidateState.Status != "REVIEW_CANDIDATE" || evidence.CandidateState.AuthorApproved ||
 		evidence.CandidateState.OutcomeIdentity != "NOT_GENERATED" || evidence.CandidateState.SetAlgebra != "NOT_GENERATED" {
@@ -94,8 +94,8 @@ func TestValidateC2ApprovalRejectsAuthorityAndByteDrift(t *testing.T) {
 		value = bytes.Replace(value, []byte(`"scale_cells": 12`), []byte(`"scale_cells": 13`), 1)
 		writeFile(t, path, value)
 		_, err := ValidateC2Approval(root)
-		if err == nil || !strings.Contains(err.Error(), "Decision 20") {
-			t.Fatalf("error = %v, want exact Decision 20 rejection", err)
+		if err == nil || !strings.Contains(err.Error(), "Decision 29") {
+			t.Fatalf("error = %v, want exact Decision 29 rejection", err)
 		}
 	})
 	t.Run("candidate state drift", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestValidateC2ApprovalRejectsAuthorityAndByteDrift(t *testing.T) {
 		value = bytes.Replace(value, []byte(`"outcome_identity": "NOT_GENERATED"`), []byte(`"outcome_identity": "GENERATED"`), 1)
 		writeFile(t, path, value)
 		_, err := ValidateC2Approval(root)
-		if err == nil || (!strings.Contains(err.Error(), "Decision 20") && !strings.Contains(err.Error(), "pre-generation")) {
+		if err == nil || (!strings.Contains(err.Error(), "Decision 29") && !strings.Contains(err.Error(), "pre-generation")) {
 			t.Fatalf("error = %v, want candidate-state rejection", err)
 		}
 	})

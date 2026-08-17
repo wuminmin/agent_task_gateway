@@ -140,7 +140,7 @@ type GenerationSummary struct {
 	SetAlgebraSHA256           string           `json:"set_algebra_sha256"`
 }
 
-// GeneratePublicationBinding validates Decision 20 first, then performs the
+// GeneratePublicationBinding validates Decision 29 first, then performs the
 // live reads, constructs exact bytes in memory, and finally creates the closed
 // output directory exclusively. No output exists before the live run succeeds.
 func GeneratePublicationBinding(ctx context.Context, options GenerateOptions) (GenerationSummary, error) {

@@ -20,7 +20,7 @@ func TestLoadGenerationMaterialsEnumeratesExactSourceInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if materials.approval.ApprovalID != "APPROVE-C2-v1.8" ||
+	if materials.approval.ApprovalID != "APPROVE-C2-v1.10" ||
 		materials.decision.Path != "docs/final_v5_author_decisions.md" ||
 		materials.baseCatalog.Path != baseCatalogRelativePath ||
 		materials.approvedScaleCatalog.SHA256 != approvedC2ScaleCatalogSHA256 ||

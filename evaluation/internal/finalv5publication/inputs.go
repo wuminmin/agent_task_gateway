@@ -59,7 +59,7 @@ func loadGenerationMaterials(repositoryRoot string) (generationMaterials, error)
 	if err != nil {
 		return result, err
 	}
-	result.decision, _, err = readRepositoryEvidence(root, result.approval.DecisionPath, "Decision 20 document")
+	result.decision, _, err = readRepositoryEvidence(root, result.approval.DecisionPath, "Decision 29 document")
 	if err != nil {
 		return result, err
 	}

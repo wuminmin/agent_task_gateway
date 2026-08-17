@@ -44,13 +44,13 @@ const (
 	reviewSemanticRole     = "union"
 	reviewScaleAnchor      = "1035000-overlap-0"
 	reviewScaleUnionSHA    = "4354d04853af871bc62d3eba9d51b2da2b1abe9e8e365bcf307e3d7ccd50f02f"
-	reviewScaleNovelSHA    = "c0dc2d9f588bd57a2bcbded3fbdb85abf09f29d2cb3551bf75a7d1346a304cb9"
-	reviewScaleReplaySHA   = "3d1037c6dbfb1f4a33793b062f100bf35e71b2818a164e14eb0569178f323679"
+	reviewScaleNovelSHA    = "31e2da45f413c7ddc2b43399ec652d5a62d7be8e24fdfe5ef36319098bec52b7"
+	reviewScaleReplaySHA   = "13a65cf81e70bcf4bc3d228d01905d684895c6b33effb166e90d8149ebbfd341"
 	reviewManifestMaxBytes = 1 << 20
 	reviewSetMemoryMembers = 64 * 1024
 	reviewSetSampleMembers = 8
-	provSQLManifestSetSHA  = "c7b2a8db21a8c2516ee667780d53e5a485be8e12a16907463727a69e8a2b7f8d"
-	scaleManifestSetSHA    = "024e19897d8cd035de8419ffe5c8952b3e43cb194359b62d3d0af6002f18adf1"
+	provSQLManifestSetSHA  = "5100c89588eda629f5823af4517a039d7fd20d21ef8e82088edf4a9567f93cb1"
+	scaleManifestSetSHA    = "db02485deb8a92cc16746e91ecdea79ebd2a08d170d2e9fcb0e257c41d3646d7"
 )
 
 type generateOptions struct {

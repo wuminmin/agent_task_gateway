@@ -15,7 +15,7 @@ const (
 	ProvSQLManifestGeneratorVersion = "taskgate-final-v5-provsql-semantic-manifest-v1"
 
 	ProvSQLDatasetSpecSHA256       = "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027"
-	ProvSQLCatalogSpecSHA256       = "dcb26eaabe6e5612d4d58ddf09dcfbf9e7db00e1a37570ced6e6af0259bbd243"
+	ProvSQLCatalogSpecSHA256       = "9d43f8206879423cae808b9d8ffa10e1bf57334019f5672a86d6f0c23b8d4772"
 	ProvSQLNormalizationSpecSHA256 = "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816"
 	ProvSQLCombinedQuerySpecSHA256 = "017c9a9e8b51ac41c9ee4a26e1e4f47c63934c170a37a4e7d066ba30bb4ac1fb"
 	ProvSQLOrdersSnapshotSHA256    = "830f9584a2a919af819131420ee4fc33c795095302387312c92349164b094ef1"

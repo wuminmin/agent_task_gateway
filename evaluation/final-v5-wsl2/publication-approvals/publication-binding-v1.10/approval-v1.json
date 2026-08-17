@@ -1,0 +1,63 @@
+{
+  "version": "taskgate-final-v5-publication-binding-provenance-approval-v1",
+  "approval_id": "APPROVE_PUBLICATION_BINDING_V1_10_CASCADE_RESEAL",
+  "approval_status": "AUTHOR_APPROVED",
+  "author": {
+    "name": "wuminmin",
+    "approved_on": "2026-08-17",
+    "decision_record": "docs/final_v5_author_decisions.md",
+    "decision_number": 29
+  },
+  "approved_candidate": {
+    "path": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1.10/publication-binding.provenance.json",
+    "sha256": "0e6aaa4237ec0307d67659fc775d7fb444dcf432c984ca3e02f2d4b7cf0336ea",
+    "bytes": 240264
+  },
+  "approved_candidate_state": {
+    "version": "taskgate-final-v5-publication-binding-provenance-v1",
+    "status": "REVIEW_CANDIDATE",
+    "author_approved": false,
+    "e2_exact_byte_review": "REQUIRED"
+  },
+  "companion_bytes": {
+    "publication_binding_json": {
+      "sha256": "f391c78a67f5797cc89fb2ca64ed313a805ea10bbdd6e5f9bfee89afe8084e6e",
+      "bytes": 110584
+    },
+    "catalog_yaml": {
+      "sha256": "7e099ee0d74247c4d1097567cc345aba2f1e2a29c1e1c707abebbf549a6abc32",
+      "bytes": 26349
+    },
+    "statement": "The v1.10 cascade reseal changes only Catalog-domain-bound identities and their closed provenance: 73 of 1419 binding scalar paths differ, with no added or removed leaves and no cardinality change."
+  },
+  "contract_release": "final-v5-contracts-v1.10",
+  "approved_scope": {
+    "task": "P39-cascade-reseal",
+    "statement": "Approves the exact v1.10 publication binding provenance and its two companion files regenerated after the Decision 29 Catalog cascade reseal.",
+    "binding_delta_from_v1_8": {
+      "total_scalar_leaves": 1419,
+      "added_or_removed_leaves": 0,
+      "differing_scalar_paths": 73,
+      "classes": [
+        "the Catalog SHA-256 anchor",
+        "the 72 Scale outcome-candidate identities derived across 12 cells"
+      ],
+      "no_cardinality_changed": true
+    },
+    "independent_oracle_coverage": "Unchanged: Scale candidate and history Result; Scale candidate, history and union Dependency; candidate-only five-member ordinary Outcome sets; Artifact Result only; ProvSQL Result and candidate Dependency."
+  },
+  "exclusions": {
+    "publication_eligibility": "NOT_APPROVED",
+    "completed_formal_campaign": "NOT_CLAIMED",
+    "taskgate_runtime_observations": "NOT_CLAIMED",
+    "capability": "NOT_APPROVED",
+    "contract_release_tag": "NOT_PUSHED",
+    "p5_measurement": "NOT_RUN"
+  },
+  "reproduction": {
+    "command": "final-v5-publication-binding validate --repo-root <repo> --input-dir <copy of publication-binding-v1.10>",
+    "observed_exit_code": 0,
+    "binding_input_identity_sha256": "b493a11ccada96824bf5cfd1bfef3bad7d9404123d48109db0759fe2b0e23562",
+    "set_algebra_sha256": "91b4406bccdc6a41ca84ba6dba52d9a0ca2876b0e3a3146150d2bb2c53fe27b8"
+  }
+}
