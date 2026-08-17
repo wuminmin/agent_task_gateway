@@ -8,6 +8,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/internal/control"
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func TestConcurrencyVerificationAcceptsEveryFrozenCell(t *testing.T) {
@@ -21,6 +22,22 @@ func TestConcurrencyVerificationAcceptsEveryFrozenCell(t *testing.T) {
 			reasons, failed := validateExperimentEvidence(sample)
 			if failed {
 				t.Fatalf("campaign validation rejected valid evidence: %v", reasons)
+			}
+		})
+	}
+}
+
+func TestConcurrencyVerificationRejectsNonCurrentReceiptVersions(t *testing.T) {
+	cell := concurrencyfixture.FrozenCells[0]
+	for _, forged := range []string{"8", "11"} {
+		t.Run(forged, func(t *testing.T) {
+			sample := validConcurrencyValidationSample(t, cell)
+			for index := range sample.ConcurrencyVerification.Contenders {
+				sample.ConcurrencyVerification.Contenders[index].ReceiptVersion = forged
+			}
+			sample.ReceiptVersion = forged
+			if err := ValidateConcurrencyEvidence(sample); err == nil {
+				t.Fatalf("concurrency evidence accepted forged Receipt version %q", forged)
 			}
 		})
 	}
@@ -197,7 +214,7 @@ func validConcurrencyValidationSample(t *testing.T, cell concurrencyfixture.Cell
 			TaskIDHash: rootTaskIDHash, RootTaskIDHash: rootTaskIDHash, RequestIDHash: requestDigests[index],
 			QueryIDHash: queryDigest, ResultIDHash: resultIDDigest, ResultSHA256: expectedResult,
 			ObservationSHA256: observation, CompositeOutcomeSHA256: composite, PredicateSetSHA256: predicateSet,
-			RootEpoch: 4, ActualOutcomeFacts: 2, ReceiptVersion: "8", ReceiptSHA256: receiptDigest,
+			RootEpoch: 4, ActualOutcomeFacts: 2, ReceiptVersion: queryreceipt.Version, ReceiptSHA256: receiptDigest,
 			ArtifactIntentSHA256:    intentDigest,
 			AvailabilityAuditSHA256: digestForConcurrencyTest("availability-" + strconv.Itoa(index+1)),
 			ReceiptVerified:         true, ArtifactAvailable: true, VerifierManifest: manifest,

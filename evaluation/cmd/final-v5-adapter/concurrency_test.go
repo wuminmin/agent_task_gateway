@@ -220,7 +220,7 @@ func TestConcurrencyLateFailureRetainsRootContenderAndOverflowPrefixes(t *testin
 	representative.Status = "pass"
 	representative.RowCount, representative.ColumnCount = 1, 2
 	representative.ResultSHA256 = concurrencyfixture.ExpectedContenderResultSHA256()
-	representative.ReceiptVersion = "8"
+	representative.ReceiptVersion = queryreceipt.Version
 	representative.ReceiptSHA256 = strings.Repeat("d", 64)
 	representative.ArtifactIntentSHA256 = strings.Repeat("e", 64)
 	representative.AvailabilityAuditSHA256 = strings.Repeat("f", 64)

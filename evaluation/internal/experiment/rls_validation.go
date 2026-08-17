@@ -239,8 +239,8 @@ func validateRLSAcceptedStep(sample Sample, evidence *RLSVerificationEvidence, s
 		return errors.New("TaskGate verified typed result differs from the frozen SQL-type oracle")
 	}
 	if step.RootTaskIDHash != evidence.RootTaskIDHash || step.Before == nil || step.After == nil || step.Verification == nil || step.RejectedQuery != nil ||
-		step.ReceiptVersion != "8" || step.ParquetBytes <= 0 || step.EncryptedObjectBytes <= 0 || step.IdempotentReplay {
-		return errors.New("TaskGate RLS step lacks its root/V8/artifact evidence")
+		!currentReceiptVersion(step.ReceiptVersion) || step.ParquetBytes <= 0 || step.EncryptedObjectBytes <= 0 || step.IdempotentReplay {
+		return errors.New("TaskGate RLS step lacks its root/current-receipt/artifact evidence")
 	}
 	if err := validateRLSControlSnapshot(*step.Before, evidence, fullBudgetForMode(sample.Mode)); err != nil {
 		return err

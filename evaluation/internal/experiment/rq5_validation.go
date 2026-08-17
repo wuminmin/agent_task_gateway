@@ -333,11 +333,11 @@ func validateRQ5Route(route RQ5RouteEvidence, oldPublication, newPublication RQ5
 func validateRQ5Query(value RQ5QueryEvidence, publication RQ5PublicationEvidence, replay bool) error {
 	if value.Day != publication.Day || value.CatalogSHA256 != publication.CatalogSHA256 ||
 		value.PublicationSHA256 != publication.PublicationManifestSHA256 || value.SemanticReplay != replay ||
-		value.ReceiptVersion != "8" || !value.ReceiptVerified || !value.ArtifactAvailable ||
+		!currentReceiptVersion(value.ReceiptVersion) || !value.ReceiptVerified || !value.ArtifactAvailable ||
 		value.RowCount != 5 || value.ColumnCount != 3 || !positiveFinite(value.ClientAvailableMS) ||
 		!positiveFinite(value.ClientFullDrainMS) || value.ClientFullDrainMS < value.ClientAvailableMS ||
 		value.ParquetBytes <= 0 || value.EncryptedObjectBytes <= 0 || value.RootEpochBefore < 0 || value.RootEpochAfter < 0 {
-		return errors.New("query lacks its real Catalog route, V8 receipt, AVAILABLE artifact, or replay marker")
+		return errors.New("query lacks its real Catalog route, current Receipt, AVAILABLE artifact, or replay marker")
 	}
 	for _, digest := range []string{
 		value.TaskIDHash, value.RootTaskIDHash, value.RequestIDHash, value.QueryIDHash, value.ResultIDHash,

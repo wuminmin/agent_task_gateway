@@ -306,7 +306,7 @@ func validateDirectAttackStep(step AttackStepEvidence) error {
 }
 
 func validateAttackReleasedStep(parent Sample, step AttackStepEvidence) error {
-	if step.Verification == nil || step.Before == nil || step.After == nil || step.ReceiptVersion != "8" ||
+	if step.Verification == nil || step.Before == nil || step.After == nil || !currentReceiptVersion(step.ReceiptVersion) ||
 		!validSHA256(step.RequestIDHash) || !validSHA256(step.QueryIDHash) || !validSHA256(step.ResultIDHash) ||
 		!validSHA256(step.PlanSHA256) || !validSHA256(step.ObservationSHA256) || !validSHA256(step.ReleaseSetSHA256) ||
 		!validSHA256(step.DependencySetSHA256) || !validSHA256(step.OutcomeSetSHA256) ||
@@ -314,7 +314,7 @@ func validateAttackReleasedStep(parent Sample, step AttackStepEvidence) error {
 		!validSHA256(step.ObjectSHA256) || step.ParquetBytes <= 0 || step.EncryptedObjectBytes <= 0 ||
 		!validSHA256(step.ReceiptSHA256) || !validSHA256(step.ArtifactIntentSHA256) ||
 		!validSHA256(step.AvailabilitySHA256) {
-		return errors.New("released TaskGate step lacks V8/Control/MinIO evidence")
+		return errors.New("released TaskGate step lacks current Receipt/Control/MinIO evidence")
 	}
 	temporary := attackReleasedSample(parent, step)
 	if err := validateBaselineVerification(temporary); err != nil {

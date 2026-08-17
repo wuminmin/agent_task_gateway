@@ -85,7 +85,7 @@ func runTestAdapter() {
 			System:      "taskgate", Mode: operation.Mode, WorkloadID: operation.WorkloadID,
 			Scale: operation.Scale, ClientAvailableMS: 1, ClientFullDrainMS: 2,
 			PipelineMS:   map[string]float64{"prepare": .1, "execute_and_derive": .2, "artifact_stage": .1, "control_settlement": .1, "artifact_publication": .1, "response_finalize": .1, "server_total": .8},
-			DiagnosticMS: map[string]float64{}, ResultSHA256: resultDigest, RootTaskIDHash: digest, ReceiptVersion: "8",
+			DiagnosticMS: map[string]float64{}, ResultSHA256: resultDigest, RootTaskIDHash: digest, ReceiptVersion: queryreceipt.Version,
 			ReceiptSHA256: digest, ArtifactIntentSHA256: digest, AvailabilityAuditSHA256: digest,
 			ReceiptVerified: true, ArtifactAvailable: true, Status: operationStatus, PublicationEligible: operation.CampaignClass == "publication", KernelOnly: operation.KernelOnly,
 		}
@@ -1729,7 +1729,7 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 				sample.System, sample.Mode, sample.WorkloadID, sample.Scale, sample.PublicationEligible = "taskgate", mode, "root-uniqueness", "tiny", true
 				sample.PairedSystemOrder, sample.RootTaskIDHash = mode, rootHash
 				sample.ResultSHA256 = sha256Hex([]byte(fmt.Sprintf("finalizer-fixture-%s-%d", deploymentID, iteration)))
-				sample.ReceiptVersion, sample.ReceiptSHA256 = "8", rootHash
+				sample.ReceiptVersion, sample.ReceiptSHA256 = queryreceipt.Version, rootHash
 				sample.ArtifactIntentSHA256, sample.AvailabilityAuditSHA256 = rootHash, rootHash
 				sample.ReceiptVerified, sample.ArtifactAvailable = true, true
 				// A publication sample must name the deployment profile it ran

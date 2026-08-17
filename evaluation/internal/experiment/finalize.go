@@ -368,8 +368,8 @@ func FinalizeRun(runDir string) (Summary, error) {
 					summary.Status = "fail"
 					summary.Reasons = append(summary.Reasons, "rejected request produced artifact evidence")
 				}
-			} else if sample.ReceiptVersion != "8" || !sample.ReceiptVerified || !sample.ArtifactAvailable || !validSHA256(sample.ReceiptSHA256) || !validSHA256(sample.ArtifactIntentSHA256) || !validSHA256(sample.AvailabilityAuditSHA256) {
-				summary.Reasons = append(summary.Reasons, "TaskGate pass sample lacks verified V8/AVAILABLE evidence")
+			} else if !currentReceiptVersion(sample.ReceiptVersion) || !sample.ReceiptVerified || !sample.ArtifactAvailable || !validSHA256(sample.ReceiptSHA256) || !validSHA256(sample.ArtifactIntentSHA256) || !validSHA256(sample.AvailabilityAuditSHA256) {
+				summary.Reasons = append(summary.Reasons, "TaskGate pass sample lacks verified current Receipt/AVAILABLE evidence")
 			}
 		}
 		if verifyRealEvidence && sample.Status == "pass" {

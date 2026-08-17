@@ -155,12 +155,12 @@ func validateConcurrencyContenders(sample Sample, evidence *ConcurrencyVerificat
 			contender.RootEpoch != evidence.AtBoundary.Epoch || contender.ActualOutcomeFacts != 2 ||
 			(contender.ChargedOutcomeFacts != 0 && contender.ChargedOutcomeFacts != 1) || contender.CASAttempts < 0 ||
 			contender.CASConflicts < 0 || contender.CASRetries < 0 || contender.CASConflicts != contender.CASRetries ||
-			contender.ReceiptVersion != "8" || !contender.ReceiptVerified || !contender.ArtifactAvailable ||
+			!currentReceiptVersion(contender.ReceiptVersion) || !contender.ReceiptVerified || !contender.ArtifactAvailable ||
 			validateRedactedManifestStructure(manifest) != nil || manifest.QueryIDHash != contender.QueryIDHash ||
 			manifest.ResultIDHash != contender.ResultIDHash || manifest.RootTaskIDHash != contender.RootTaskIDHash ||
 			manifest.ReceiptSHA256 != contender.ReceiptSHA256 || manifest.ObservationSHA256 != contender.ObservationSHA256 ||
 			manifest.OutcomeSetSHA256 == "" || manifest.ArtifactIntentSHA256 != contender.ArtifactIntentSHA256 {
-			return errors.New("concurrency contender lacks a fully bound V8/artifact/availability verifier manifest")
+			return errors.New("concurrency contender lacks a fully bound current Receipt/artifact/availability verifier manifest")
 		}
 		if position == 0 {
 			observation, composite, predicateSet = contender.ObservationSHA256, contender.CompositeOutcomeSHA256, contender.PredicateSetSHA256

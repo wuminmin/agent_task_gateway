@@ -347,7 +347,7 @@ func TestAttackReplayTopLevelChargeIsOperationDeltaNotStoredReceiptCharge(t *tes
 	step := AttackStepEvidence{
 		Accepted: true, Before: &snapshot, After: &snapshot, RootTaskIDHash: testAttackDigest("root-task"),
 		ArtifactSHA256: testAttackDigest("parquet"), ObjectSHA256: testAttackDigest("object"),
-		ParquetBytes: 100, EncryptedObjectBytes: 140, ReceiptVersion: "8", ReceiptSHA256: testAttackDigest("receipt"),
+		ParquetBytes: 100, EncryptedObjectBytes: 140, ReceiptVersion: queryreceipt.Version, ReceiptSHA256: testAttackDigest("receipt"),
 		ArtifactIntentSHA256: testAttackDigest("intent"), AvailabilitySHA256: testAttackDigest("availability"),
 	}
 	evidence := &AttackVerificationEvidence{Steps: []AttackStepEvidence{step}, FinalRoot: &root}

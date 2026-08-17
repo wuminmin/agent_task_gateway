@@ -10,6 +10,7 @@ import (
 	jsonschema "github.com/google/jsonschema-go/jsonschema"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/rq5fixture"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func TestRQ5CompleteSampleMatchesStrictJSONSchema(t *testing.T) {
@@ -68,6 +69,27 @@ func TestRQ5CompleteSampleMatchesStrictJSONSchema(t *testing.T) {
 	mutated.RQ5Verification.Lifecycle[0].Reason = "start old Catalog for retained baseline"
 	if err := validate(mutated); err == nil {
 		t.Fatal("non-wire lifecycle reason was accepted by schema")
+	}
+}
+
+func TestRQ5ValidatorRejectsNonCurrentReceiptVersions(t *testing.T) {
+	for _, forged := range []string{"8", "11"} {
+		t.Run(forged, func(t *testing.T) {
+			sample := validRQ5SampleForTest(1, rq5fixture.BuildMode)
+			queries := []*RQ5QueryEvidence{
+				&sample.RQ5Verification.Route.OldInitial,
+				&sample.RQ5Verification.Route.NewInitial,
+				&sample.RQ5Verification.Route.OldRetained,
+				&sample.RQ5Verification.Route.NewRestored,
+			}
+			for _, query := range queries {
+				query.ReceiptVersion = forged
+			}
+			sample.ReceiptVersion = forged
+			if err := ValidateRQ5Evidence(sample); err == nil {
+				t.Fatalf("RQ5 evidence accepted forged Receipt version %q", forged)
+			}
+		})
 	}
 }
 
@@ -176,7 +198,7 @@ func validRQ5SampleForTest(iteration int, mode string) Sample {
 			ActualOutcomeFacts: 1, ChargedOutcomeFacts: 1, PredicateAtomCount: 1, CompositeCount: 1,
 			SemanticReplay: replay, BusinessSQLDelta: business,
 			RootEpochBefore: beforeEpoch, RootEpochAfter: afterEpoch, RootSetSHA256Before: before,
-			RootSetSHA256After: after, ParquetBytes: 800, EncryptedObjectBytes: 900, ReceiptVersion: "8",
+			RootSetSHA256After: after, ParquetBytes: 800, EncryptedObjectBytes: 900, ReceiptVersion: queryreceipt.Version,
 			ReceiptSHA256: manifest.ReceiptSHA256, ArtifactIntentSHA256: manifest.ArtifactIntentSHA256,
 			AvailabilityAuditSHA256: rq5TestDigest(base + 13), ReceiptVerified: true, ArtifactAvailable: true,
 			VerifierManifest: manifest,

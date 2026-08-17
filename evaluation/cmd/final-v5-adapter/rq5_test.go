@@ -9,6 +9,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/rq5fixture"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 type fakeRQ5Backend struct {
@@ -58,7 +59,7 @@ func minimalRQ5AdapterEvidence() *experiment.RQ5VerificationEvidence {
 			ActualReleaseFacts: 1, ChargedReleaseFacts: 1, ActualDependencyFacts: 1, ChargedDependencyFacts: 1,
 			ActualOutcomeFacts: 1, ChargedOutcomeFacts: 1, PredicateAtomCount: 1, CompositeCount: 1,
 			BusinessSQLDelta: business, RootSetSHA256Before: sha("before"), RootSetSHA256After: sha("after"),
-			ParquetBytes: 10, EncryptedObjectBytes: 20, ReceiptVersion: "8", ReceiptSHA256: sha(base + "-receipt"),
+			ParquetBytes: 10, EncryptedObjectBytes: 20, ReceiptVersion: queryreceipt.Version, ReceiptSHA256: sha(base + "-receipt"),
 			ArtifactIntentSHA256: sha(base + "-intent"), AvailabilityAuditSHA256: sha(base + "-availability"),
 			ReceiptVerified: true, ArtifactAvailable: true, VerifierManifest: manifest,
 		}
