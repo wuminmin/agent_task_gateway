@@ -327,6 +327,49 @@ func TestConcurrencySampleRetainsOnlyCompactPerContenderVerifierEvidence(t *test
 	}
 }
 
+func TestConcurrencyTaskFamilyRequiresExactDirectChildren(t *testing.T) {
+	root := validConcurrencyTaskForTest("root", "", "root")
+	children := []concurrencyCreatedTask{
+		validConcurrencyTaskForTest("child-1", "root", "root"),
+		validConcurrencyTaskForTest("child-2", "root", "root"),
+		validConcurrencyTaskForTest("child-3", "root", "root"),
+	}
+	if err := validateConcurrencyTaskFamily(root, children, 3); err != nil {
+		t.Fatalf("valid delegated family was rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func([]concurrencyCreatedTask)
+	}{
+		{name: "root as child", mutate: func(values []concurrencyCreatedTask) { values[1].TaskID = root.TaskID }},
+		{name: "duplicate child", mutate: func(values []concurrencyCreatedTask) { values[1].TaskID = values[0].TaskID }},
+		{name: "indirect parent", mutate: func(values []concurrencyCreatedTask) { values[1].ParentTaskID = values[0].TaskID }},
+		{name: "escaped root", mutate: func(values []concurrencyCreatedTask) { values[1].RootTaskID = "other-root" }},
+		{name: "expanded budget", mutate: func(values []concurrencyCreatedTask) { values[1].Budget.MaxQueries++ }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forged := append([]concurrencyCreatedTask(nil), children...)
+			test.mutate(forged)
+			if err := validateConcurrencyTaskFamily(root, forged, 3); err == nil {
+				t.Fatal("invalid delegated family was accepted")
+			}
+		})
+	}
+}
+
+func validConcurrencyTaskForTest(taskID, parentTaskID, rootTaskID string) concurrencyCreatedTask {
+	return concurrencyCreatedTask{
+		TaskID: taskID, ParentTaskID: parentTaskID, RootTaskID: rootTaskID, OAURL: "http://oa.example/" + taskID,
+		BudgetProfile: concurrencyfixture.BudgetProfile,
+		Budget: provisionedBudget{
+			MaxQueries: concurrencyfixture.ResourceMaxQueries, MaxRows: 1000, MaxDBMS: 1,
+			QueryTimeoutMS: 1, TaskTTLSeconds: 7200, MaxReleaseFacts: 1, MaxInfluenceFacts: 1,
+			MaxOutcomeFacts: concurrencyfixture.RootBudgetLimit, ExposureProfileVersion: "taskgate-exposure-v5",
+		},
+	}
+}
+
 func validConcurrencyTestCapacity() gatewayapp.ConcurrencyProbeCapacity {
 	return gatewayapp.ConcurrencyProbeCapacity{
 		Version: gatewayapp.ConcurrencyProbeVersion, GatewayInstanceSHA256: strings.Repeat("a", 64),

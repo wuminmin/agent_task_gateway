@@ -31,8 +31,8 @@ const (
 
 var PrefixSQL = []string{
 	"SELECT receipt_no FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
-	"SELECT receipt_no, expense_type FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
-	"SELECT receipt_no, city FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
+	"SELECT receipt_no, department FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
+	"SELECT receipt_no, expense_type, city FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
 }
 
 type Cell struct {
@@ -190,11 +190,13 @@ func Validate() error {
 		}
 		seen[cell] = true
 	}
+	seenSQL := map[string]bool{}
 	for _, sqlText := range append(append([]string(nil), PrefixSQL...), ContenderSQL, OverflowSQL) {
 		upper := strings.ToUpper(strings.TrimSpace(sqlText))
-		if !strings.HasPrefix(upper, "SELECT ") || strings.Contains(sqlText, ";") {
-			return fmt.Errorf("concurrency fixture contains non-read-only SQL")
+		if !strings.HasPrefix(upper, "SELECT ") || strings.Contains(sqlText, ";") || seenSQL[upper] {
+			return fmt.Errorf("concurrency fixture contains non-read-only or duplicate canonical SQL")
 		}
+		seenSQL[upper] = true
 	}
 	if ExpectedContenderResultSHA256() == "" || FixtureSHA256() == "" || PlansSHA256() == "" {
 		return fmt.Errorf("concurrency fixture digest is absent")

@@ -123,7 +123,8 @@ func validateConcurrencyContenders(sample Sample, evidence *ConcurrencyVerificat
 		return errors.New("concurrency evidence omits one or more contenders")
 	}
 	indexes := map[int]bool{}
-	participants, requests, queries, results := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	participants, tasks, requests := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	queries, results := map[string]bool{}, map[string]bool{}
 	var attempts, conflicts, retries, charged, zero int64
 	var observation, composite, predicateSet string
 	for position, contender := range evidence.Contenders {
@@ -144,14 +145,16 @@ func validateConcurrencyContenders(sample Sample, evidence *ConcurrencyVerificat
 				return fmt.Errorf("concurrency contender has invalid %s digest", name)
 			}
 		}
-		if participants[contender.ParticipantSHA256] || requests[contender.RequestIDHash] ||
+		if contender.TaskIDHash == evidence.RootTaskIDHash || tasks[contender.TaskIDHash] ||
+			contender.RootTaskIDHash != evidence.RootTaskIDHash || participants[contender.ParticipantSHA256] || requests[contender.RequestIDHash] ||
 			queries[contender.QueryIDHash] || results[contender.ResultIDHash] {
-			return errors.New("concurrency contender identities are duplicated")
+			return errors.New("concurrency delegated child family is duplicated, open, or bound to another root")
 		}
+		tasks[contender.TaskIDHash] = true
 		participants[contender.ParticipantSHA256], requests[contender.RequestIDHash] = true, true
 		queries[contender.QueryIDHash], results[contender.ResultIDHash] = true, true
 		manifest := contender.VerifierManifest
-		if contender.TaskIDHash != evidence.RootTaskIDHash || contender.RootTaskIDHash != evidence.RootTaskIDHash || contender.ResultSHA256 != evidence.ExpectedResultSHA256 ||
+		if contender.ResultSHA256 != evidence.ExpectedResultSHA256 ||
 			contender.RootEpoch != evidence.AtBoundary.Epoch || contender.ActualOutcomeFacts != 2 ||
 			(contender.ChargedOutcomeFacts != 0 && contender.ChargedOutcomeFacts != 1) || contender.CASAttempts < 0 ||
 			contender.CASConflicts < 0 || contender.CASRetries < 0 || contender.CASConflicts != contender.CASRetries ||
@@ -182,10 +185,10 @@ func validateConcurrencyContenders(sample Sample, evidence *ConcurrencyVerificat
 			zero++
 		}
 	}
-	if canonicalStringSetSHA256(mapKeysTrue(requests)) != evidence.ContenderRequestSetSHA256 || attempts != evidence.ProductionCASAttempts ||
+	if int64(len(tasks)) != width || canonicalStringSetSHA256(mapKeysTrue(requests)) != evidence.ContenderRequestSetSHA256 || attempts != evidence.ProductionCASAttempts ||
 		conflicts != evidence.ProductionCASConflicts || retries != evidence.ProductionCASRetries || charged != evidence.ChargedWinners ||
-		zero != evidence.ZeroNoveltySettlements {
-		return errors.New("same-root request family, CAS totals, or settlement totals do not recompute from every contender")
+		zero != evidence.ZeroNoveltySettlements || charged != 1 || zero != width-1 {
+		return errors.New("delegated child closure, exactly-one-winner, CAS totals, or settlement totals do not recompute from every contender")
 	}
 	return nil
 }

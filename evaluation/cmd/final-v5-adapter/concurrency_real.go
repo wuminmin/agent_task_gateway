@@ -29,26 +29,11 @@ type realConcurrencyBackend struct {
 	probeToken string
 }
 
-type concurrencyCreatedTask struct {
-	TaskID        string `json:"task_id"`
-	RootTaskID    string `json:"root_task_id"`
-	OAURL         string `json:"oa_url"`
-	BudgetProfile string `json:"budget_profile"`
-	Budget        struct {
-		MaxQueries        int64  `json:"max_queries"`
-		MaxRows           int64  `json:"max_rows"`
-		MaxDBMS           int64  `json:"max_db_ms"`
-		QueryTimeoutMS    int64  `json:"query_timeout_ms"`
-		TaskTTLSeconds    int64  `json:"task_ttl_seconds"`
-		MaxReleaseFacts   int64  `json:"max_release_facts"`
-		MaxInfluenceFacts int64  `json:"max_influence_facts"`
-		MaxOutcomeFacts   int64  `json:"max_outcome_facts"`
-		ExposureProfile   string `json:"exposure_profile_version"`
-	} `json:"budget"`
-}
+type concurrencyCreatedTask = provisionedTask
 
 type concurrencyCallResult struct {
 	index       int
+	taskID      string
 	requestID   string
 	participant string
 	started     time.Time
@@ -78,7 +63,7 @@ func (backend *realConcurrencyBackend) Run(ctx context.Context, operation experi
 	if err != nil || validateConcurrencyCapacity(capacity) != nil {
 		return experiment.Sample{}, errors.New("authenticated concurrency capacity changed after constructor preflight")
 	}
-	created, err := backend.provisionTask(ctx, operation)
+	created, children, err := backend.provisionTaskFamily(ctx, operation, cell.Width)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -137,7 +122,7 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 	}
 
 	measurementStarted := time.Now()
-	calls := backend.launchContenders(ctx, operation, created.TaskID, roundSHA, cell.Width)
+	calls := backend.launchContenders(ctx, operation, children, roundSHA)
 	rootLockWaiters := int64(0)
 	if blocker != nil {
 		waitSnapshot, waitErr := gatewayapp.WaitForConcurrencyProbeSnapshot(ctx, 10*time.Millisecond,
@@ -233,7 +218,7 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 		return lateFailure("concurrency_boundary_snapshot_failed", err)
 	}
 	updateConcurrencyRetainedRoot(&retained, atBoundary)
-	contenders, representative, err := backend.verifyContenders(ctx, operation, created.TaskID, beforeBoundary, atBoundary, callResults)
+	contenders, representative, err := backend.verifyContenders(ctx, operation, created.RootTaskID, beforeBoundary, atBoundary, callResults)
 	retained = retainVerifiedConcurrencyPrefix(retained, representative, contenders, atBoundary)
 	if err != nil {
 		return lateFailure("concurrency_contender_verification_failed", err)
@@ -266,41 +251,65 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 	return sample, nil
 }
 
-func (backend *realConcurrencyBackend) provisionTask(ctx context.Context, operation experiment.AdapterOperation) (concurrencyCreatedTask, error) {
-	var created concurrencyCreatedTask
-	arguments := map[string]any{
-		"objective":     "Final V5 same-root concurrency / " + operation.PairID,
-		"data_products": []string{concurrencyfixture.ProductName},
-		"columns": map[string][]string{concurrencyfixture.ProductName: {
-			"receipt_no", "expense_type", "city", "department",
-		}},
-		"scopes": map[string]any{"department": []string{"销售部"}},
+func (backend *realConcurrencyBackend) provisionTaskFamily(ctx context.Context, operation experiment.AdapterOperation,
+	width int) (concurrencyCreatedTask, []concurrencyCreatedTask, error) {
+	if width < 1 {
+		return concurrencyCreatedTask{}, nil, errors.New("concurrency task family width must be positive")
 	}
-	if err := backend.real.alice.call(ctx, "request_data_task", arguments, &created); err != nil {
-		return created, err
+	columns := []string{"receipt_no", "expense_type", "city", "department"}
+	root, err := backend.real.provisionCatalogTask(ctx,
+		"Final V5 shared-root concurrency / "+operation.PairID, concurrencyfixture.ProductName, columns, "")
+	if err != nil {
+		return concurrencyCreatedTask{}, nil, err
 	}
-	if created.TaskID == "" || created.RootTaskID != created.TaskID || created.OAURL == "" ||
-		created.BudgetProfile != concurrencyfixture.BudgetProfile || created.Budget.MaxQueries != concurrencyfixture.ResourceMaxQueries ||
-		created.Budget.MaxRows < int64(len(concurrencyfixture.PrefixSQL)+501) || created.Budget.MaxDBMS < 1 ||
-		created.Budget.QueryTimeoutMS < 1 || created.Budget.TaskTTLSeconds < 1 || created.Budget.MaxReleaseFacts < 1 ||
-		created.Budget.MaxInfluenceFacts < 1 || created.Budget.MaxOutcomeFacts != concurrencyfixture.RootBudgetLimit ||
-		created.Budget.ExposureProfile != "taskgate-exposure-v5" {
-		return created, errors.New("dedicated concurrency product did not resolve to its exact frozen root budget")
+	if err := validateConcurrencyRootTask(root); err != nil {
+		return root, nil, err
 	}
-	draftID := pathTail(created.OAURL)
-	if err := oaAction(ctx, backend.real.aliceOA, backend.real.oaBase, draftID, "submit", ""); err != nil {
-		return created, err
+	children := make([]concurrencyCreatedTask, width)
+	for index := range children {
+		child, childErr := backend.real.provisionCatalogTask(ctx,
+			fmt.Sprintf("Final V5 delegated concurrency contender %d / %s", index+1, operation.PairID),
+			concurrencyfixture.ProductName, columns, root.TaskID)
+		if childErr != nil {
+			return root, append([]concurrencyCreatedTask(nil), children[:index]...), childErr
+		}
+		children[index] = child
 	}
-	if err := backend.real.waitTask(ctx, created.TaskID, "AWAITING_APPROVAL"); err != nil {
-		return created, err
+	if err := validateConcurrencyTaskFamily(root, children, width); err != nil {
+		return root, children, err
 	}
-	if err := oaAction(ctx, backend.real.bobOA, backend.real.oaBase, draftID, "decision", "approved"); err != nil {
-		return created, err
+	return root, children, nil
+}
+
+func validateConcurrencyRootTask(root concurrencyCreatedTask) error {
+	if root.TaskID == "" || root.RootTaskID != root.TaskID || root.ParentTaskID != "" || root.OAURL == "" ||
+		root.BudgetProfile != concurrencyfixture.BudgetProfile || root.Budget.MaxQueries != concurrencyfixture.ResourceMaxQueries ||
+		root.Budget.MaxRows < int64(len(concurrencyfixture.PrefixSQL)+501) || root.Budget.MaxDBMS < 1 ||
+		root.Budget.QueryTimeoutMS < 1 || root.Budget.TaskTTLSeconds < 1 || root.Budget.MaxReleaseFacts < 1 ||
+		root.Budget.MaxInfluenceFacts < 1 || root.Budget.MaxOutcomeFacts != concurrencyfixture.RootBudgetLimit ||
+		root.Budget.ExposureProfileVersion != "taskgate-exposure-v5" {
+		return errors.New("dedicated concurrency product did not resolve to its exact frozen root budget")
 	}
-	if err := backend.real.waitTask(ctx, created.TaskID, "ACTIVE"); err != nil {
-		return created, err
+	return nil
+}
+
+func validateConcurrencyTaskFamily(root concurrencyCreatedTask, children []concurrencyCreatedTask, width int) error {
+	if validateConcurrencyRootTask(root) != nil || width < 1 || len(children) != width {
+		return errors.New("concurrency task family omits its exact root or delegated width")
 	}
-	return created, nil
+	seen := map[string]bool{root.TaskID: true}
+	for _, child := range children {
+		if child.TaskID == "" || seen[child.TaskID] || child.ParentTaskID != root.TaskID || child.RootTaskID != root.TaskID ||
+			child.BudgetProfile != root.BudgetProfile || child.Budget.MaxQueries != root.Budget.MaxQueries ||
+			child.Budget.MaxRows != root.Budget.MaxRows || child.Budget.MaxDBMS != root.Budget.MaxDBMS ||
+			child.Budget.QueryTimeoutMS != root.Budget.QueryTimeoutMS || child.Budget.MaxReleaseFacts != root.Budget.MaxReleaseFacts ||
+			child.Budget.MaxInfluenceFacts != root.Budget.MaxInfluenceFacts || child.Budget.MaxOutcomeFacts != root.Budget.MaxOutcomeFacts ||
+			child.Budget.ExposureProfileVersion != root.Budget.ExposureProfileVersion {
+			return errors.New("concurrency delegated child expands, escapes, or duplicates the closed root family")
+		}
+		seen[child.TaskID] = true
+	}
+	return nil
 }
 
 func (backend *realConcurrencyBackend) executePrefix(ctx context.Context, operation experiment.AdapterOperation, taskID string,
@@ -346,12 +355,12 @@ func boolToInt(value bool) int {
 }
 
 func (backend *realConcurrencyBackend) launchContenders(ctx context.Context, operation experiment.AdapterOperation,
-	taskID, roundSHA string, width int) <-chan []concurrencyCallResult {
+	children []concurrencyCreatedTask, roundSHA string) <-chan []concurrencyCallResult {
 	completed := make(chan []concurrencyCallResult, 1)
-	results := make([]concurrencyCallResult, width)
+	results := make([]concurrencyCallResult, len(children))
 	identity := concurrencyRoundIdentity(operation)
 	var wait sync.WaitGroup
-	for index := 0; index < width; index++ {
+	for index := range children {
 		index := index
 		wait.Add(1)
 		go func() {
@@ -359,7 +368,8 @@ func (backend *realConcurrencyBackend) launchContenders(ctx context.Context, ope
 			participant := concurrencyfixture.ParticipantSHA256(roundSHA, index+1)
 			requestID := concurrencyfixture.RequestID(identity, "contender", index+1)
 			started := time.Now()
-			result := concurrencyCallResult{index: index + 1, requestID: requestID, participant: participant, started: started}
+			taskID := children[index].TaskID
+			result := concurrencyCallResult{index: index + 1, taskID: taskID, requestID: requestID, participant: participant, started: started}
 			result.err = backend.real.alice.callWithHeaders(ctx, "query_sql", map[string]any{
 				"task_id": taskID, "request_id": requestID, "sql": concurrencyfixture.ContenderSQL,
 			}, &result.response, map[string]string{
@@ -417,17 +427,17 @@ SELECT count(*) FROM downstream`, blockerPID).Scan(&waiting)
 }
 
 func (backend *realConcurrencyBackend) verifyContenders(ctx context.Context, operation experiment.AdapterOperation,
-	taskID string, beforeBoundary, atBoundary experiment.RootLedgerSnapshot,
+	rootTaskID string, beforeBoundary, atBoundary experiment.RootLedgerSnapshot,
 	calls []concurrencyCallResult) ([]experiment.ConcurrencyContenderEvidence, experiment.Sample, error) {
-	state := &pairState{taskID: taskID}
 	contenders := make([]experiment.ConcurrencyContenderEvidence, len(calls))
 	var representative experiment.Sample
 	for index, call := range calls {
+		state := &pairState{taskID: call.taskID}
 		verified, err := backend.real.completeTaskgateSample(ctx, operation, state, beforeBoundary, atBoundary,
 			call.started, call.availableMS, concurrencyfixture.ContenderSQL, call.response)
 		if err != nil || verified.Status != "pass" || verified.ResultSHA256 != concurrencyfixture.ExpectedContenderResultSHA256() ||
 			verified.BaselineVerification == nil || verified.BaselineVerification.VerifierManifest == nil ||
-			call.response.Exposure.RootTaskID != taskID || call.response.TaskID != taskID ||
+			call.taskID == rootTaskID || call.response.Exposure.RootTaskID != rootTaskID || call.response.TaskID != call.taskID ||
 			call.response.Exposure.ActualOutcomeFacts != 2 || call.response.Exposure.RootEpoch != atBoundary.Epoch {
 			if err == nil {
 				err = errors.New("contender did not pass its independent V8/result/artifact verification")

@@ -1442,7 +1442,8 @@ type ConcurrencyVerification struct {
 }
 
 // ConcurrencyContenderEvidence is deliberately compact but complete: every
-// contender is bound to the one frozen root task, its unique request, signed V8 receipt,
+// contender is bound to one delegated child in the frozen root family, its
+// unique request, signed V8 receipt,
 // canonical result, artifact intent, availability event, and composite
 // verifier transcript. It contains only salted identities and digests.
 type ConcurrencyContenderEvidence struct {

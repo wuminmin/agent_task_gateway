@@ -32,6 +32,7 @@ type provisionedTask struct {
 	TaskID        string            `json:"task_id"`
 	OAURL         string            `json:"oa_url"`
 	RootTaskID    string            `json:"root_task_id"`
+	ParentTaskID  string            `json:"parent_task_id"`
 	BudgetProfile string            `json:"budget_profile"`
 	Budget        provisionedBudget `json:"budget"`
 }

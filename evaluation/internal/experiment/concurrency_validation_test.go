@@ -105,8 +105,11 @@ func TestConcurrencyVerificationRejectsEvidenceMutations(t *testing.T) {
 		{name: "wrong canonical result", mutate: func(value *Sample) {
 			value.ConcurrencyVerification.Contenders[3].ResultSHA256 = digestForConcurrencyTest("wrong-result")
 		}},
-		{name: "different task", mutate: func(value *Sample) {
-			value.ConcurrencyVerification.Contenders[3].TaskIDHash = digestForConcurrencyTest("other-task")
+		{name: "root used as child", mutate: func(value *Sample) {
+			value.ConcurrencyVerification.Contenders[3].TaskIDHash = value.ConcurrencyVerification.RootTaskIDHash
+		}},
+		{name: "duplicate child", mutate: func(value *Sample) {
+			value.ConcurrencyVerification.Contenders[3].TaskIDHash = value.ConcurrencyVerification.Contenders[2].TaskIDHash
 		}},
 		{name: "different root", mutate: func(value *Sample) {
 			value.ConcurrencyVerification.Contenders[3].RootTaskIDHash = digestForConcurrencyTest("other-root")
@@ -116,6 +119,9 @@ func TestConcurrencyVerificationRejectsEvidenceMutations(t *testing.T) {
 		}},
 		{name: "duplicate request", mutate: func(value *Sample) {
 			value.ConcurrencyVerification.Contenders[3].RequestIDHash = value.ConcurrencyVerification.Contenders[2].RequestIDHash
+		}},
+		{name: "two charged winners", mutate: func(value *Sample) {
+			value.ConcurrencyVerification.Contenders[3].ChargedOutcomeFacts = 1
 		}},
 		{name: "mutated B plus one root", mutate: func(value *Sample) {
 			value.ConcurrencyVerification.AfterRejectedOverflow.Epoch++
@@ -211,7 +217,8 @@ func validConcurrencyValidationSample(t *testing.T, cell concurrencyfixture.Cell
 		}
 		contenders[index] = ConcurrencyContenderEvidence{
 			Index: index + 1, ParticipantSHA256: concurrencyfixture.ParticipantSHA256(roundSHA, index+1),
-			TaskIDHash: rootTaskIDHash, RootTaskIDHash: rootTaskIDHash, RequestIDHash: requestDigests[index],
+			TaskIDHash:     digestForConcurrencyTest("child-task-" + strconv.Itoa(index+1)),
+			RootTaskIDHash: rootTaskIDHash, RequestIDHash: requestDigests[index],
 			QueryIDHash: queryDigest, ResultIDHash: resultIDDigest, ResultSHA256: expectedResult,
 			ObservationSHA256: observation, CompositeOutcomeSHA256: composite, PredicateSetSHA256: predicateSet,
 			RootEpoch: 4, ActualOutcomeFacts: 2, ReceiptVersion: queryreceipt.Version, ReceiptSHA256: receiptDigest,
@@ -321,11 +328,11 @@ func maxConcurrencyTestInt64(left, right int64) int64 {
 	return right
 }
 
-func TestConcurrencyErrorMessageDoesNotDescribeChildTasks(t *testing.T) {
+func TestConcurrencyErrorMessageDescribesDelegatedChildClosure(t *testing.T) {
 	sample := validConcurrencyValidationSample(t, concurrencyfixture.FrozenCells[1])
-	sample.ConcurrencyVerification.Contenders[0].TaskIDHash = digestForConcurrencyTest("different-task")
+	sample.ConcurrencyVerification.Contenders[0].TaskIDHash = sample.RootTaskIDHash
 	err := ValidateConcurrencyEvidence(sample)
-	if err == nil || strings.Contains(strings.ToLower(err.Error()), "child-task") {
-		t.Fatalf("validator should describe the one-root invariant directly: %v", err)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "child") {
+		t.Fatalf("validator should describe the delegated-child closure directly: %v", err)
 	}
 }

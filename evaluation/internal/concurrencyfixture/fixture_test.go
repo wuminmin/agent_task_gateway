@@ -2,6 +2,7 @@ package concurrencyfixture
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,29 @@ func TestContenderResultOracleIsSourceControlled(t *testing.T) {
 	if len(ExpectedContenderResultSHA256()) != 64 ||
 		!reflect.DeepEqual(ExpectedContenderRows(), [][]any{{"TR-2026-0001", "机票"}}) {
 		t.Fatal("contender result oracle drifted")
+	}
+}
+
+func TestBoundarySQLIdentitiesAreClosedAndUnique(t *testing.T) {
+	all := append(append([]string(nil), PrefixSQL...), ContenderSQL, OverflowSQL)
+	seen := map[string]bool{}
+	for _, sqlText := range all {
+		identity := strings.ToUpper(strings.TrimSpace(sqlText))
+		if seen[identity] {
+			t.Fatalf("duplicate boundary SQL identity: %s", sqlText)
+		}
+		seen[identity] = true
+	}
+	if len(seen) != 5 {
+		t.Fatalf("boundary identities = %d, want 5", len(seen))
+	}
+}
+
+func TestFixtureValidationRejectsDuplicateBoundaryIdentity(t *testing.T) {
+	original := PrefixSQL[1]
+	PrefixSQL[1] = ContenderSQL
+	t.Cleanup(func() { PrefixSQL[1] = original })
+	if err := Validate(); err == nil {
+		t.Fatal("fixture validation accepted a zero-novelty duplicate boundary identity")
 	}
 }
