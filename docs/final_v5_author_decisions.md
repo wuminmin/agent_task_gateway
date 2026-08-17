@@ -404,3 +404,18 @@ oracles, campaigns, or the paper are complete.
     does not make the pilot-class run publication-eligible, and does not
     approve any tag or freeze. Source-parseability remains necessary and
     never sufficient; the constant's comment must keep saying so.
+
+27. **Keep RQ5 inside the per-profile deployment campaign and first close its
+    campaign coordinates and dynamic Catalog identity.** (Taken 2026-08-17 by
+    author wuminmin, answered exactly "选A" in the agent conversation to the
+    options reported from ledger row `P30-sample-binding BLOCKED`.) RQ5 remains
+    in the campaign that deploys separately by profile. Before another live
+    run, its campaign and experiment coordinates must be unified and its
+    dynamically generated daily-publication Catalog must receive a
+    source-controlled identity model. The `P30-DESIGN` model of 11 profiles
+    crossed with experiments remains unchanged.
+
+    This decision does not permit a gate exemption or an echoed operation
+    binding: option C remains prohibited. It approves design and zero-deployment
+    implementation work only; it does not approve a live run, measurement,
+    capability flip, release, campaign, publication evidence, or tag.
