@@ -76,8 +76,8 @@ func TestBuildCatalogCandidateRejectsDriftInActivatedScaleClosure(t *testing.T) 
 	scale := readFile(t, scalePath)
 	for name, drifted := range map[string]string{
 		"wider live budget": strings.Replace(base,
-			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 16\n",
-			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 10000\n", 1),
+			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 200000\n",
+			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 400000\n", 1),
 		"different live route": strings.Replace(base,
 			"    products: [final_v5_exposure_scale]\n    mode: manual\n    approver: bob\n    budget_profile: final-v5-exposure-scale-v1\n",
 			"    products: [final_v5_exposure_scale]\n    mode: manual\n    approver: bob\n    budget_profile: final-v5-benchmark-low-v1\n", 1),

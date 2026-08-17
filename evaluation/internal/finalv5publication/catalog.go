@@ -239,7 +239,7 @@ func normalizeActivatedScaleBase(base, scale *catalog.Catalog) error {
 	wantRoute := catalog.ApprovalRoute{Sensitivity: domain.SensitivityLow,
 		Products: []string{wantProduct.Name}, Mode: domain.ApprovalModeManual,
 		Approver: "bob", BudgetProfile: liveBudgetName}
-	wantBudget := catalog.BudgetProfile{Name: liveBudgetName, MaxQueries: 8, MaxRows: 16,
+	wantBudget := catalog.BudgetProfile{Name: liveBudgetName, MaxQueries: 8, MaxRows: 200_000,
 		MaxDBTime: catalog.Duration{Duration: 30 * time.Minute}, QueryTimeout: catalog.Duration{Duration: 30 * time.Minute},
 		TaskTTL: catalog.Duration{Duration: 2 * time.Hour}, MaxReleaseFacts: 1_250_000,
 		MaxInfluenceFacts: 2_500_000, MaxOutcomeFacts: 128, ExposureProfileVersion: "taskgate-exposure-v5",
