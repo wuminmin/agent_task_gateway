@@ -441,3 +441,25 @@ oracles, campaigns, or the paper are complete.
     freeze-candidate preparation work only. It does not approve any candidate
     byte, contract release, provenance record, live run, measurement,
     capability flip, campaign, publication evidence, or tag.
+
+29. **Prepare one complete v1.10 cascade reseal for a single author-signing
+    session.** (Taken 2026-08-17 by author wuminmin, answered exactly "A" in
+    the agent conversation to the stop options reported by P38.) The selected
+    option was: **"A — 完整级联重封归入 v1.10 就地重封（v1.8 C2-reseal 先例），
+    单次签署会话；覆盖：P37 三候选文件、135 份 oracle manifest、相关闭式常量、
+    C2 review/approval 重封、publication binding 与 provenance 重生。"** The
+    candidate preparation must start from the Catalog-byte change and close
+    every derived reference fail closed: the contract index, all 135 oracle
+    manifests, every closed constant or guard that pins the Catalog digest,
+    C2 review and approval material, publication binding, and provenance.
+
+    All recomputation is performed against private candidate copies. Existing
+    frozen bytes remain byte-for-byte unchanged, and the candidates are not
+    installed. One signing-session manifest must enumerate the old and new
+    SHA-256 and byte size of every candidate, its semantics, installation
+    order, verification commands, and the exact author-signing actions. A
+    separate task after the author's byte-level signature is required to
+    install any candidate. This decision approves candidate preparation and
+    evaluation-side generator repairs only; it does not approve any candidate
+    byte, frozen-file replacement, release, live run, measurement, capability
+    flip, campaign, publication evidence, tag, or tag movement.
