@@ -145,7 +145,12 @@ func run(root string, verifyOnly bool) error {
 		// Such a profile is reprojected from the live Catalog.
 		if profileCatalog, found := profileCatalogs[profiles[index].Closure.SHA256]; found {
 			if activated, known := support[profiles[index].ID]; known && activated.ActivationSmokePassed {
-				deploymentCatalog = profileCatalog
+				// Preserve the independently activated profile declaration, but refresh
+				// budgets for route identities that still exist verbatim in the live
+				// Catalog. Activation protects unrelated Catalog bytes; it must not
+				// freeze an obsolete cumulative budget after the live route was raised
+				// to cover another experiment sharing the same Product closure.
+				deploymentCatalog = refreshMatchingRouteBudgets(profileCatalog, live)
 			}
 		}
 		if err := materializeProfile(root, deploymentCatalog, &profiles[index], hot, attestations,
@@ -167,6 +172,60 @@ func run(root string, verifyOnly bool) error {
 		return err
 	}
 	return writeCanonicalJSON(filepath.Join(root, intersectionPath), buildIntersection(registry), verifyOnly)
+}
+
+// refreshMatchingRouteBudgets uses the live Catalog as the budget derivation
+// input only when a profile route has the same sensitivity, exact Product set,
+// approval mode, approver and budget-profile name. A profile-only route (for
+// example the deliberately narrow ProvSQL three-Product route) is left intact.
+// This keeps activation preservation from becoming a stale-budget cache without
+// allowing a live default route to replace a reviewed profile-scoped route.
+func refreshMatchingRouteBudgets(profileCatalog, live *catalog.Catalog) *catalog.Catalog {
+	refreshed := *profileCatalog
+	refreshed.BudgetProfiles = append([]catalog.BudgetProfile(nil), profileCatalog.BudgetProfiles...)
+	for _, route := range profileCatalog.ApprovalRoutes {
+		if !matchingRouteExists(live, route) {
+			continue
+		}
+		liveBudget, found := live.LookupBudgetProfile(route.BudgetProfile)
+		if !found {
+			continue
+		}
+		for index := range refreshed.BudgetProfiles {
+			if refreshed.BudgetProfiles[index].Name == route.BudgetProfile {
+				refreshed.BudgetProfiles[index] = liveBudget
+				break
+			}
+		}
+	}
+	return &refreshed
+}
+
+func matchingRouteExists(document *catalog.Catalog, want catalog.ApprovalRoute) bool {
+	for _, candidate := range document.ApprovalRoutes {
+		if candidate.Sensitivity == want.Sensitivity && candidate.Mode == want.Mode &&
+			candidate.Approver == want.Approver && candidate.BudgetProfile == want.BudgetProfile &&
+			sameStrings(candidate.Products, want.Products) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	left = append([]string(nil), left...)
+	right = append([]string(nil), right...)
+	sort.Strings(left)
+	sort.Strings(right)
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // loadProfileCatalogs discovers source-controlled per-profile Catalogs by the

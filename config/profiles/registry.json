@@ -489,10 +489,16 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": true,
-        "activation_smoke_passed": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "activation_evidence_catalog_drift",
+            "subject": "profile-794efc2159ffaa5f",
+            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
+          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -501,7 +507,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": true,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-exposure-scale-v1"
       ],
@@ -550,7 +556,7 @@
         "baseline",
         "scale"
       ],
-      "catalog_sha256": "c9ee12648003104edf703219b88865aa816e7329dbf99911d586ebceb8952c02",
+      "catalog_sha256": "beb1822adb70c48ed7cc37d6bc6ebedf3085eb04a4b79685d0168c77bfbe8027",
       "catalog_path": "config/profiles/exposure-scale.catalog.yaml",
       "hot_artifacts": [
         {

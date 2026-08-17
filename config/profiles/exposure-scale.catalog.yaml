@@ -98,7 +98,7 @@ budget_profiles:
         max_total_atom_payload_bytes: 36864
     - name: final-v5-exposure-scale-v1
       max_queries: 8
-      max_rows: 16
+      max_rows: 200000
       max_db_time: 30m0s
       query_timeout: 30m0s
       task_ttl: 2h0m0s

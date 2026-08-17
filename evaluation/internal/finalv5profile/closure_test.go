@@ -397,10 +397,109 @@ func TestExposureScaleCatalogCarriesTheExactClosureAndSufficientPairBudget(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.BudgetProfile != "final-v5-exposure-scale-v1" || policy.Budget.MaxQueries < 3 ||
+	if policy.BudgetProfile != "final-v5-exposure-scale-v1" || policy.Budget.MaxQueries < 4 ||
 		policy.Budget.MaxInfluenceFacts < 2_070_000 || policy.Budget.MaxReleaseFacts < 1_035_000 ||
-		policy.Budget.MaxOutcomeFacts < 5 || policy.Budget.MaxRows >= 10_000 {
+		policy.Budget.MaxOutcomeFacts < 5 || policy.Budget.MaxRows < 4*45_000 {
 		t.Fatalf("exposure-scale pair budget = %+v", policy)
+	}
+}
+
+// A budget is cumulative for one approved Task, while a workload mode-group
+// can make several governed calls against that Task. These 30 groups enumerate
+// the complete execution flows of the three profiles that had not run their own
+// Catalog before P46: Baseline replay chains, Scale history/anchor pairs,
+// ProvSQL's three arms, and the Baseline/Artifact result-heavy paths.
+func TestNewProfileBudgetsCoverEveryExperimentModeGroup(t *testing.T) {
+	type requirement struct {
+		profile, experiment, group  string
+		products                    []string
+		invocations, queries, rows  int64
+		release, influence, outcome int64
+	}
+	var requirements []requirement
+	for _, scale := range []struct {
+		name string
+		rows int64
+	}{{"1k-5k", 1_000}, {"10k-50k", 10_000}, {"45k-225k", 45_000}} {
+		requirements = append(requirements, requirement{
+			profile: "exposure-scale", experiment: "baseline/S3", group: scale.name,
+			products: []string{"final_v5_exposure_scale"}, invocations: 4, queries: 3, rows: 3 * scale.rows,
+			release: scale.rows, influence: 5 * scale.rows, outcome: 5,
+		})
+	}
+	for _, scale := range []struct {
+		name      string
+		influence int64
+	}{
+		{"10k-overlap-0", 20_000}, {"10k-overlap-50", 15_000},
+		{"10k-overlap-90", 11_000}, {"10k-overlap-100", 10_000},
+		{"100k-overlap-0", 200_000}, {"100k-overlap-50", 150_000},
+		{"100k-overlap-90", 110_000}, {"100k-overlap-100", 100_000},
+		{"1035000-overlap-0", 2_070_000}, {"1035000-overlap-50", 1_552_500},
+		{"1035000-overlap-90", 1_138_500}, {"1035000-overlap-100", 1_035_000},
+	} {
+		requirements = append(requirements, requirement{
+			profile: "exposure-scale", experiment: "scale/dependency-e2e", group: scale.name,
+			products: []string{"final_v5_exposure_scale"}, invocations: 3, queries: 3, rows: 3,
+			release: 1_035_000, influence: scale.influence, outcome: 5,
+		})
+	}
+	for _, scale := range []struct {
+		name      string
+		influence int64
+	}{{"1k", 29_003}, {"10k", 290_003}, {"45k", 1_305_003}} {
+		requirements = append(requirements, requirement{
+			profile: "provsql-nonce-join", experiment: "provsql/three-arms", group: scale.name,
+			products:    []string{"provsql_orders", "provsql_lineitem", "provsql_nonce"},
+			invocations: 1, queries: 1, rows: 3, release: 12, influence: scale.influence, outcome: 17,
+		})
+	}
+	for _, experiment := range []string{"baseline/S6", "artifact/result-heavy"} {
+		for _, scale := range []struct {
+			name          string
+			rows, columns int64
+		}{
+			{"100x4", 100, 4}, {"10k-x4", 10_000, 4}, {"100k-x4", 100_000, 4},
+			{"100x16", 100, 16}, {"10k-x16", 10_000, 16}, {"100k-x16", 100_000, 16},
+		} {
+			requirements = append(requirements, requirement{
+				profile: "result-heavy", experiment: experiment, group: scale.name,
+				products: []string{"final_v5_result_heavy"}, invocations: 1, queries: 1, rows: scale.rows,
+				release: scale.rows * scale.columns, influence: scale.rows * (scale.columns + 1), outcome: 6,
+			})
+		}
+	}
+	if len(requirements) != 30 {
+		t.Fatalf("mode-group audit has %d entries, want 30", len(requirements))
+	}
+
+	registry := loadRegistry(t)
+	catalogs := map[string]*catalog.Catalog{}
+	for _, profile := range []string{"exposure-scale", "provsql-nonce-join", "result-heavy"} {
+		entry := profileByAlias(t, registry, profile)
+		loaded, err := catalog.Load(filepath.Join(repositoryRoot, entry.CatalogPath))
+		if err != nil {
+			t.Fatalf("load %s Catalog: %v", profile, err)
+		}
+		catalogs[profile] = loaded
+	}
+	for _, required := range requirements {
+		required := required
+		t.Run(required.profile+"/"+required.experiment+"/"+required.group, func(t *testing.T) {
+			policy, err := catalogs[required.profile].ResolveTaskPolicy(required.products)
+			if err != nil {
+				t.Fatal(err)
+			}
+			budget := policy.Budget
+			if budget.MaxQueries < required.queries || budget.MaxRows < required.rows ||
+				budget.MaxReleaseFacts < required.release || budget.MaxInfluenceFacts < required.influence ||
+				budget.MaxOutcomeFacts < required.outcome {
+				t.Fatalf("budget %s = q/r/release/influence/outcome %d/%d/%d/%d/%d; group invokes %d calls and wants at least %d/%d/%d/%d/%d",
+					policy.BudgetProfile, budget.MaxQueries, budget.MaxRows, budget.MaxReleaseFacts,
+					budget.MaxInfluenceFacts, budget.MaxOutcomeFacts, required.invocations, required.queries, required.rows,
+					required.release, required.influence, required.outcome)
+			}
+		})
 	}
 }
 
