@@ -11,18 +11,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 const (
 	ProfileDeploymentOverridesVersion = "taskgate-profile-deployment-overrides-v1"
 	ProfileDeploymentConfigVersion    = "taskgate-profile-deployment-config-v1"
 	concurrencyDeploymentProfile      = "concurrency-expense-detail"
-	concurrencyDeploymentMinimumPool  = int64(32)
 )
 
-var profileDeploymentEnvironmentKeys = map[string]bool{
-	"GATEWAY_CONNECTOR_MAX_CONNECTIONS":    true,
-	"GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS": true,
+var profileDeploymentEnvironmentValues = map[string]int64{
+	"GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE": int64(concurrencyfixture.ServiceActiveWindow),
+	"GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE":  512,
+	"GATEWAY_CONNECTOR_MAX_CONNECTIONS":          int64(concurrencyfixture.MinimumProductionPoolWidth),
+	"GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS":       int64(concurrencyfixture.MinimumProductionPoolWidth),
 }
 
 type ProfileDeploymentOverride struct {
@@ -115,15 +118,16 @@ func validateClosedProfileDeploymentOverrides(overrides ProfileDeploymentOverrid
 }
 
 func validateProfileDeploymentEnvironment(environment map[string]int64) error {
-	if len(environment) != len(profileDeploymentEnvironmentKeys) {
-		return errors.New("deployment environment must contain the complete closed capacity pair")
+	if len(environment) != len(profileDeploymentEnvironmentValues) {
+		return errors.New("deployment environment must contain the complete closed capacity set")
 	}
 	for name, value := range environment {
-		if !profileDeploymentEnvironmentKeys[name] {
+		expected, ok := profileDeploymentEnvironmentValues[name]
+		if !ok {
 			return fmt.Errorf("deployment environment contains unsupported key %q", name)
 		}
-		if value != concurrencyDeploymentMinimumPool {
-			return fmt.Errorf("deployment environment %s must equal the source-controlled minimum %d", name, concurrencyDeploymentMinimumPool)
+		if value != expected {
+			return fmt.Errorf("deployment environment %s must equal the source-controlled value %d", name, expected)
 		}
 	}
 	return nil

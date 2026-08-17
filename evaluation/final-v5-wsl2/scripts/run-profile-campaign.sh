@@ -372,8 +372,12 @@ experiment_command() {
 
 original_connector_capacity_set=false
 original_control_capacity_set=false
+original_http_active_capacity_set=false
+original_http_queue_capacity_set=false
 original_connector_capacity=""
 original_control_capacity=""
+original_http_active_capacity=""
+original_http_queue_capacity=""
 if [[ ${GATEWAY_CONNECTOR_MAX_CONNECTIONS+x} == x ]]; then
   original_connector_capacity_set=true
   original_connector_capacity="$GATEWAY_CONNECTOR_MAX_CONNECTIONS"
@@ -381,6 +385,14 @@ fi
 if [[ ${GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS+x} == x ]]; then
   original_control_capacity_set=true
   original_control_capacity="$GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS"
+fi
+if [[ ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE+x} == x ]]; then
+  original_http_active_capacity_set=true
+  original_http_active_capacity="$GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE"
+fi
+if [[ ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE+x} == x ]]; then
+  original_http_queue_capacity_set=true
+  original_http_queue_capacity="$GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE"
 fi
 restore_profile_deployment_environment() {
   if [[ "$original_connector_capacity_set" == true ]]; then
@@ -393,15 +405,30 @@ restore_profile_deployment_environment() {
   else
     unset GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS
   fi
+  if [[ "$original_http_active_capacity_set" == true ]]; then
+    export GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE="$original_http_active_capacity"
+  else
+    unset GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE
+  fi
+  if [[ "$original_http_queue_capacity_set" == true ]]; then
+    export GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE="$original_http_queue_capacity"
+  else
+    unset GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE
+  fi
 }
 apply_profile_deployment_environment() {
-  local config="$1" connector control
+  local config="$1" active queue connector control
   restore_profile_deployment_environment
+  active="$(jq -r '.environment.GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE // empty' "$config")"
+  queue="$(jq -r '.environment.GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE // empty' "$config")"
   connector="$(jq -r '.environment.GATEWAY_CONNECTOR_MAX_CONNECTIONS // empty' "$config")"
   control="$(jq -r '.environment.GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS // empty' "$config")"
-  if [[ -n "$connector" || -n "$control" ]]; then
-    [[ "$connector" =~ ^[0-9]+$ && "$control" =~ ^[0-9]+$ ]] || {
-      echo "profile deployment capacity pair is incomplete" >&2; return 1; }
+  if [[ -n "$active" || -n "$queue" || -n "$connector" || -n "$control" ]]; then
+    [[ "$active" =~ ^[0-9]+$ && "$queue" =~ ^[0-9]+$ &&
+       "$connector" =~ ^[0-9]+$ && "$control" =~ ^[0-9]+$ ]] || {
+      echo "profile deployment capacity set is incomplete" >&2; return 1; }
+    export GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE="$active"
+    export GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE="$queue"
     export GATEWAY_CONNECTOR_MAX_CONNECTIONS="$connector"
     export GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS="$control"
   fi
@@ -446,6 +473,8 @@ for alias in "${selected_profiles[@]}"; do
     current_compose=(docker compose --project-name "$current_project")
     for compose_file in "${compose_files[@]}"; do current_compose+=(--file "$compose_file"); done
     bash evaluation/final-v5-wsl2/scripts/compose-host-preflight.sh "$current_project" "${compose_files[@]}"
+    bash evaluation/final-v5-wsl2/scripts/check-profile-deployment-compose.sh \
+      "$deployment_configuration" "${compose_files[@]}"
     [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo "worktree changed before $deployment_key" >&2; exit 1; }
     echo "P30-STAGE: deployment_start=$deployment_key compose_project=$current_project cells=$(jq 'length' <<<"$cells_json")"
 
@@ -478,8 +507,12 @@ for alias in "${selected_profiles[@]}"; do
     [[ "$(service_env gateway GATEWAY_ADMIN_TOKEN)" == "$GATEWAY_ADMIN_TOKEN" ]] || { echo "Compose admin-token binding drift" >&2; exit 1; }
 	configured_connector="$(jq -r '.environment.GATEWAY_CONNECTOR_MAX_CONNECTIONS // empty' "$deployment_configuration")"
 	configured_control="$(jq -r '.environment.GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS // empty' "$deployment_configuration")"
-	if [[ -n "$configured_connector" ]]; then
-	  [[ "$(service_env gateway GATEWAY_CONNECTOR_MAX_CONNECTIONS)" == "$configured_connector" &&
+	configured_http_active="$(jq -r '.environment.GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE // empty' "$deployment_configuration")"
+	configured_http_queue="$(jq -r '.environment.GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE // empty' "$deployment_configuration")"
+	if [[ -n "$configured_http_active" ]]; then
+	  [[ "$(service_env gateway GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE)" == "$configured_http_active" &&
+	     "$(service_env gateway GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE)" == "$configured_http_queue" &&
+	     "$(service_env gateway GATEWAY_CONNECTOR_MAX_CONNECTIONS)" == "$configured_connector" &&
 	     "$(service_env gateway GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS)" == "$configured_control" ]] || {
 	    echo "Compose profile capacity binding drift" >&2; exit 1; }
 	fi

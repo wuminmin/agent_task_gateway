@@ -29,6 +29,9 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`deployment-overrides-v1.json`,
 		`final-v5-profile-deployment-config`,
 		`apply_profile_deployment_environment "$deployment_configuration"`,
+		`check-profile-deployment-compose.sh`,
+		`GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE`,
+		`GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE`,
 		`export TASKGATE_FINAL_V5_CATALOG=`,
 		`export TASKGATE_PROFILE_ARTIFACT_DIR=`,
 		`export TASKGATE_FINAL_V5_REPO_ROOT=`,
@@ -62,6 +65,11 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	if !strings.Contains(script, `-retained-source-path "$deployment_overrides_retained_rel"`) ||
 		!strings.Contains(script, `-overrides "$deployment_overrides_retained"`) {
 		t.Fatal("profile deployment configuration is not bound to its retained source-controlled override")
+	}
+	composeCheck := strings.Index(script, `check-profile-deployment-compose.sh`)
+	composeUp := strings.Index(script, `"${current_compose[@]}" up`)
+	if composeCheck < 0 || composeUp < 0 || composeCheck > composeUp {
+		t.Fatal("profile deployment Compose capacities are not rendered and checked before service startup")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")

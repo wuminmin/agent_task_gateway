@@ -16,7 +16,10 @@ func TestRepositoryProfileDeploymentOverridesAreClosedAndProfileScoped(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Environment["GATEWAY_CONNECTOR_MAX_CONNECTIONS"] != 32 ||
+	if len(config.Environment) != 4 ||
+		config.Environment["GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE"] != 10 ||
+		config.Environment["GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE"] != 512 ||
+		config.Environment["GATEWAY_CONNECTOR_MAX_CONNECTIONS"] != 32 ||
 		config.Environment["GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS"] != 32 {
 		t.Fatalf("concurrency deployment environment = %#v", config.Environment)
 	}
@@ -42,25 +45,69 @@ func TestProfileDeploymentOverridesRejectUnknownProfileAndUncontrolledValues(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	var overrides map[string]any
-	if err := json.Unmarshal(payload, &overrides); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		mutate  func(map[string]any)
+		message string
+	}{
+		{
+			name: "connector wider than the fixed contract",
+			mutate: func(environment map[string]any) {
+				environment["GATEWAY_CONNECTOR_MAX_CONNECTIONS"] = float64(33)
+			},
+			message: "GATEWAY_CONNECTOR_MAX_CONNECTIONS must equal the source-controlled value 32",
+		},
+		{
+			name: "active window drift",
+			mutate: func(environment map[string]any) {
+				environment["GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE"] = float64(11)
+			},
+			message: "GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE must equal the source-controlled value 10",
+		},
+		{
+			name: "queue drift",
+			mutate: func(environment map[string]any) {
+				environment["GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE"] = float64(490)
+			},
+			message: "GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE must equal the source-controlled value 512",
+		},
+		{
+			name: "missing active window",
+			mutate: func(environment map[string]any) {
+				delete(environment, "GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE")
+			},
+			message: "complete closed capacity set",
+		},
+		{
+			name: "unknown key",
+			mutate: func(environment map[string]any) {
+				delete(environment, "GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS")
+				environment["GATEWAY_EVALUATION_CONCURRENCY_UNKNOWN"] = float64(1)
+			},
+			message: "unsupported key",
+		},
 	}
-	profiles := overrides["profiles"].(map[string]any)
-	profile := profiles[concurrencyDeploymentProfile].(map[string]any)
-	environment := profile["environment"].(map[string]any)
-	// 33 satisfies the executable lower bound, but is not the exact value
-	// selected by this source-controlled deployment contract.
-	environment["GATEWAY_CONNECTOR_MAX_CONNECTIONS"] = float64(33)
-	mutated, err := json.Marshal(overrides)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "deployment-overrides-v1.json")
-	if err := os.WriteFile(path, mutated, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ResolveProfileDeploymentConfig(registry, path, "source/deployment-overrides-v1.json", concurrencyDeploymentProfile); err == nil || !strings.Contains(err.Error(), "source-controlled minimum 32") {
-		t.Fatalf("uncontrolled capacity error = %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var overrides map[string]any
+			if err := json.Unmarshal(payload, &overrides); err != nil {
+				t.Fatal(err)
+			}
+			profiles := overrides["profiles"].(map[string]any)
+			profile := profiles[concurrencyDeploymentProfile].(map[string]any)
+			environment := profile["environment"].(map[string]any)
+			test.mutate(environment)
+			mutated, err := json.Marshal(overrides)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "deployment-overrides-v1.json")
+			if err := os.WriteFile(path, mutated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ResolveProfileDeploymentConfig(registry, path, "source/deployment-overrides-v1.json", concurrencyDeploymentProfile); err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("uncontrolled capacity error = %v, want %q", err, test.message)
+			}
+		})
 	}
 }

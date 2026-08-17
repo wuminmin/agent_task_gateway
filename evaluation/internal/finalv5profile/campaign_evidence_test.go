@@ -22,7 +22,7 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 	if err := os.Mkdir(filepath.Join(root, "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	overridesPayload := []byte("{\"schema_version\":1,\"record\":\"taskgate-profile-deployment-overrides-v1\",\"profiles\":{\"concurrency-expense-detail\":{\"environment\":{\"GATEWAY_CONNECTOR_MAX_CONNECTIONS\":32,\"GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS\":32}}}}\n")
+	overridesPayload := []byte("{\"schema_version\":1,\"record\":\"taskgate-profile-deployment-overrides-v1\",\"profiles\":{\"concurrency-expense-detail\":{\"environment\":{\"GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE\":10,\"GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE\":512,\"GATEWAY_CONNECTOR_MAX_CONNECTIONS\":32,\"GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS\":32}}}}\n")
 	overridesPath := filepath.Join(root, "source", "deployment-overrides-v1.json")
 	if err := os.WriteFile(overridesPath, overridesPayload, 0o600); err != nil {
 		t.Fatal(err)
