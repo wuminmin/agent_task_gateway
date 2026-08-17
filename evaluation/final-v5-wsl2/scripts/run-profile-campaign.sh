@@ -481,7 +481,7 @@ for alias in "${selected_profiles[@]}"; do
     mapfile -t experiments < <(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments[]' "$plan")
     if printf '%s\n' "${experiments[@]}" | grep -qx rq5; then
       current_rq5_run_root="$current_dir/rq5-live"
-      current_rq5_project="$(bash evaluation/final-v5-wsl2/scripts/rq5-project-prefix.sh "$project_identity" deployment-01)"
+      current_rq5_project="$(bash evaluation/final-v5-wsl2/scripts/rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" deployment-01)"
       current_rq5_secret="$(mktemp -d /tmp/taskgate-rq5-secrets.deployment-01.XXXXXXXX)"
       mkdir -m 700 -p "$current_rq5_run_root"
       export TASKGATE_FINAL_V5_RQ5_DRIVER="$rq5_driver"

@@ -359,3 +359,68 @@ func TestRQ5DriverBackendReattestsBinaryBeforeEveryCycle(t *testing.T) {
 		t.Fatalf("replaced build manifest error = %#v", err)
 	}
 }
+
+func TestRQ5DriverBackendBuildsCampaignRequestAndRetainsDriverStderrCause(t *testing.T) {
+	directory := t.TempDir()
+	capture := filepath.Join(directory, "request.json")
+	driver := filepath.Join(directory, "rq5-driver")
+	script := `#!/bin/sh
+IFS= read -r request
+printf '%s\n' "$request" > "$RQ5_REQUEST_CAPTURE"
+printf '%s\n' '{"schema_version":1,"driver_version":"taskgate-final-v5-rq5-sequential-driver-v1","status":"invalid","error_code":"rq5_driver_environment_invalid"}'
+printf '%s\n' 'RQ5 project prefix does not bind the complete campaign/deployment identity' >&2
+`
+	if err := os.WriteFile(driver, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driverSHA, err := experiment.FileSHA256(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(directory, "rq5-driver-build-manifest.json")
+	if err := os.WriteFile(manifest, []byte("sealed manifest\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestSHA, err := experiment.FileSHA256(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RQ5_REQUEST_CAPTURE", capture)
+	backend := &rq5DriverBackend{path: driver, expectedSHA256: driverSHA,
+		expectedGeneratorSHA256: sha("campaign-generator"), expectedConfigSHA256: sha("campaign-config"),
+		buildManifestPath: manifest, expectedBuildManifestSHA256: manifestSHA}
+	adapter, err := newRQ5AdapterWithBackend(backend, func(experiment.Sample) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := captureAdapterDiagnostics(t)
+	operation := rq5AdapterTestOperation(rq5fixture.BuildMode)
+	operation.CampaignClass = "pilot"
+	operation.CampaignID = "p34-mech-partial-04"
+	operation.DeploymentID = "deployment-01"
+	sample := adapter.Execute(t.Context(), operation)
+	if sample.Status != "invalid" || sample.ErrorCode != "rq5_driver_environment_invalid" {
+		t.Fatalf("driver response semantics changed: %#v", sample)
+	}
+	if got := diagnostics.String(); !strings.Contains(got, "project prefix does not bind") {
+		t.Fatalf("driver stderr cause did not reach Adapter stderr: %q", got)
+	}
+	payload, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request rq5DriverRequest
+	if err := experiment.StrictJSON(payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.SchemaVersion != 1 || request.DriverVersion != rq5DriverVersion ||
+		request.FixtureSHA256 != rq5fixture.FixtureSHA256() || request.BuildManifestSHA256 != manifestSHA ||
+		request.GeneratorSHA256 != sha("campaign-generator") || request.ConfigSHA256 != sha("campaign-config") ||
+		request.Operation.CampaignClass != "pilot" || request.Operation.CampaignID != "p34-mech-partial-04" ||
+		request.Operation.DeploymentID != "deployment-01" || request.Operation.ExperimentID != "rq5" ||
+		request.Operation.WorkloadID != rq5fixture.WorkloadID || request.Operation.Scale != rq5fixture.Scale ||
+		request.Operation.Mode != rq5fixture.BuildMode || request.Operation.Iteration != 1 ||
+		request.CycleIndex != 1 || request.FromDay != "day3" || request.ToDay != "day0" {
+		t.Fatalf("campaign-shaped driver request is incomplete: %#v", request)
+	}
+}

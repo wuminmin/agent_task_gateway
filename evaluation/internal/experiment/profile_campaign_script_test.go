@@ -66,6 +66,10 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")
 	}
+	if !strings.Contains(script, `rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" deployment-01`) ||
+		strings.Contains(script, `rq5-project-prefix.sh "$project_identity" deployment-01`) {
+		t.Fatal("RQ5 driver project prefix is not derived from the campaign identity bound in driver state")
+	}
 }
 
 func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {

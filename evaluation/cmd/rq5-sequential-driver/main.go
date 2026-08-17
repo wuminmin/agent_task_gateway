@@ -193,10 +193,14 @@ type commandReport struct {
 }
 
 func main() {
+	runDriver(os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runDriver(input io.Reader, output, diagnostic io.Writer) {
 	response := driverResponse{SchemaVersion: 1, DriverVersion: driverVersion, Status: "invalid"}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
-	request, err := decodeRequest(os.Stdin)
+	request, err := decodeRequest(input)
 	if err == nil {
 		response, err = run(ctx, request)
 	}
@@ -204,7 +208,10 @@ func main() {
 		response.Status = "invalid"
 		response.ErrorCode = "rq5_driver_environment_invalid"
 	}
-	encoder := json.NewEncoder(os.Stdout)
+	if err != nil {
+		fmt.Fprintf(diagnostic, "RQ5 sequential driver failed: %v\n", err)
+	}
+	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
 	_ = encoder.Encode(response)
 }

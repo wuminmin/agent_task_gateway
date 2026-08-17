@@ -387,6 +387,35 @@ func encodeRequest(t *testing.T, request driverRequest) []byte {
 	return encoded
 }
 
+func TestDriverWritesUnderlyingCauseToStderrWithoutChangingResponseCode(t *testing.T) {
+	request := validDriverRequest(t)
+	for _, name := range []string{
+		"TASKGATE_FINAL_V5_RQ5_REPO_ROOT",
+		"TASKGATE_FINAL_V5_RQ5_RUN_ROOT",
+		"TASKGATE_FINAL_V5_RQ5_SECRET_ROOT",
+		"TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST",
+		"TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST_SHA256",
+		"TASKGATE_FINAL_V5_RQ5_EXPECTED_CAMPAIGN_ID",
+		"TASKGATE_FINAL_V5_RQ5_EXPECTED_DEPLOYMENT_ID",
+		"TASKGATE_FINAL_V5_RQ5_PROJECT",
+	} {
+		t.Setenv(name, "")
+	}
+	var stdout, stderr bytes.Buffer
+	runDriver(bytes.NewReader(encodeRequest(t, request)), &stdout, &stderr)
+	var response driverResponse
+	if err := experiment.StrictJSON(bytes.TrimSpace(stdout.Bytes()), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Status != "invalid" || response.ErrorCode != "rq5_driver_environment_invalid" ||
+		response.SchemaVersion != 1 || response.DriverVersion != driverVersion {
+		t.Fatalf("driver response changed while retaining cause: %#v", response)
+	}
+	if got := stderr.String(); !strings.Contains(got, "absolute RQ5 roots") {
+		t.Fatalf("driver stderr omitted its underlying cause: %q", got)
+	}
+}
+
 func TestDecodeRequestAcceptsOnlyFrozenCycle(t *testing.T) {
 	request := validDriverRequest(t)
 	decoded, err := decodeRequest(bytes.NewReader(encodeRequest(t, request)))
@@ -395,12 +424,29 @@ func TestDecodeRequestAcceptsOnlyFrozenCycle(t *testing.T) {
 	}
 
 	mutations := map[string]func(*driverRequest){
-		"driver version": func(value *driverRequest) { value.DriverVersion = "wrong" },
-		"fixture digest": func(value *driverRequest) { value.FixtureSHA256 = "wrong" },
-		"operation mode": func(value *driverRequest) { value.Operation.Mode = rq5fixture.RetainedMode },
-		"cycle index":    func(value *driverRequest) { value.CycleIndex = 2 },
-		"from day":       func(value *driverRequest) { value.FromDay = "day2" },
-		"to day":         func(value *driverRequest) { value.ToDay = "day1" },
+		"schema version":      func(value *driverRequest) { value.SchemaVersion = 2 },
+		"driver version":      func(value *driverRequest) { value.DriverVersion = "wrong" },
+		"fixture digest":      func(value *driverRequest) { value.FixtureSHA256 = "wrong" },
+		"experiment":          func(value *driverRequest) { value.Operation.ExperimentID = "baseline" },
+		"operation mode":      func(value *driverRequest) { value.Operation.Mode = rq5fixture.RetainedMode },
+		"operation workload":  func(value *driverRequest) { value.Operation.WorkloadID = "other" },
+		"operation scale":     func(value *driverRequest) { value.Operation.Scale = "2000" },
+		"operation iteration": func(value *driverRequest) { value.Operation.Iteration = 0 },
+		"cycle index":         func(value *driverRequest) { value.CycleIndex = 2 },
+		"from day":            func(value *driverRequest) { value.FromDay = "day2" },
+		"to day":              func(value *driverRequest) { value.ToDay = "day1" },
+		"phase image":         func(value *driverRequest) { value.PhaseImageID = "sha256:" + strings.Repeat("a", 64) },
+		"online image":        func(value *driverRequest) { value.OnlineImageID = "sha256:" + strings.Repeat("b", 64) },
+		"OA image":            func(value *driverRequest) { value.OAImageID = "sha256:" + strings.Repeat("c", 64) },
+		"phase binary":        func(value *driverRequest) { value.PhaseBinarySHA256 = strings.Repeat("d", 64) },
+		"online binary":       func(value *driverRequest) { value.OnlineBinarySHA256 = strings.Repeat("e", 64) },
+		"OA binary":           func(value *driverRequest) { value.OABinarySHA256 = strings.Repeat("f", 64) },
+		"phase mtime":         func(value *driverRequest) { mtime := int64(0); value.PhaseBinaryMTime = &mtime },
+		"online mtime":        func(value *driverRequest) { mtime := int64(0); value.OnlineBinaryMTime = &mtime },
+		"OA mtime":            func(value *driverRequest) { mtime := int64(0); value.OABinaryMTime = &mtime },
+		"manifest digest":     func(value *driverRequest) { value.BuildManifestSHA256 = strings.Repeat("A", 64) },
+		"generator digest":    func(value *driverRequest) { value.GeneratorSHA256 = "wrong" },
+		"config digest":       func(value *driverRequest) { value.ConfigSHA256 = "wrong" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -413,6 +459,18 @@ func TestDecodeRequestAcceptsOnlyFrozenCycle(t *testing.T) {
 	}
 	if _, err := decodeRequest(bytes.NewReader(append(encodeRequest(t, request), []byte(" {}")...))); err == nil {
 		t.Fatal("trailing JSON value was accepted")
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encodeRequest(t, request), &object); err != nil {
+		t.Fatal(err)
+	}
+	object["unexpected"] = true
+	unknown, err := json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeRequest(bytes.NewReader(unknown)); err == nil {
+		t.Fatal("unknown driver request field was accepted")
 	}
 }
 
@@ -455,6 +513,10 @@ func TestLoadDriverStateRequiresBoundAbsoluteRoots(t *testing.T) {
 		t.Fatalf("unexpected state: %#v", state)
 	}
 
+	t.Setenv("TASKGATE_FINAL_V5_RQ5_PROJECT", rq5DeploymentProjectPrefix("internal-project-identity", deploymentID))
+	if _, err := loadDriverState(); err == nil || !strings.Contains(err.Error(), "complete campaign/deployment identity") {
+		t.Fatalf("project prefix derived from a non-campaign identity was accepted: %v", err)
+	}
 	t.Setenv("TASKGATE_FINAL_V5_RQ5_PROJECT", "unsafe/project")
 	if _, err := loadDriverState(); err == nil {
 		t.Fatal("unsafe Compose project was accepted")

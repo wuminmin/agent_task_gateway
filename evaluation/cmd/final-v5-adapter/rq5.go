@@ -380,20 +380,41 @@ func (backend *rq5DriverBackend) RunCycle(ctx context.Context, operation experim
 		return response.Evidence, &rq5RunError{code: "rq5_driver_protocol_invalid", invalid: true,
 			evidence: response.Evidence, cause: errors.New("driver response identity/status is invalid")}
 	}
-	if runErr != nil || stderr.Len() != 0 || stdout.overflow || stderr.overflow {
-		return response.Evidence, &rq5RunError{code: "rq5_driver_process_failed", evidence: response.Evidence, cause: runErr}
+	driverCause := rq5DriverStderrCause(stderr)
+	if runErr != nil || stdout.overflow || stderr.overflow {
+		if stdout.overflow || stderr.overflow {
+			driverCause = errors.Join(driverCause, errors.New("RQ5 driver output exceeded its bound"))
+		}
+		return response.Evidence, &rq5RunError{code: "rq5_driver_process_failed", evidence: response.Evidence,
+			cause: errors.Join(runErr, driverCause)}
+	}
+	if response.Status == "pass" && driverCause != nil {
+		return response.Evidence, &rq5RunError{code: "rq5_driver_process_failed", evidence: response.Evidence,
+			cause: driverCause}
 	}
 	if response.Status != "pass" {
 		code := strings.TrimSpace(response.ErrorCode)
 		if code == "" {
 			code = "rq5_driver_reported_failure"
 		}
-		return response.Evidence, &rq5RunError{code: code, invalid: response.Status == "invalid", evidence: response.Evidence}
+		return response.Evidence, &rq5RunError{code: code, invalid: response.Status == "invalid",
+			evidence: response.Evidence, cause: driverCause}
 	}
 	if response.Evidence == nil {
 		return nil, &rq5RunError{code: "rq5_driver_omitted_cycle_evidence", invalid: true}
 	}
 	return response.Evidence, nil
+}
+
+func rq5DriverStderrCause(stderr *boundedRQ5Buffer) error {
+	if stderr == nil {
+		return nil
+	}
+	message := strings.TrimSpace(string(stderr.Bytes()))
+	if message == "" {
+		return nil
+	}
+	return errors.New(message)
 }
 
 type boundedRQ5Buffer struct {
