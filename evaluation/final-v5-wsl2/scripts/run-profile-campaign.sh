@@ -41,6 +41,18 @@ mkdir -m 700 -p "$campaign_root/source" "$campaign_root/deployments"
 plan="$campaign_root/campaign-plan.json"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-plan -require-ready >"$plan"
 chmod 600 "$plan"
+preregistration_source="$repo/config/profiles/concurrency-preregistration-v1.json"
+preregistration_retained_rel="$(jq -er '.preregistered_aggregates[0].retained_path' "$plan")"
+preregistration_sha256="$(jq -er '.preregistered_aggregates[0].source_sha256' "$plan")"
+preregistration_rounds="$(jq -er '.preregistered_aggregates[0].rounds' "$plan")"
+[[ "$preregistration_retained_rel" == source/concurrency-preregistration-v1.json &&
+   "$preregistration_sha256" =~ ^[0-9a-f]{64}$ && "$preregistration_rounds" =~ ^[1-9][0-9]*$ ]] || {
+  echo "campaign plan carries an invalid concurrency preregistration" >&2; exit 1; }
+preregistration_retained="$campaign_root/$preregistration_retained_rel"
+install -m 600 "$preregistration_source" "$preregistration_retained"
+[[ "$(sha256sum "$preregistration_source" | awk '{print $1}')" == "$preregistration_sha256" &&
+   "$(sha256sum "$preregistration_retained" | awk '{print $1}')" == "$preregistration_sha256" ]] || {
+  echo "concurrency preregistration source/retained digest drift" >&2; exit 1; }
 rq5_cell_map_retained_rel="source/rq5-workload-cell-map-v1.json"
 rq5_cell_map_retained="$campaign_root/$rq5_cell_map_retained_rel"
 install -m 600 "$rq5_cell_map_source" "$rq5_cell_map_retained"
@@ -72,7 +84,11 @@ for alias in "${selected_profiles[@]}"; do
     echo "profile is absent or not ready: $alias" >&2; exit 2; }
   selected_seen["$alias"]=1
 done
-echo "P30-STAGE: plan=pass ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions"
+if [[ -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions" != "$preregistration_rounds" ]]; then
+  echo "concurrency-expense-detail requires exactly $preregistration_rounds preregistered repetitions" >&2
+  exit 2
+fi
+echo "P30-STAGE: plan=pass ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions preregistered_rounds=$preregistration_rounds preregistered_aggregates=$(jq '.preregistered_aggregates | length' "$plan")"
 
 artifact_qualification=""
 artifact_postgresql_identity=""
@@ -646,7 +662,8 @@ for alias in "${selected_profiles[@]}"; do
       runner_status=0
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id deployment-01 \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
-        -adapter-stderr-output "$adapter_stderr" >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
+        -deployment-repetition "$repetition" -adapter-stderr-output "$adapter_stderr" \
+        >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
 	  export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
 	  export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
 	  export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
@@ -665,9 +682,15 @@ for alias in "${selected_profiles[@]}"; do
 	  unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
 	    TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
       (( runner_status == 0 )) || exit "$runner_status"
+      preregistration_gate_args=()
+      if [[ "$experiment" == concurrency ]]; then
+        preregistration_gate_args=(-preregistration "$preregistration_retained" \
+          -preregistration-sha256 "$preregistration_sha256")
+      fi
       GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
         -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
-        -campaign-class pilot -samples-per-cell 1 "${gate_mapping_args[@]}" >/dev/null || {
+        -campaign-class pilot -samples-per-cell 1 "${gate_mapping_args[@]}" \
+        "${preregistration_gate_args[@]}" >"$current_dir/$experiment.gate.json" || {
         echo "$deployment_key/$experiment retained a failed or misrouted cell" >&2; exit 1; }
       echo "P30-STAGE: cells=pass deployment=$deployment_key experiment=$experiment count=$(jq -s 'length' "$raw")"
     done
@@ -724,6 +747,7 @@ for alias in "${selected_profiles[@]}"; do
         add_ref rq5_build_manifest rq5 "$rq5_manifest"
       fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
+      add_ref launcher_gate "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/$experiment.gate.json"
       add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
       add_ref adapter_stderr_credential_scan "$experiment" \
         "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"

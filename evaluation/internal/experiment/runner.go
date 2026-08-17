@@ -65,6 +65,8 @@ func RunCommand(experimentID string) int {
 		"activated deployment profile binding JSON; required for publication and profile-bound pilot runs")
 	selectedCellsPath := flags.String("selected-cells", "",
 		"strict JSON array of experiment/cell identities assigned to this profile deployment")
+	deploymentRepetition := flags.Int("deployment-repetition", 0,
+		"fresh profile-deployment repetition bound into sample and round identities")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
@@ -88,6 +90,10 @@ func RunCommand(experimentID string) int {
 			"config_bytes": len(configBytes), "selected_cells": len(selectedCells)}
 		_ = json.NewEncoder(os.Stdout).Encode(out)
 		return 0
+	}
+	if (*deploymentRepetition == 0) != (selectedCells == nil) || *deploymentRepetition < 0 {
+		fmt.Fprintln(os.Stderr, "-deployment-repetition must be positive exactly for selected profile campaigns")
+		return 1
 	}
 	if *smokeDir != "" {
 		if *outputPath != "" || *deploymentID != "" || *adapterPath != "" {
@@ -114,7 +120,7 @@ func RunCommand(experimentID string) int {
 		return 1
 	}
 	if err := executeAdapterCampaignWithProfileSelection(config, *deploymentID, *adapterPath, *outputPath,
-		profile, *adapterStderrPath, selectedCells); err != nil {
+		profile, *adapterStderrPath, selectedCells, *deploymentRepetition); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -147,11 +153,11 @@ func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 func executeAdapterCampaignWithProfile(config Config, deploymentID, adapterPath, outputPath string,
 	profile *ProfileBinding, adapterStderrPath string) error {
 	return executeAdapterCampaignWithProfileSelection(config, deploymentID, adapterPath, outputPath,
-		profile, adapterStderrPath, nil)
+		profile, adapterStderrPath, nil, 0)
 }
 
 func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, adapterPath, outputPath string,
-	profile *ProfileBinding, adapterStderrPath string, selectedCells map[string]bool) error {
+	profile *ProfileBinding, adapterStderrPath string, selectedCells map[string]bool, deploymentRepetition int) error {
 	if err := config.Validate(config.ExperimentID); err != nil {
 		return err
 	}
@@ -229,8 +235,8 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 	orderPosition := 0
 	var campaignErrors []error
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
-		operations := buildOperationsSelected(config, deploymentID, deploymentNumber, processReplicate,
-			&orderPosition, profile, selectedCells)
+		operations := buildOperationsSelectedWithDeploymentRepetition(config, deploymentID, deploymentNumber,
+			processReplicate, &orderPosition, profile, selectedCells, deploymentRepetition)
 		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations, adapterStderr)
 		for index := range operations {
 			op := operations[index]
@@ -387,7 +393,18 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 
 func buildOperationsSelected(config Config, deploymentID string, deploymentNumber, processReplicate int,
 	orderPosition *int, profile *ProfileBinding, selectedCells map[string]bool) []AdapterOperation {
+	return buildOperationsSelectedWithDeploymentRepetition(config, deploymentID, deploymentNumber,
+		processReplicate, orderPosition, profile, selectedCells, 0)
+}
+
+func buildOperationsSelectedWithDeploymentRepetition(config Config, deploymentID string, deploymentNumber,
+	processReplicate int, orderPosition *int, profile *ProfileBinding, selectedCells map[string]bool,
+	deploymentRepetition int) []AdapterOperation {
 	seed := config.RandomSeed + int64(deploymentNumber*100_000+processReplicate*1_000)
+	operationIdentityPrefix := deploymentID
+	if deploymentRepetition > 0 {
+		operationIdentityPrefix = fmt.Sprintf("%s-r%03d", deploymentID, deploymentRepetition)
+	}
 	type cell struct {
 		workload string
 		scale    string
@@ -437,7 +454,7 @@ func buildOperationsSelected(config Config, deploymentID string, deploymentNumbe
 				if warmup {
 					pairKind = "warmup"
 				}
-				pairID := fmt.Sprintf("%s-p%02d-%s-%04d-%s-%s-g%02d", deploymentID, processReplicate, pairKind, iteration, selected.workload, selected.scale, groupIndex+1)
+				pairID := fmt.Sprintf("%s-p%02d-%s-%04d-%s-%s-g%02d", operationIdentityPrefix, processReplicate, pairKind, iteration, selected.workload, selected.scale, groupIndex+1)
 				for _, mode := range group {
 					rootGroupID := strings.Join(declaredGroup, ",")
 					// RLS, unlimited TaskGate, and bounded TaskGate are paired arms
@@ -452,7 +469,7 @@ func buildOperationsSelected(config Config, deploymentID string, deploymentNumbe
 					if warmup {
 						sampleKind = "warmup"
 					}
-					sampleID := fmt.Sprintf("%s-p%02d-%s-%04d", deploymentID, processReplicate, sampleKind, *orderPosition)
+					sampleID := fmt.Sprintf("%s-p%02d-%s-%04d", operationIdentityPrefix, processReplicate, sampleKind, *orderPosition)
 					operations = append(operations, AdapterOperation{
 						SchemaVersion:     1,
 						CampaignClass:     config.CampaignClass,

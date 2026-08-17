@@ -1,9 +1,12 @@
 package finalv5profile
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 // CampaignPlan is the deployment plan for one formal campaign replicate under
@@ -16,10 +19,60 @@ import (
 // result-heavy profile Catalog. One deployment cannot be two Catalogs, so the
 // campaign becomes several deployments and the plan is what says which.
 type CampaignPlan struct {
-	ContractRelease string              `json:"contract_release"`
-	Deployments     []PlannedDeploy     `json:"deployments"`
-	KernelOnlyCells []string            `json:"kernel_only_cells"`
-	Coverage        map[string][]string `json:"coverage"`
+	ContractRelease         string                           `json:"contract_release"`
+	Deployments             []PlannedDeploy                  `json:"deployments"`
+	KernelOnlyCells         []string                         `json:"kernel_only_cells"`
+	Coverage                map[string][]string              `json:"coverage"`
+	PreregisteredAggregates []CampaignPreregisteredAggregate `json:"preregistered_aggregates"`
+}
+
+type CampaignPreregisteredAggregate struct {
+	SourcePath         string `json:"source_path"`
+	RetainedPath       string `json:"retained_path"`
+	SourceSHA256       string `json:"source_sha256"`
+	ProfileAlias       string `json:"profile_alias"`
+	Cell               string `json:"cell"`
+	Rounds             int    `json:"rounds"`
+	SuccessesRequired  int    `json:"successes_required"`
+	SuccessStatus      string `json:"success_status"`
+	MissStatus         string `json:"miss_status"`
+	MissErrorCode      string `json:"miss_error_code"`
+	RoundIdentityScope string `json:"round_identity_scope"`
+	RetainAllRounds    bool   `json:"retain_all_rounds"`
+	EarlyStop          bool   `json:"early_stop"`
+}
+
+func (plan *CampaignPlan) AttachPreregistration(contract concurrencyfixture.Preregistration, digest string) error {
+	if plan == nil || len(plan.PreregisteredAggregates) != 0 {
+		return errors.New("campaign plan already carries a preregistration")
+	}
+	if err := contract.Validate(); err != nil || digest != concurrencyfixture.PreregistrationSHA256 {
+		return errors.New("campaign preregistration is invalid or has an unapproved digest")
+	}
+	owners := 0
+	for _, deployment := range plan.Deployments {
+		if deployment.Alias != contract.ProfileAlias {
+			continue
+		}
+		for _, cell := range deployment.Cells {
+			if cell == contract.Cell {
+				owners++
+			}
+		}
+	}
+	if owners != 1 {
+		return fmt.Errorf("preregistered cell owners=%d, want exactly 1", owners)
+	}
+	plan.PreregisteredAggregates = []CampaignPreregisteredAggregate{{
+		SourcePath:   concurrencyfixture.PreregistrationSourcePath,
+		RetainedPath: "source/concurrency-preregistration-v1.json", SourceSHA256: digest,
+		ProfileAlias: contract.ProfileAlias, Cell: contract.Cell, Rounds: contract.Rounds,
+		SuccessesRequired: contract.SuccessesRequired, SuccessStatus: contract.SuccessStatus,
+		MissStatus: contract.MissStatus, MissErrorCode: contract.MissErrorCode,
+		RoundIdentityScope: contract.RoundIdentityScope, RetainAllRounds: contract.RetainAllRounds,
+		EarlyStop: contract.EarlyStop,
+	}}
+	return nil
 }
 
 // PlannedDeploy is one profile-bound deployment and the cells it runs.

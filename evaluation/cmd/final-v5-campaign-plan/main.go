@@ -17,12 +17,15 @@ import (
 	"os"
 	"path/filepath"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
 
 func main() {
 	root := flag.String("root", ".", "repository root")
 	registryPath := flag.String("registry", "config/profiles/registry.json", "profile registry path")
+	preregistrationPath := flag.String("preregistration", concurrencyfixture.PreregistrationSourcePath,
+		"source-controlled fixed-N concurrency preregistration")
 	requireReady := flag.Bool("require-ready", false,
 		"exit non-zero unless every planned deployment is activatable today")
 	flag.Parse()
@@ -30,13 +33,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "positional arguments are not accepted")
 		os.Exit(2)
 	}
-	if err := run(*root, *registryPath, *requireReady); err != nil {
+	if err := run(*root, *registryPath, *preregistrationPath, *requireReady); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(root, registryPath string, requireReady bool) error {
+func run(root, registryPath, preregistrationPath string, requireReady bool) error {
 	payload, err := os.ReadFile(filepath.Join(root, registryPath))
 	if err != nil {
 		return fmt.Errorf("read profile registry: %w", err)
@@ -51,6 +54,14 @@ func run(root, registryPath string, requireReady bool) error {
 	}
 	plan, err := finalv5profile.BuildCampaignPlan(registry, required, nil)
 	if err != nil {
+		return err
+	}
+	preregistration, preregistrationSHA256, err := concurrencyfixture.LoadPreregistration(
+		filepath.Join(root, preregistrationPath))
+	if err != nil {
+		return fmt.Errorf("load concurrency preregistration: %w", err)
+	}
+	if err := plan.AttachPreregistration(preregistration, preregistrationSHA256); err != nil {
 		return err
 	}
 	encoded, err := json.MarshalIndent(plan, "", "  ")

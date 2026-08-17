@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 func repositoryRegistry(t *testing.T) Registry {
@@ -19,6 +21,32 @@ func repositoryRegistry(t *testing.T) Registry {
 		t.Fatalf("decode profile registry: %v", err)
 	}
 	return registry
+}
+
+func TestCampaignPlanCarriesTheWidth50Preregistration(t *testing.T) {
+	registry := repositoryRegistry(t)
+	plan, err := BuildCampaignPlan(registry, requiredCells(registry), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, digest, err := concurrencyfixture.LoadPreregistration(
+		filepath.Join("..", "..", "..", concurrencyfixture.PreregistrationSourcePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.AttachPreregistration(contract, digest); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.PreregisteredAggregates) != 1 {
+		t.Fatalf("preregistered aggregates = %d", len(plan.PreregisteredAggregates))
+	}
+	aggregate := plan.PreregisteredAggregates[0]
+	if aggregate.SourceSHA256 != concurrencyfixture.PreregistrationSHA256 ||
+		aggregate.Cell != concurrencyfixture.PreregisteredCell || aggregate.Rounds != 11 ||
+		aggregate.SuccessesRequired != 1 || aggregate.RoundIdentityScope != "fresh_profile_deployment" ||
+		!aggregate.RetainAllRounds || aggregate.EarlyStop {
+		t.Fatalf("preregistered aggregate = %+v", aggregate)
+	}
 }
 
 // requiredCells collects every cell the registry assigns, which is what a

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5attack"
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 const ProfileCampaignSampleV1Record = "taskgate-final-v5-profile-campaign-sample-v1"
@@ -95,6 +96,19 @@ func WrapRetainedSamplesForProfileCampaignAudit(samples []Sample, campaignClass 
 // jq predicate incorrectly treated as uniform.
 func ValidateProfileCampaignExperimentGate(experimentID string, selectedCells []string,
 	records []ProfileCampaignSampleV1, samplesPerCell int) error {
+	return validateProfileCampaignExperimentGate(experimentID, selectedCells, records, samplesPerCell, nil, "")
+}
+
+func ValidateProfileCampaignExperimentGateWithPreregistration(experimentID string, selectedCells []string,
+	records []ProfileCampaignSampleV1, samplesPerCell int, preregistration *concurrencyfixture.Preregistration,
+	preregistrationSHA256 string) error {
+	return validateProfileCampaignExperimentGate(experimentID, selectedCells, records, samplesPerCell,
+		preregistration, preregistrationSHA256)
+}
+
+func validateProfileCampaignExperimentGate(experimentID string, selectedCells []string,
+	records []ProfileCampaignSampleV1, samplesPerCell int, preregistration *concurrencyfixture.Preregistration,
+	preregistrationSHA256 string) error {
 	if !profileCampaignExperiment(experimentID) {
 		return fmt.Errorf("unsupported profile campaign experiment %q", experimentID)
 	}
@@ -115,6 +129,17 @@ func ValidateProfileCampaignExperimentGate(experimentID string, selectedCells []
 	if len(expected) == 0 {
 		return errors.New("selected cell set must not be empty")
 	}
+	if preregistration != nil {
+		if experimentID != "concurrency" || preregistrationSHA256 != concurrencyfixture.PreregistrationSHA256 {
+			return errors.New("preregistration is attached to the wrong experiment or digest")
+		}
+		if err := preregistration.Validate(); err != nil {
+			return err
+		}
+		if expected[preregistration.Cell] != samplesPerCell {
+			return errors.New("preregistered cell is absent from the exact launcher selection")
+		}
+	}
 	if len(records) != len(expected)*samplesPerCell {
 		return fmt.Errorf("retained sample count is %d, want %d", len(records), len(expected)*samplesPerCell)
 	}
@@ -133,11 +158,28 @@ func ValidateProfileCampaignExperimentGate(experimentID string, selectedCells []
 		if observed[identity] > expected[identity] {
 			return fmt.Errorf("cell %q retained too many samples", identity)
 		}
-		if sample.Status != "pass" {
-			return fmt.Errorf("cell %q retained status %q", identity, sample.Status)
-		}
 		if sample.TaskGateRejectionV1 != nil {
 			return fmt.Errorf("cell %q retained an unexpected finalizer rejection", identity)
+		}
+		if preregistration != nil && identity == preregistration.Cell {
+			if sample.Iteration != 1 || sample.ProcessReplicate != 1 {
+				return fmt.Errorf("cell %q is not one round in one fresh deployment", identity)
+			}
+			observedPass, err := ValidatePreregisteredConcurrencyRound(sample)
+			if err != nil {
+				return fmt.Errorf("cell %q: %w", identity, err)
+			}
+			if observedPass {
+				if err := validateProfileCampaignTerminalShape(sample); err != nil {
+					return fmt.Errorf("cell %q: %w", identity, err)
+				}
+			} else if sample.TaskGateAcceptanceV3 != nil {
+				return fmt.Errorf("cell %q preregistered miss carries a fabricated v3 acceptance", identity)
+			}
+			continue
+		}
+		if sample.Status != "pass" {
+			return fmt.Errorf("cell %q retained status %q", identity, sample.Status)
 		}
 		if err := validateProfileCampaignTerminalShape(sample); err != nil {
 			return fmt.Errorf("cell %q: %w", identity, err)

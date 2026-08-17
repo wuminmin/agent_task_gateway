@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5attack"
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 func TestProfileCampaignRunnerWritesVersionedPilotStamp(t *testing.T) {
@@ -31,6 +32,68 @@ func TestProfileCampaignRunnerWritesVersionedPilotStamp(t *testing.T) {
 		records[0].Sample.SchemaVersion != SampleSchemaVersion {
 		t.Fatalf("runner did not write the versioned pilot envelope: %#v", records)
 	}
+}
+
+func TestProfileCampaignGateRetainsPreregisteredPassOrExactMiss(t *testing.T) {
+	contract, digest, err := concurrencyfixture.LoadPreregistration(
+		filepath.Join("..", "..", "..", concurrencyfixture.PreregistrationSourcePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell, ok := concurrencyfixture.Lookup("shared-root", "50", "natural_contention")
+	if !ok {
+		t.Fatal("width-50 natural cell is absent")
+	}
+	pass := validConcurrencyValidationSample(t, cell)
+	pass.OrderPosition, pass.RandomSeed = 1, 20260817
+	pass.PairedSystemOrder = "natural_contention"
+	pass.PipelineMS = map[string]float64{
+		"prepare": 0, "execute_and_derive": 0, "artifact_stage": 0,
+		"control_settlement": 0, "artifact_publication": 0, "response_finalize": 0, "server_total": 0,
+	}
+	pass.DiagnosticMS = map[string]float64{}
+	selected := []string{concurrencyfixture.PreregisteredCell}
+	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
+		WrapRetainedSamplesForProfileCampaignAudit([]Sample{pass}, "pilot"), 1, &contract, digest); err != nil {
+		t.Fatal(err)
+	}
+
+	miss := pass
+	miss.Status, miss.ErrorCode = "invalid", concurrencyfixture.PreregisteredMissCode
+	miss.ConcurrencyVerification = cloneConcurrencyVerification(pass.ConcurrencyVerification)
+	miss.ConcurrencyVerification.Contenders[1].CASAttempts = 0
+	miss.ConcurrencyVerification.Contenders[1].CASConflicts = 0
+	miss.ConcurrencyVerification.Contenders[1].CASRetries = 0
+	miss.ConcurrencyVerification.ProductionCASAttempts = 1
+	miss.ConcurrencyVerification.ProductionCASConflicts = 0
+	miss.ConcurrencyVerification.ProductionCASRetries = 0
+	miss.ConcurrencyVerification.NaturalCASAttempts = 1
+	miss.ConcurrencyVerification.NaturalCASConflicts = 0
+	miss.ConcurrencyVerification.NaturalCASRetries = 0
+	miss.Counters["cas_attempts"], miss.Counters["cas_conflicts"], miss.Counters["cas_retries"] = 1, 0, 0
+	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
+		WrapRetainedSamplesForProfileCampaignAudit([]Sample{miss}, "pilot"), 1, &contract, digest); err != nil {
+		t.Fatal(err)
+	}
+
+	driftedDigest := strings.Repeat("0", 64)
+	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
+		WrapRetainedSamplesForProfileCampaignAudit([]Sample{miss}, "pilot"), 1, &contract, driftedDigest); err == nil {
+		t.Fatal("preregistration digest drift was accepted")
+	}
+	wrong := miss
+	wrong.ErrorCode = "adapter_process_failure"
+	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
+		WrapRetainedSamplesForProfileCampaignAudit([]Sample{wrong}, "pilot"), 1, &contract, digest); err == nil {
+		t.Fatal("a non-preregistered invalid outcome was retained as a round miss")
+	}
+}
+
+func cloneConcurrencyVerification(source *ConcurrencyVerification) *ConcurrencyVerification {
+	clone := *source
+	clone.Contenders = append([]ConcurrencyContenderEvidence(nil), source.Contenders...)
+	clone.FinalRootFactHashes = append([]string(nil), source.FinalRootFactHashes...)
+	return &clone
 }
 
 func TestProfileCampaignGateAcceptsAllEightExperimentShapes(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
@@ -47,19 +48,32 @@ type ProfileCampaignDeploymentRecord struct {
 }
 
 type ProfileCampaignEvidence struct {
-	SchemaVersion       int                               `json:"schema_version"`
-	Record              string                            `json:"record"`
-	Status              string                            `json:"status"`
-	CampaignID          string                            `json:"campaign_id"`
-	CampaignClass       string                            `json:"campaign_class"`
-	PublicationEligible bool                              `json:"publication_eligible"`
-	FormalCampaign      bool                              `json:"formal_campaign"`
-	CompleteMatrix      bool                              `json:"complete_matrix"`
-	SubmissionCommit    string                            `json:"submission_commit"`
-	Repetitions         int                               `json:"repetitions"`
-	PlanSHA256          string                            `json:"plan_sha256"`
-	ProfileAliases      []string                          `json:"profile_aliases"`
-	Deployments         []ProfileCampaignDeploymentRecord `json:"deployments"`
+	SchemaVersion           int                               `json:"schema_version"`
+	Record                  string                            `json:"record"`
+	Status                  string                            `json:"status"`
+	CampaignID              string                            `json:"campaign_id"`
+	CampaignClass           string                            `json:"campaign_class"`
+	PublicationEligible     bool                              `json:"publication_eligible"`
+	FormalCampaign          bool                              `json:"formal_campaign"`
+	CompleteMatrix          bool                              `json:"complete_matrix"`
+	SubmissionCommit        string                            `json:"submission_commit"`
+	Repetitions             int                               `json:"repetitions"`
+	PlanSHA256              string                            `json:"plan_sha256"`
+	ProfileAliases          []string                          `json:"profile_aliases"`
+	Deployments             []ProfileCampaignDeploymentRecord `json:"deployments"`
+	PreregisteredAggregates []PreregisteredAggregateEvidence  `json:"preregistered_aggregates,omitempty"`
+}
+
+type PreregisteredAggregateEvidence struct {
+	PreregistrationSHA256 string `json:"preregistration_sha256"`
+	ProfileAlias          string `json:"profile_alias"`
+	Cell                  string `json:"cell"`
+	RoundsRetained        int    `json:"rounds_retained"`
+	ObservedPasses        int    `json:"observed_passes"`
+	ObservedMisses        int    `json:"observed_misses"`
+	Status                string `json:"status"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	Reason                string `json:"reason,omitempty"`
 }
 
 func MergeProfileCampaignEvidence(plan CampaignPlan, planSHA, root, campaignID, commit string,
@@ -94,6 +108,18 @@ func MergeProfileCampaignEvidence(plan CampaignPlan, planSHA, root, campaignID, 
 	for _, alias := range aliases {
 		selected[alias] = true
 	}
+	for _, preregistration := range plan.PreregisteredAggregates {
+		if !selected[preregistration.ProfileAlias] {
+			continue
+		}
+		if err := validateCampaignPreregistration(root, preregistration); err != nil {
+			return ProfileCampaignEvidence{}, err
+		}
+		if repetitions != preregistration.Rounds {
+			return ProfileCampaignEvidence{}, fmt.Errorf("profile %s requires exactly %d preregistered fresh deployments, got %d",
+				preregistration.ProfileAlias, preregistration.Rounds, repetitions)
+		}
+	}
 	seen := map[string]bool{}
 	records := make([]ProfileCampaignDeploymentRecord, 0, len(recordPaths))
 	for _, recordPath := range recordPaths {
@@ -110,7 +136,8 @@ func MergeProfileCampaignEvidence(plan CampaignPlan, planSHA, root, campaignID, 
 			return ProfileCampaignEvidence{}, fmt.Errorf("invalid or duplicate deployment record %s", key)
 		}
 		seen[key] = true
-		if err := validateCampaignDeploymentRecord(root, campaignID, commit, deployment, record); err != nil {
+		if err := validateCampaignDeploymentRecord(root, campaignID, commit, deployment, record,
+			plan.PreregisteredAggregates); err != nil {
 			return ProfileCampaignEvidence{}, fmt.Errorf("deployment %s: %w", key, err)
 		}
 		records = append(records, record)
@@ -128,10 +155,129 @@ func MergeProfileCampaignEvidence(plan CampaignPlan, planSHA, root, campaignID, 
 		}
 		return records[left].ProfileAlias < records[right].ProfileAlias
 	})
-	return ProfileCampaignEvidence{SchemaVersion: 1, Record: ProfileCampaignEvidenceVersion, Status: "pass",
+	aggregates, err := validatePreregisteredAggregates(root, campaignID, plan.PreregisteredAggregates, selected, records)
+	if err != nil {
+		return ProfileCampaignEvidence{}, err
+	}
+	status := "pass"
+	for _, aggregate := range aggregates {
+		if aggregate.Status != "pass" {
+			status = "invalid"
+		}
+	}
+	return ProfileCampaignEvidence{SchemaVersion: 1, Record: ProfileCampaignEvidenceVersion, Status: status,
 		CampaignID: campaignID, CampaignClass: "pilot", PublicationEligible: false, FormalCampaign: false,
 		CompleteMatrix: len(aliases) == len(plan.Deployments), SubmissionCommit: commit, Repetitions: repetitions,
-		PlanSHA256: planSHA, ProfileAliases: aliases, Deployments: records}, nil
+		PlanSHA256: planSHA, ProfileAliases: aliases, Deployments: records,
+		PreregisteredAggregates: aggregates}, nil
+}
+
+func validateCampaignPreregistration(root string, planned CampaignPreregisteredAggregate) error {
+	if planned.SourcePath != concurrencyfixture.PreregistrationSourcePath ||
+		planned.RetainedPath != "source/concurrency-preregistration-v1.json" ||
+		planned.SourceSHA256 != concurrencyfixture.PreregistrationSHA256 ||
+		filepath.IsAbs(planned.RetainedPath) || filepath.Clean(planned.RetainedPath) != planned.RetainedPath {
+		return errors.New("campaign plan carries an invalid preregistration source anchor")
+	}
+	contract, digest, err := concurrencyfixture.LoadPreregistration(filepath.Join(root, planned.RetainedPath))
+	if err != nil {
+		return fmt.Errorf("retained concurrency preregistration: %w", err)
+	}
+	if digest != planned.SourceSHA256 || planned.ProfileAlias != contract.ProfileAlias ||
+		planned.Cell != contract.Cell || planned.Rounds != contract.Rounds ||
+		planned.SuccessesRequired != contract.SuccessesRequired || planned.SuccessStatus != contract.SuccessStatus ||
+		planned.MissStatus != contract.MissStatus || planned.MissErrorCode != contract.MissErrorCode ||
+		planned.RoundIdentityScope != contract.RoundIdentityScope ||
+		planned.RetainAllRounds != contract.RetainAllRounds || planned.EarlyStop != contract.EarlyStop {
+		return errors.New("campaign plan preregistration differs from the retained source bytes")
+	}
+	return nil
+}
+
+func validatePreregisteredAggregates(root, campaignID string, planned []CampaignPreregisteredAggregate,
+	selected map[string]bool, records []ProfileCampaignDeploymentRecord) ([]PreregisteredAggregateEvidence, error) {
+	var result []PreregisteredAggregateEvidence
+	for _, aggregate := range planned {
+		if !selected[aggregate.ProfileAlias] {
+			continue
+		}
+		passes, misses := 0, 0
+		rounds := map[string]bool{}
+		for _, record := range records {
+			if record.ProfileAlias != aggregate.ProfileAlias {
+				continue
+			}
+			file, err := campaignExperimentEvidenceFile(record.Files, "raw_jsonl", "concurrency")
+			if err != nil {
+				return nil, err
+			}
+			sample, err := readPreregisteredRound(filepath.Join(root, file.Path), aggregate.Cell)
+			if err != nil {
+				return nil, fmt.Errorf("deployment %s/%03d preregistered round: %w",
+					record.ProfileAlias, record.Repetition, err)
+			}
+			if sample.CampaignID != campaignID || sample.Iteration != 1 || sample.ProcessReplicate != 1 ||
+				sample.ConcurrencyVerification == nil ||
+				sample.ConcurrencyVerification.FixtureSHA256 != concurrencyfixture.FixtureSHA256() ||
+				!validCampaignDigest(sample.ConcurrencyVerification.RoundSHA256) ||
+				rounds[sample.ConcurrencyVerification.RoundSHA256] {
+				return nil, errors.New("preregistered rounds omit or reuse a fresh-deployment identity")
+			}
+			rounds[sample.ConcurrencyVerification.RoundSHA256] = true
+			switch {
+			case sample.Status == aggregate.SuccessStatus && sample.ErrorCode == "":
+				passes++
+			case sample.Status == aggregate.MissStatus && sample.ErrorCode == aggregate.MissErrorCode:
+				misses++
+			default:
+				return nil, fmt.Errorf("preregistered round retained status/code %s/%s", sample.Status, sample.ErrorCode)
+			}
+		}
+		if len(rounds) != aggregate.Rounds || passes+misses != aggregate.Rounds {
+			return nil, fmt.Errorf("preregistered rounds retained=%d, want exactly %d", len(rounds), aggregate.Rounds)
+		}
+		evidence := PreregisteredAggregateEvidence{
+			PreregistrationSHA256: aggregate.SourceSHA256, ProfileAlias: aggregate.ProfileAlias,
+			Cell: aggregate.Cell, RoundsRetained: len(rounds), ObservedPasses: passes,
+			ObservedMisses: misses, Status: "pass",
+		}
+		if passes < aggregate.SuccessesRequired {
+			evidence.Status = "invalid"
+			evidence.ErrorCode = aggregate.MissErrorCode
+			evidence.Reason = fmt.Sprintf("offered concurrency not observed in %d preregistered rounds", aggregate.Rounds)
+		}
+		result = append(result, evidence)
+	}
+	return result, nil
+}
+
+func readPreregisteredRound(path, cell string) (campaignJSONLSample, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return campaignJSONLSample{}, err
+	}
+	defer file.Close()
+	var result campaignJSONLSample
+	count := 0
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		sample, _, err := decodeCampaignJSONLLine(scanner.Bytes())
+		if err != nil {
+			return campaignJSONLSample{}, err
+		}
+		if sample.ExperimentID+"/"+sample.CellID == cell {
+			result = sample
+			count++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return campaignJSONLSample{}, err
+	}
+	if count != 1 {
+		return campaignJSONLSample{}, fmt.Errorf("target cell records=%d, want exactly 1", count)
+	}
+	return result, nil
 }
 
 func readCampaignDeploymentRecord(path string) (ProfileCampaignDeploymentRecord, error) {
@@ -152,7 +298,7 @@ func readCampaignDeploymentRecord(path string) (ProfileCampaignDeploymentRecord,
 }
 
 func validateCampaignDeploymentRecord(root, campaignID, commit string, planned PlannedDeploy,
-	record ProfileCampaignDeploymentRecord) error {
+	record ProfileCampaignDeploymentRecord, preregistrations []CampaignPreregisteredAggregate) error {
 	if record.SchemaVersion != 1 || record.CampaignID != campaignID || record.CampaignClass != "pilot" ||
 		record.PublicationEligible || record.FormalCampaign || record.SubmissionCommit != commit ||
 		record.ComposeProject == "" || record.ProfileID != planned.ProfileID || record.ProfileAlias != planned.Alias ||
@@ -182,7 +328,7 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			if file.Experiment != "" {
 				return fmt.Errorf("deployment evidence %s must not name an experiment", file.Kind)
 			}
-		case "config", "selected_cells", "raw_jsonl", "adapter_stderr", "adapter_stderr_credential_scan":
+		case "config", "selected_cells", "raw_jsonl", "launcher_gate", "adapter_stderr", "adapter_stderr_credential_scan":
 			if !plannedExperiments[file.Experiment] {
 				return fmt.Errorf("deployment evidence %s names unplanned experiment %q", file.Kind, file.Experiment)
 			}
@@ -208,9 +354,10 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 	}
 	for _, experiment := range planned.Experiments {
 		if kinds["config/"+experiment] != 1 || kinds["selected_cells/"+experiment] != 1 ||
-			kinds["raw_jsonl/"+experiment] != 1 || kinds["adapter_stderr/"+experiment] != 1 ||
+			kinds["raw_jsonl/"+experiment] != 1 || kinds["launcher_gate/"+experiment] != 1 ||
+			kinds["adapter_stderr/"+experiment] != 1 ||
 			kinds["adapter_stderr_credential_scan/"+experiment] != 1 {
-			return fmt.Errorf("experiment %s lacks one config/selected-cells/raw/stderr/credential-scan set", experiment)
+			return fmt.Errorf("experiment %s lacks one config/selected-cells/raw/gate/stderr/credential-scan set", experiment)
 		}
 		if err := validateCampaignConfig(root, campaignID, commit, experiment, record.Files); err != nil {
 			return err
@@ -219,6 +366,9 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			return err
 		}
 		if err := validateAdapterStderrEvidence(root, experiment, record.Files); err != nil {
+			return err
+		}
+		if err := validateLauncherGateEvidence(root, experiment, planned.Alias, record.Files, preregistrations); err != nil {
 			return err
 		}
 	}
@@ -257,10 +407,19 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		return err
 	}
 	observed := map[string]bool{}
+	var preregistration *CampaignPreregisteredAggregate
+	for index := range preregistrations {
+		if preregistrations[index].ProfileAlias == planned.Alias {
+			preregistration = &preregistrations[index]
+		}
+	}
 	for experiment, file := range rawByExperiment {
 		options := rq5CampaignJSONLOptions{}
 		if experiment == "rq5" {
 			options.Mapping, options.CatalogSHA256 = rq5Mapping, rq5CatalogFamilySHA
+		}
+		if experiment == "concurrency" {
+			options.Preregistration = preregistration
 		}
 		if err := validateCampaignJSONL(filepath.Join(root, file.Path), campaignID, experiment, planned, observed, options); err != nil {
 			return err
@@ -364,6 +523,55 @@ func validateAdapterStderrEvidence(root, experiment string, files []CampaignEvid
 		scan.SensitiveValuesChecked < 1 || scan.URLUserinfoHits != 0 || scan.PEMMarkerHits != 0 ||
 		scan.SecretAssignmentHits != 0 || scan.JSONScalarExactHits != 0 || scan.ExactValueSubstringHits != 0 {
 		return errors.New("adapter stderr credential scan is incomplete or differs from the retained stderr")
+	}
+	return nil
+}
+
+func validateLauncherGateEvidence(root, experiment, profileAlias string, files []CampaignEvidenceFile,
+	preregistrations []CampaignPreregisteredAggregate) error {
+	gateFile, err := campaignExperimentEvidenceFile(files, "launcher_gate", experiment)
+	if err != nil {
+		return err
+	}
+	rawFile, err := campaignExperimentEvidenceFile(files, "raw_jsonl", experiment)
+	if err != nil {
+		return err
+	}
+	var gate struct {
+		SchemaVersion            int    `json:"schema_version"`
+		Status                   string `json:"status"`
+		ExperimentID             string `json:"experiment_id"`
+		CampaignClass            string `json:"campaign_class"`
+		Samples                  int    `json:"samples"`
+		SelectedCells            int    `json:"selected_cells"`
+		InputSHA256              string `json:"input_sha256"`
+		PreregistrationSHA256    string `json:"preregistration_sha256,omitempty"`
+		PreregisteredRoundPasses int    `json:"preregistered_round_passes,omitempty"`
+		PreregisteredRoundMisses int    `json:"preregistered_round_misses,omitempty"`
+	}
+	if err := decodeStrictCampaignFile(filepath.Join(root, gateFile.Path), &gate); err != nil {
+		return fmt.Errorf("launcher gate: %w", err)
+	}
+	if gate.SchemaVersion != 1 || gate.Status != "pass" || gate.ExperimentID != experiment ||
+		gate.CampaignClass != "pilot" || gate.Samples < 1 || gate.SelectedCells < 1 ||
+		gate.Samples != gate.SelectedCells || gate.InputSHA256 != rawFile.SHA256 {
+		return errors.New("launcher gate does not bind the exact retained experiment JSONL")
+	}
+	var preregistration *CampaignPreregisteredAggregate
+	for index := range preregistrations {
+		if preregistrations[index].ProfileAlias == profileAlias && experiment == "concurrency" {
+			preregistration = &preregistrations[index]
+		}
+	}
+	if preregistration == nil {
+		if gate.PreregistrationSHA256 != "" || gate.PreregisteredRoundPasses != 0 || gate.PreregisteredRoundMisses != 0 {
+			return errors.New("ordinary launcher gate carries a preregistered aggregate claim")
+		}
+		return nil
+	}
+	if gate.PreregistrationSHA256 != preregistration.SourceSHA256 ||
+		gate.PreregisteredRoundPasses+gate.PreregisteredRoundMisses != 1 {
+		return errors.New("concurrency launcher gate omits its exact preregistered round outcome")
 	}
 	return nil
 }
@@ -660,8 +868,9 @@ func decodeStrictCampaignFile(path string, target any) error {
 }
 
 type rq5CampaignJSONLOptions struct {
-	Mapping       *RQ5WorkloadCellMap
-	CatalogSHA256 string
+	Mapping         *RQ5WorkloadCellMap
+	CatalogSHA256   string
+	Preregistration *CampaignPreregisteredAggregate
 }
 
 func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedDeploy, observed map[string]bool,
@@ -716,12 +925,24 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 		if experiment == "rq5" {
 			expectedCatalog = options.CatalogSHA256
 		}
+		preregisteredRound := options.Preregistration != nil && identity == options.Preregistration.Cell
+		statusValid := sample.Status == "pass"
+		if preregisteredRound && sample.Status == options.Preregistration.MissStatus &&
+			sample.ErrorCode == options.Preregistration.MissErrorCode {
+			statusValid = true
+		}
 		if sample.CampaignID != campaignID || campaignClass != "pilot" ||
 			sample.DeploymentID != "deployment-01" || sample.ExperimentID != experiment ||
-			sample.Status != "pass" || sample.PublicationEligible || !allowed[identity] ||
+			!statusValid || sample.PublicationEligible || !allowed[identity] ||
 			sample.ProfileBinding == nil || sample.ProfileBinding.ProfileID != planned.ProfileID ||
 			sample.ProfileBinding.CatalogSHA256 != expectedCatalog {
 			return fmt.Errorf("JSONL line %d differs from its profile assignment", lines)
+		}
+		if preregisteredRound && (sample.Iteration != 1 || sample.ProcessReplicate != 1 ||
+			sample.ConcurrencyVerification == nil ||
+			sample.ConcurrencyVerification.FixtureSHA256 != concurrencyfixture.FixtureSHA256() ||
+			!validCampaignDigest(sample.ConcurrencyVerification.RoundSHA256)) {
+			return fmt.Errorf("JSONL line %d differs from the preregistered round anchor", lines)
 		}
 		observedIdentity := identity
 		if experiment == "rq5" {
@@ -752,11 +973,18 @@ type campaignJSONLSample struct {
 	ExperimentID        string `json:"experiment_id"`
 	CellID              string `json:"cell_id"`
 	Status              string `json:"status"`
+	ErrorCode           string `json:"error_code"`
+	Iteration           int    `json:"iteration"`
+	ProcessReplicate    int    `json:"process_replicate"`
 	PublicationEligible bool   `json:"publication_eligible"`
 	ProfileBinding      *struct {
 		ProfileID     string `json:"profile_id"`
 		CatalogSHA256 string `json:"catalog_sha256"`
 	} `json:"profile_binding"`
+	ConcurrencyVerification *struct {
+		FixtureSHA256 string `json:"fixture_sha256"`
+		RoundSHA256   string `json:"round_sha256"`
+	} `json:"concurrency_verification"`
 }
 
 func decodeCampaignJSONLLine(line []byte) (campaignJSONLSample, string, error) {

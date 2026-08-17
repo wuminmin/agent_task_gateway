@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
@@ -21,6 +24,8 @@ func main() {
 	campaignSelectedPath := flag.String("campaign-selected-cells", "",
 		"RQ5 only: strict JSON array of the untranslated campaign coordinates")
 	rq5MapPath := flag.String("rq5-cell-map", "", "RQ5 only: exact source-controlled coordinate map")
+	preregistrationPath := flag.String("preregistration", "", "retained fixed-N concurrency preregistration")
+	preregistrationSHA256 := flag.String("preregistration-sha256", "", "exact retained preregistration SHA-256")
 	flag.Parse()
 
 	if *experimentID == "" || *selectedPath == "" || *inputPath == "" || *campaignClass == "" {
@@ -71,17 +76,59 @@ func main() {
 			fail(err)
 		}
 	}
-	if err := experiment.ValidateProfileCampaignExperimentGate(*experimentID, selected, records, *samplesPerCell); err != nil {
+	var preregistration *concurrencyfixture.Preregistration
+	if *preregistrationPath != "" || *preregistrationSHA256 != "" {
+		if *preregistrationPath == "" || *preregistrationSHA256 == "" {
+			fail(fmt.Errorf("preregistration path and SHA-256 must be supplied together"))
+		}
+		loaded, digest, err := concurrencyfixture.LoadPreregistration(*preregistrationPath)
+		if err != nil {
+			fail(err)
+		}
+		if digest != *preregistrationSHA256 {
+			fail(fmt.Errorf("retained preregistration SHA-256 differs from the launcher anchor"))
+		}
+		preregistration = &loaded
+	}
+	if err := experiment.ValidateProfileCampaignExperimentGateWithPreregistration(
+		*experimentID, selected, records, *samplesPerCell, preregistration, *preregistrationSHA256); err != nil {
 		fail(err)
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+	result := map[string]any{
 		"schema_version": 1,
 		"status":         "pass",
 		"experiment_id":  *experimentID,
 		"campaign_class": *campaignClass,
 		"samples":        len(records),
 		"selected_cells": len(selected),
-	})
+	}
+	inputBytes, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fail(err)
+	}
+	inputDigest := sha256.Sum256(inputBytes)
+	result["input_sha256"] = hex.EncodeToString(inputDigest[:])
+	if preregistration != nil {
+		passes, misses := 0, 0
+		for _, record := range records {
+			if record.Sample.ExperimentID+"/"+record.Sample.CellID != preregistration.Cell {
+				continue
+			}
+			observedPass, err := experiment.ValidatePreregisteredConcurrencyRound(record.Sample)
+			if err != nil {
+				fail(err)
+			}
+			if observedPass {
+				passes++
+			} else {
+				misses++
+			}
+		}
+		result["preregistration_sha256"] = *preregistrationSHA256
+		result["preregistered_round_passes"] = passes
+		result["preregistered_round_misses"] = misses
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(result)
 }
 
 func validateRQ5LauncherSelection(mapPath string, campaignSelected, experimentSelected []string) error {

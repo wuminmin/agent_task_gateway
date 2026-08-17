@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
@@ -24,6 +25,35 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func TestProfileDeploymentRepetitionBindsRoundIdentity(t *testing.T) {
+	config := Config{SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "p43", ExperimentID: "concurrency", Deployments: 1, Samples: 1,
+		FreshRootPerSample: true, Workloads: []Workload{{ID: "shared-root", Scales: []string{"50"},
+			Modes: []string{"natural_contention"}}}}
+	selected := map[string]bool{concurrencyfixture.PreregisteredCell: true}
+	position := 0
+	first := buildOperationsSelectedWithDeploymentRepetition(config, "deployment-01", 1, 1,
+		&position, nil, selected, 1)
+	position = 0
+	second := buildOperationsSelectedWithDeploymentRepetition(config, "deployment-01", 1, 1,
+		&position, nil, selected, 2)
+	if len(first) != 1 || len(second) != 1 || first[0].SampleID == second[0].SampleID ||
+		first[0].PairID == second[0].PairID {
+		t.Fatalf("deployment repetition identities = %+v / %+v", first, second)
+	}
+	toRound := func(operation AdapterOperation) string {
+		return concurrencyfixture.RoundSHA256(concurrencyfixture.RoundIdentity{
+			CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID,
+			ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID,
+			Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate,
+			PairID: operation.PairID, RootGroupID: operation.RootGroupID,
+		})
+	}
+	if toRound(first[0]) == toRound(second[0]) {
+		t.Fatal("fresh profile-deployment repetitions share one round digest")
+	}
 }
 
 func TestValidateOnlyConfigDigestCoversExactConfigBytes(t *testing.T) {
@@ -161,7 +191,7 @@ func TestTargetedRunnerCanRetainExactAdapterStderrPrivately(t *testing.T) {
 	profileCampaignStderr := filepath.Join(directory, "profile-campaign.log")
 	profileCampaignErr := executeAdapterCampaignWithProfileSelection(nonTargeted, "deployment-01", os.Args[0],
 		filepath.Join(directory, "profile-campaign.jsonl"), testActivatedProfile(), profileCampaignStderr,
-		map[string]bool{"attack/retention/tiny/novel": true})
+		map[string]bool{"attack/retention/tiny/novel": true}, 1)
 	if profileCampaignErr != nil && strings.Contains(profileCampaignErr.Error(), "restricted to targeted diagnostics") {
 		t.Fatalf("profile-bound real-system campaign stderr was refused: %v", profileCampaignErr)
 	}

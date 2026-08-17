@@ -20,6 +20,48 @@ func ValidateConcurrencyEvidence(sample Sample) error {
 }
 
 func validateConcurrencyVerificationStrict(sample Sample) error {
+	return validateConcurrencyVerificationWithNaturalConflict(sample, true)
+}
+
+// ValidatePreregisteredConcurrencyRound accepts exactly one of the two
+// preregistered terminal outcomes for width-50 natural contention. A pass must
+// satisfy the unchanged strict conflict gate. A miss must be a complete real
+// round with zero natural conflicts; it remains invalid and is only eligible
+// for the later cross-deployment aggregate.
+func ValidatePreregisteredConcurrencyRound(sample Sample) (bool, error) {
+	if sample.ExperimentID != "concurrency" ||
+		"concurrency/"+sample.CellID != concurrencyfixture.PreregisteredCell {
+		return false, errors.New("sample is outside the preregistered concurrency cell")
+	}
+	switch sample.Status {
+	case "pass":
+		if sample.ErrorCode != "" {
+			return false, errors.New("passing preregistered round carries an error code")
+		}
+		if err := validateConcurrencyVerificationWithNaturalConflict(sample, true); err != nil {
+			return false, err
+		}
+		return true, nil
+	case "invalid":
+		if sample.ErrorCode != concurrencyfixture.PreregisteredMissCode {
+			return false, errors.New("preregistered miss carries an unapproved error code")
+		}
+		if err := validateConcurrencyVerificationWithNaturalConflict(sample, false); err != nil {
+			return false, err
+		}
+		evidence := sample.ConcurrencyVerification
+		if evidence.ProductionCASAttempts != 1 || evidence.ProductionCASConflicts != 0 ||
+			evidence.ProductionCASRetries != 0 || evidence.NaturalCASAttempts != 1 ||
+			evidence.NaturalCASConflicts != 0 || evidence.NaturalCASRetries != 0 {
+			return false, errors.New("preregistered miss is not a complete zero-conflict natural round")
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("preregistered round retained status %q", sample.Status)
+	}
+}
+
+func validateConcurrencyVerificationWithNaturalConflict(sample Sample, requireNaturalConflict bool) error {
 	evidence := sample.ConcurrencyVerification
 	cell, frozen := concurrencyfixture.Lookup(sample.WorkloadID, sample.Scale, sample.Mode)
 	width, widthErr := strconv.ParseInt(sample.Scale, 10, 64)
@@ -74,7 +116,7 @@ func validateConcurrencyVerificationStrict(sample Sample) error {
 		if sample.Mode == "natural_contention" {
 			if evidence.NaturalCASAttempts != evidence.ProductionCASAttempts || evidence.NaturalCASConflicts != evidence.ProductionCASConflicts ||
 				evidence.NaturalCASRetries != evidence.ProductionCASRetries || evidence.NaturalCASAttempts < 1 ||
-				evidence.NaturalCASConflicts < 1 || evidence.NaturalCASRetries != evidence.NaturalCASConflicts {
+				(requireNaturalConflict && evidence.NaturalCASConflicts < 1) || evidence.NaturalCASRetries != evidence.NaturalCASConflicts {
 				return errors.New("natural arm lacks real FinalizeQueryMetrics/OutcomeRadix CAS conflict and retry evidence")
 			}
 		} else if evidence.NaturalCASAttempts != 0 || evidence.NaturalCASConflicts != 0 || evidence.NaturalCASRetries != 0 ||

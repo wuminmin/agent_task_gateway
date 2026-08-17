@@ -94,8 +94,17 @@ func run(arguments []string) error {
 		_ = os.Remove(*output)
 		return err
 	}
-	fmt.Printf("P30-STAGE: evidence_merge=pass deployments=%d profiles=%d repetitions=%d complete_matrix=%t\n",
-		len(manifest.Deployments), len(manifest.ProfileAliases), manifest.Repetitions, manifest.CompleteMatrix)
+	fmt.Printf("P30-STAGE: evidence_merge=%s deployments=%d profiles=%d repetitions=%d complete_matrix=%t preregistered_aggregates=%d\n",
+		manifest.Status, len(manifest.Deployments), len(manifest.ProfileAliases), manifest.Repetitions, manifest.CompleteMatrix,
+		len(manifest.PreregisteredAggregates))
+	if manifest.Status != "pass" {
+		for _, aggregate := range manifest.PreregisteredAggregates {
+			if aggregate.Status == "invalid" {
+				return errors.New(aggregate.Reason)
+			}
+		}
+		return errors.New("campaign evidence is not accepted")
+	}
 	return nil
 }
 

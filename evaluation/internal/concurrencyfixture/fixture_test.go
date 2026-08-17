@@ -1,10 +1,37 @@
 package concurrencyfixture
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestWidth50PreregistrationIsSourceControlledAndMinimal(t *testing.T) {
+	path := filepath.Join("..", "..", "..", PreregistrationSourcePath)
+	contract, digest, err := LoadPreregistration(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != PreregistrationSHA256 || contract.Rounds != 11 || contract.SuccessesRequired != 1 ||
+		contract.RoundIdentityScope != "fresh_profile_deployment" || !contract.RetainAllRounds || contract.EarlyStop {
+		t.Fatalf("preregistration = %+v digest=%s", contract, digest)
+	}
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload[len(payload)-2] = ' '
+	drifted := filepath.Join(t.TempDir(), "preregistration.json")
+	if err := os.WriteFile(drifted, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadPreregistration(drifted); err == nil {
+		t.Fatal("preregistration digest drift was accepted")
+	}
+}
 
 func TestFrozenConcurrencyFixtureIsExactAndDeterministic(t *testing.T) {
 	if err := Validate(); err != nil {

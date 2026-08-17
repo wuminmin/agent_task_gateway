@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
@@ -28,6 +31,8 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		t.Fatal(err)
 	}
 	overridesDigest := sha256.Sum256(overridesPayload)
+	rawFile := campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", campaignEnvelopeFixture(
+		campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true))
 	files := []CampaignEvidenceFile{
 		campaignFixtureFile(t, root, "config", "rls", "config.json", map[string]any{
 			"schema_version": 1, "campaign_class": "pilot", "pilot_kind": "real_system",
@@ -62,8 +67,11 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 			ProfileAlias: profile.Alias, Environment: map[string]int64{},
 		}),
 		campaignFixtureFile(t, root, "selected_cells", "rls", "cells.json", []string{profile.Cells[0]}),
-		campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", campaignEnvelopeFixture(
-			campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true)),
+		rawFile,
+		campaignFixtureFile(t, root, "launcher_gate", "rls", "rls.gate.json", map[string]any{
+			"schema_version": 1, "status": "pass", "experiment_id": "rls", "campaign_class": "pilot",
+			"samples": 1, "selected_cells": 1, "input_sha256": rawFile.SHA256,
+		}),
 		campaignFixtureRawFile(t, root, "adapter_stderr", "rls", "rls.stderr.log", nil),
 		campaignFixtureFile(t, root, "adapter_stderr_credential_scan", "rls", "rls.stderr-scan.json",
 			finalv5publication.AdapterStderrCredentialScan{SchemaVersion: 1,
@@ -97,6 +105,89 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		[]string{profile.Alias}, []string{recordPath}); err == nil {
 		t.Fatal("a per-deployment commit drift was merged")
 	}
+}
+
+func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) {
+	root := t.TempDir()
+	contract, digest, err := concurrencyfixture.LoadPreregistration(
+		filepath.Join("..", "..", "..", concurrencyfixture.PreregistrationSourcePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := CampaignPlan{}
+	plan.Deployments = []PlannedDeploy{{Alias: contract.ProfileAlias, Cells: []string{contract.Cell}}}
+	if err := plan.AttachPreregistration(contract, digest); err != nil {
+		t.Fatal(err)
+	}
+	aggregate := plan.PreregisteredAggregates[0]
+	caseIndex := 0
+	makeRecords := func(passAt int, duplicateRound bool) []ProfileCampaignDeploymentRecord {
+		caseIndex++
+		caseDir := filepath.Join(root, fmt.Sprintf("case-%d", caseIndex))
+		if err := os.Mkdir(caseDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		records := make([]ProfileCampaignDeploymentRecord, contract.Rounds)
+		for repetition := 1; repetition <= contract.Rounds; repetition++ {
+			status, code := contract.MissStatus, contract.MissErrorCode
+			if repetition == passAt {
+				status, code = contract.SuccessStatus, ""
+			}
+			roundLabel := repetition
+			if duplicateRound && repetition == contract.Rounds {
+				roundLabel = 1
+			}
+			path := filepath.Join(caseDir, "round-"+strconv.Itoa(repetition)+".jsonl")
+			sample := map[string]any{
+				"schema_version": 1, "campaign_id": "p43", "deployment_id": "deployment-01",
+				"experiment_id": "concurrency", "cell_id": "shared-root/50/natural_contention",
+				"sample_id": fmt.Sprintf("deployment-01-r%03d-sample", repetition),
+				"iteration": 1, "process_replicate": 1, "status": status, "error_code": code,
+				"publication_eligible": false,
+				"concurrency_verification": map[string]any{
+					"fixture_sha256": concurrencyfixture.FixtureSHA256(),
+					"round_sha256":   digestForCampaignTest("round-" + strconv.Itoa(roundLabel)),
+				},
+			}
+			campaignWriteJSONL(t, path, campaignEnvelopeFixture(sample, "pilot", true))
+			payload, _ := os.ReadFile(path)
+			rawDigest := sha256.Sum256(payload)
+			records[repetition-1] = ProfileCampaignDeploymentRecord{
+				ProfileAlias: contract.ProfileAlias, Repetition: repetition,
+				Files: []CampaignEvidenceFile{{Kind: "raw_jsonl", Experiment: "concurrency",
+					Path:   filepath.ToSlash(filepath.Join(filepath.Base(caseDir), filepath.Base(path))),
+					SHA256: hex.EncodeToString(rawDigest[:]), Bytes: int64(len(payload))}},
+			}
+		}
+		return records
+	}
+
+	selected := map[string]bool{contract.ProfileAlias: true}
+	evidence, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
+		selected, makeRecords(contract.Rounds, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence) != 1 || evidence[0].RoundsRetained != 11 || evidence[0].ObservedPasses != 1 ||
+		evidence[0].ObservedMisses != 10 || evidence[0].Status != "pass" {
+		t.Fatalf("aggregate evidence = %+v", evidence)
+	}
+	allMiss, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
+		selected, makeRecords(0, false))
+	if err != nil || len(allMiss) != 1 || allMiss[0].Status != "invalid" ||
+		allMiss[0].ErrorCode != concurrencyfixture.PreregisteredMissCode ||
+		allMiss[0].Reason != "offered concurrency not observed in 11 preregistered rounds" {
+		t.Fatalf("all-miss aggregate = %+v, err=%v", allMiss, err)
+	}
+	if _, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
+		selected, makeRecords(contract.Rounds, true)); err == nil {
+		t.Fatal("duplicate fresh-deployment round identity was accepted")
+	}
+}
+
+func digestForCampaignTest(label string) string {
+	digest := sha256.Sum256([]byte(label))
+	return hex.EncodeToString(digest[:])
 }
 
 func TestProfileCampaignCleanupValidatesEveryRQ5ResourceFamily(t *testing.T) {

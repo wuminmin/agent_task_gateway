@@ -22,6 +22,9 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`-selected-cells "$selected"`,
 		`final-v5-launcher-gate`,
 		`-campaign-class pilot -samples-per-cell 1`,
+		`concurrency-preregistration-v1.json`,
+		`-deployment-repetition "$repetition"`,
+		`-preregistration-sha256 "$preregistration_sha256"`,
 		`final-v5-profile-artifacts`,
 		`record-pilot-gateway-image.sh`,
 		`down --volumes --remove-orphans`,
@@ -43,6 +46,7 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`Compose profile capacity binding drift`,
 		`add_ref adapter_stderr "$experiment"`,
 		`add_ref adapter_stderr_credential_scan "$experiment"`,
+		`add_ref launcher_gate "$experiment"`,
 		`add_ref deployment_configuration ""`,
 		`publication_eligible:false`,
 		`formal_campaign:false`,
@@ -70,6 +74,10 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	composeUp := strings.Index(script, `"${current_compose[@]}" up`)
 	if composeCheck < 0 || composeUp < 0 || composeCheck > composeUp {
 		t.Fatal("profile deployment Compose capacities are not rendered and checked before service startup")
+	}
+	preregistrationInstall := strings.Index(script, `install -m 600 "$preregistration_source" "$preregistration_retained"`)
+	if preregistrationInstall < 0 || preregistrationInstall > composeUp {
+		t.Fatal("concurrency preregistration is not retained and digest-checked before service startup")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")

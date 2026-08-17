@@ -86,21 +86,22 @@ func Lookup(workloadID, scale, mode string) (Cell, bool) {
 
 func FixtureSHA256() string {
 	return jsonSHA256(struct {
-		Version      string   `json:"version"`
-		Cells        []Cell   `json:"cells"`
-		PrefixSQL    []string `json:"prefix_sql"`
-		ContenderSQL string   `json:"contender_sql"`
-		OverflowSQL  string   `json:"overflow_sql"`
-		BudgetLimit  int64    `json:"budget_limit"`
-		UsageBefore  int64    `json:"usage_before"`
-		FinalOutcome int64    `json:"final_outcome"`
-		Product      string   `json:"product"`
-		Relation     string   `json:"relation"`
-		Profile      string   `json:"profile"`
-		MaxQueries   int64    `json:"max_queries"`
-		ActiveWindow int      `json:"service_active_window"`
-		QueueMinimum int      `json:"service_queue_minimum"`
-		PoolMinimum  int      `json:"production_pool_minimum"`
+		Version               string   `json:"version"`
+		Cells                 []Cell   `json:"cells"`
+		PrefixSQL             []string `json:"prefix_sql"`
+		ContenderSQL          string   `json:"contender_sql"`
+		OverflowSQL           string   `json:"overflow_sql"`
+		BudgetLimit           int64    `json:"budget_limit"`
+		UsageBefore           int64    `json:"usage_before"`
+		FinalOutcome          int64    `json:"final_outcome"`
+		Product               string   `json:"product"`
+		Relation              string   `json:"relation"`
+		Profile               string   `json:"profile"`
+		MaxQueries            int64    `json:"max_queries"`
+		ActiveWindow          int      `json:"service_active_window"`
+		QueueMinimum          int      `json:"service_queue_minimum"`
+		PoolMinimum           int      `json:"production_pool_minimum"`
+		PreregistrationSHA256 string   `json:"preregistration_sha256"`
 	}{
 		Version: Version, Cells: FrozenCells, PrefixSQL: PrefixSQL,
 		ContenderSQL: ContenderSQL, OverflowSQL: OverflowSQL,
@@ -108,7 +109,8 @@ func FixtureSHA256() string {
 		FinalOutcome: ExpectedFinalOutcome, Product: ProductName, Relation: PhysicalRelation,
 		Profile: BudgetProfile, MaxQueries: ResourceMaxQueries,
 		ActiveWindow: ServiceActiveWindow, QueueMinimum: MinimumServiceQueue,
-		PoolMinimum: MinimumProductionPoolWidth,
+		PoolMinimum:           MinimumProductionPoolWidth,
+		PreregistrationSHA256: PreregistrationSHA256,
 	})
 }
 
