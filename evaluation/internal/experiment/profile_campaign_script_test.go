@@ -18,6 +18,7 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-1}"`,
 		`final-v5-campaign-plan -require-ready`,
 		`-profile-alias "$alias"`,
+		`export TASKGATE_FINAL_V5_PROFILE_ALIAS="$alias"`,
 		`-selected-cells "$selected"`,
 		`final-v5-profile-artifacts`,
 		`record-pilot-gateway-image.sh`,

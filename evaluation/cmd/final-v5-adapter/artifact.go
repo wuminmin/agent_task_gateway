@@ -300,12 +300,18 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	sample.GatewayNetworkTXDelta = resource.GatewayNetworkTXDelta
 	sample.ControlWALBytesDelta = resource.ControlWALBytesDelta
 	sample.BusinessWALBytesDelta = resource.BusinessWALBytesDelta
-	// Bind the sample to the activated Result-heavy profile. The Catalog digest
-	// comes from the Receipt the Gateway signed, so this is an observation of
-	// what actually served the query, not a declaration about it.
-	sample.ProfileBinding, err = artifactProfileBindingFor(sample.BaselineVerification.Receipt.CatalogDigest)
-	if err != nil {
-		return sample, err
+	// Profile campaigns use the process-scoped alias resolved independently
+	// from the registry. Legacy publication/targeted launchers do not supply the
+	// alias yet, so retain their stronger Result-heavy resolver unchanged.
+	if adapterSampleProfileBinder != nil && adapterSampleProfileBinder.Active() {
+		if err := adapterSampleProfileBinder.BindSample(&sample); err != nil {
+			return sample, err
+		}
+	} else {
+		sample.ProfileBinding, err = artifactProfileBindingFor(sample.BaselineVerification.Receipt.CatalogDigest)
+		if err != nil {
+			return sample, err
+		}
 	}
 	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls

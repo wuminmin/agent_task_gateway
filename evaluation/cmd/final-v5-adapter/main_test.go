@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 type nilAdapterFixture struct{}
@@ -131,5 +134,31 @@ func TestInvalidSamplePreservesSystemArm(t *testing.T) {
 		if sample.System != want {
 			t.Fatalf("mode %q invalid system = %q, want %q", mode, sample.System, want)
 		}
+	}
+}
+
+func TestReceiptCatalogMismatchMarksAdapterSampleFailed(t *testing.T) {
+	publication, err := experiment.CanonicalPublicationSetSHA256([]string{"publication-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &experiment.ProfileBinding{
+		Version: experiment.ProfileBindingVersion, ProfileID: "profile-a86cd4df5cad6e26",
+		ClosureSHA256: strings.Repeat("a", 64), CatalogSHA256: strings.Repeat("b", 64),
+		DatasetBindingSHA256: strings.Repeat("c", 64), PublicationIdentity: publication,
+	}
+	adapterSampleProfileBinder, err = experiment.NewSampleProfileBinder(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { adapterSampleProfileBinder = nil })
+	operation := experiment.AdapterOperation{SampleID: "sample-1"}
+	sample := experiment.Sample{Status: "pass", BaselineVerification: &experiment.BaselineVerificationEvidence{
+		Receipt: queryreceipt.QueryReceiptV1{CatalogDigest: strings.Repeat("d", 64),
+			ExecutionBindingV2: &querybinding.QueryExecutionBindingV2{}},
+	}}
+	got := bindAdapterOutputSample(operation, sample)
+	if got.Status != "fail" || got.ErrorCode != "profile_binding_catalog_mismatch" || got.ProfileBinding == nil {
+		t.Fatalf("Catalog mismatch sample = %+v", got)
 	}
 }

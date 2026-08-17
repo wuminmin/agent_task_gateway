@@ -434,6 +434,12 @@ func (backend *realConcurrencyBackend) verifyContenders(ctx context.Context, ope
 			}
 			return append([]experiment.ConcurrencyContenderEvidence(nil), contenders[:index]...), representative, err
 		}
+		// This must happen while the full verified sample still carries its
+		// Gateway Receipt. buildConcurrencySample deliberately clears the
+		// sample-level verification and retains only a compact Receipt digest.
+		if err := validateConcurrencyContenderReceiptBeforeCompression(verified); err != nil {
+			return append([]experiment.ConcurrencyContenderEvidence(nil), contenders[:index]...), representative, err
+		}
 		manifestValue := *verified.BaselineVerification.VerifierManifest
 		contenders[index] = experiment.ConcurrencyContenderEvidence{
 			Index: index + 1, ParticipantSHA256: call.participant,
@@ -462,6 +468,16 @@ func (backend *realConcurrencyBackend) verifyContenders(ctx context.Context, ope
 		}
 	}
 	return contenders, representative, nil
+}
+
+func validateConcurrencyContenderReceiptBeforeCompression(sample experiment.Sample) error {
+	if adapterSampleProfileBinder == nil || !adapterSampleProfileBinder.Active() {
+		return nil
+	}
+	if sample.BaselineVerification == nil {
+		return errors.New("verified concurrency contender omitted its Receipt before compression")
+	}
+	return adapterSampleProfileBinder.RequireReceiptCatalog(sample.BaselineVerification.Receipt)
 }
 
 func (backend *realConcurrencyBackend) finalOutcomeMembers(ctx context.Context, prefixes []queryResponse,

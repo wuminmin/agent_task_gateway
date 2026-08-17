@@ -259,6 +259,7 @@ experiment_command() {
 deployment_count=0
 for alias in "${selected_profiles[@]}"; do
   for repetition in $(seq 1 "$repetitions"); do
+    export TASKGATE_FINAL_V5_PROFILE_ALIAS="$alias"
     deployment_count=$((deployment_count + 1))
     profile_id="$(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .profile_id' "$plan")"
     catalog_path="$(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .catalog_path' "$plan")"

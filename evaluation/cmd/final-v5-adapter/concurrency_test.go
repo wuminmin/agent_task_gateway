@@ -10,6 +10,8 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 type fakeConcurrencyBackend struct {
@@ -60,6 +62,34 @@ func TestConcurrencyAdapterRecognizesExactlyFrozenMatrix(t *testing.T) {
 	adapter.Close()
 	if !backend.closed {
 		t.Fatal("concurrency backend was not closed")
+	}
+}
+
+func TestConcurrencyReceiptCatalogIsCheckedBeforeCompression(t *testing.T) {
+	publication, err := experiment.CanonicalPublicationSetSHA256([]string{"publication-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &experiment.ProfileBinding{
+		Version: experiment.ProfileBindingVersion, ProfileID: "profile-a86cd4df5cad6e26",
+		ClosureSHA256: strings.Repeat("a", 64), CatalogSHA256: strings.Repeat("b", 64),
+		DatasetBindingSHA256: strings.Repeat("c", 64), PublicationIdentity: publication,
+	}
+	adapterSampleProfileBinder, err = experiment.NewSampleProfileBinder(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { adapterSampleProfileBinder = nil })
+	sample := experiment.Sample{BaselineVerification: &experiment.BaselineVerificationEvidence{
+		Receipt: queryreceipt.QueryReceiptV1{CatalogDigest: strings.Repeat("d", 64),
+			ExecutionBindingV2: &querybinding.QueryExecutionBindingV2{}},
+	}}
+	if err := validateConcurrencyContenderReceiptBeforeCompression(sample); err == nil {
+		t.Fatal("a contender with the wrong observed Catalog reached compact evidence")
+	}
+	sample.BaselineVerification.Receipt.CatalogDigest = binding.CatalogSHA256
+	if err := validateConcurrencyContenderReceiptBeforeCompression(sample); err != nil {
+		t.Fatalf("matching contender Catalog was rejected: %v", err)
 	}
 }
 

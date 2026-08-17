@@ -14,6 +14,11 @@ import (
 
 var experimentIDs = [...]string{"baseline", "scale", "artifact", "rls", "attack", "provsql", "compiler", "concurrency", "rq5"}
 
+// adapterSampleProfileBinder is resolved once at process startup. Artifact and
+// Concurrency call it inside their execution path where Receipt evidence would
+// otherwise be transformed before the common output gate sees it.
+var adapterSampleProfileBinder *experiment.SampleProfileBinder
+
 type sourceControlledAdapter interface {
 	Execute(context.Context, experiment.AdapterOperation) experiment.Sample
 	Close()
@@ -70,6 +75,19 @@ func nilSourceControlledAdapter(adapter sourceControlledAdapter) bool {
 	}
 }
 
+func bindAdapterOutputSample(operation experiment.AdapterOperation, sample experiment.Sample) experiment.Sample {
+	if adapterSampleProfileBinder == nil {
+		return sample
+	}
+	if err := adapterSampleProfileBinder.BindSample(&sample); err != nil {
+		fmt.Fprintf(os.Stderr, "sample %s profile binding: %v\n", operation.SampleID, err)
+		sample.Status = "fail"
+		sample.ErrorCode = "profile_binding_catalog_mismatch"
+		sample.Reason = "an observed Gateway Receipt Catalog differs from the independently resolved deployment profile"
+	}
+	return sample
+}
+
 func main() {
 	experimentID := flag.String("experiment", "", "source-controlled experiment implementation")
 	capabilities := flag.Bool("capabilities", false, "print implemented experiment capabilities")
@@ -110,7 +128,20 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	encoder := json.NewEncoder(os.Stdout)
-	adapter, initializationCode := initializeAdapter(context.Background(), *experimentID)
+	var profileBindingCode string
+	if *experimentID != "rq5" {
+		var err error
+		adapterSampleProfileBinder, err = experiment.ResolveSampleProfileBinderFromEnvironment()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			profileBindingCode = "adapter_profile_binding_invalid"
+		}
+	}
+	var adapter sourceControlledAdapter
+	initializationCode := profileBindingCode
+	if initializationCode == "" {
+		adapter, initializationCode = initializeAdapter(context.Background(), *experimentID)
+	}
 	if adapter != nil {
 		defer adapter.Close()
 	}
@@ -128,6 +159,9 @@ func main() {
 			sample = invalidSample(operation, code)
 		} else {
 			sample = adapter.Execute(context.Background(), operation)
+		}
+		if *experimentID != "rq5" {
+			sample = bindAdapterOutputSample(operation, sample)
 		}
 		if encoder.Encode(sample) != nil {
 			os.Exit(1)

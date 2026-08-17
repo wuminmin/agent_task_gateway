@@ -82,8 +82,8 @@ env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/v
 - **实跑期间不得修改该运行依赖的任何文件**（脚本被读到半截会中止运行）。
 - **创建任何具名产物（Product、视图、schema）之前先全仓 grep 这个名字**——
   已有方案或视图链可能早就存在（台账 P17 记过同根因两次）。
-- 全仓 `gofmt -l` 稳定报 `internal/control/execution_binding.go` 与
-  `internal/exposure/factset_differential_test.go` 两个既有失败项，**不要顺手修**；
+- 全仓 `gofmt -l` 稳定只报 `internal/control/execution_binding.go` 这一项既有失败项，
+  **不要顺手修**；
   只需确认本轮改动的 Go 文件无输出。
 
 ### 论文构建（2026-08-16 实测定）
