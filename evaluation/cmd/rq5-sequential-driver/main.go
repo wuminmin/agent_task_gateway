@@ -124,6 +124,30 @@ type cycleCleanup struct {
 	Status        string `json:"status"`
 }
 
+type dockerResourceCounts struct {
+	Containers int `json:"containers"`
+	Volumes    int `json:"volumes"`
+	Networks   int `json:"networks"`
+}
+
+func (counts dockerResourceCounts) total() int {
+	return counts.Containers + counts.Volumes + counts.Networks
+}
+
+type deploymentCleanupReport struct {
+	SchemaVersion          int                  `json:"schema_version"`
+	DriverVersion          string               `json:"driver_version"`
+	Status                 string               `json:"status"`
+	FixtureProject         string               `json:"fixture_project"`
+	BusinessNetwork        string               `json:"business_network"`
+	Projects               int                  `json:"projects"`
+	FallbackProjects       int                  `json:"fallback_projects"`
+	Before                 dockerResourceCounts `json:"before"`
+	After                  dockerResourceCounts `json:"after"`
+	ExternalNetworksBefore int                  `json:"external_networks_before"`
+	ExternalNetworksAfter  int                  `json:"external_networks_after"`
+}
+
 type fixtureCompletion struct {
 	SchemaVersion         int    `json:"schema_version"`
 	DriverVersion         string `json:"driver_version"`
@@ -193,7 +217,44 @@ type commandReport struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--cleanup-deployment" {
+		if err := runDeploymentCleanup(os.Stdout, os.Stderr); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) != 1 {
+		fmt.Fprintln(os.Stderr, "RQ5 sequential driver accepts only --cleanup-deployment outside its stdin protocol")
+		os.Exit(2)
+	}
 	runDriver(os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runDeploymentCleanup(output, diagnostic io.Writer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	state, err := loadDriverState()
+	if err != nil {
+		fmt.Fprintf(diagnostic, "RQ5 deployment cleanup failed: %v\n", err)
+		return err
+	}
+	lock, err := lockDeployment(state.runRoot)
+	if err != nil {
+		fmt.Fprintf(diagnostic, "RQ5 deployment cleanup failed: %v\n", err)
+		return err
+	}
+	defer unlockDeployment(lock)
+	report, cleanupErr := state.cleanupDeploymentResources(ctx)
+	if cleanupErr != nil {
+		report.Status = "fail"
+		fmt.Fprintf(diagnostic, "RQ5 deployment cleanup failed: %v\n", cleanupErr)
+	}
+	encoder := json.NewEncoder(output)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(report); err != nil {
+		return errors.Join(cleanupErr, err)
+	}
+	return cleanupErr
 }
 
 func runDriver(input io.Reader, output, diagnostic io.Writer) {
@@ -833,6 +894,178 @@ func (state *driverState) cleanupCycleProject(ctx context.Context, workspace cyc
 	return errors.Join(downErr, probeErr, residualErr)
 }
 
+func (state *driverState) cleanupComposeEnvironment() []string {
+	return replaceEnvironment(state.composeEnv,
+		"DAILY_RQ5_BUSINESS_NETWORK="+state.businessNetwork,
+		"DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable",
+		"DAILY_RQ5_OA_SERVICE_TOKEN=cleanup",
+		"DAILY_RQ5_OA_CALLBACK_SECRET=cleanup",
+		"DAILY_RQ5_OA_RECEIPT_KEY_ID=cleanup",
+		"DAILY_RQ5_OA_RECEIPT_PRIVATE_KEY=cleanup",
+		"DAILY_RQ5_OA_SESSION_SECRET=cleanup",
+		"DAILY_RQ5_OA_ALICE_PASSWORD=cleanup",
+		"DAILY_RQ5_OA_BOB_PASSWORD=cleanup",
+		"DAILY_RQ5_GATEWAY_CALLBACK_URL=http://rq5-cleanup.invalid/api/v1/oa/callback")
+}
+
+func (state *driverState) cleanupDeploymentResources(ctx context.Context) (deploymentCleanupReport, error) {
+	report := deploymentCleanupReport{SchemaVersion: 1, DriverVersion: driverVersion, Status: "pass",
+		FixtureProject: state.fixtureProject, BusinessNetwork: state.businessNetwork}
+	workspaces, err := state.recordedCycleWorkspaces()
+	if err != nil {
+		report.Status = "fail"
+		return report, err
+	}
+	projects := make([]string, 0, len(workspaces)+1)
+	seen := make(map[string]struct{}, len(workspaces)+1)
+	for _, workspace := range workspaces {
+		if _, duplicate := seen[workspace.Project]; !duplicate {
+			projects = append(projects, workspace.Project)
+			seen[workspace.Project] = struct{}{}
+		}
+	}
+	projects = append(projects, state.fixtureProject)
+	report.Projects = len(projects)
+	var cleanupErrors []error
+	for _, project := range projects {
+		before, after, usedFallback, cleanupErr := state.cleanupOwnedProject(ctx, project)
+		report.Before.Containers += before.Containers
+		report.Before.Volumes += before.Volumes
+		report.Before.Networks += before.Networks
+		report.After.Containers += after.Containers
+		report.After.Volumes += after.Volumes
+		report.After.Networks += after.Networks
+		if usedFallback {
+			report.FallbackProjects++
+		}
+		if cleanupErr != nil {
+			cleanupErrors = append(cleanupErrors, cleanupErr)
+		}
+	}
+	existed, networkErr := state.cleanupBusinessNetwork(ctx)
+	if existed {
+		report.ExternalNetworksBefore = 1
+	}
+	if networkErr != nil {
+		cleanupErrors = append(cleanupErrors, networkErr)
+	}
+	remaining, inspectErr := state.businessNetworkExists(ctx)
+	if inspectErr != nil {
+		cleanupErrors = append(cleanupErrors, inspectErr)
+	} else if remaining {
+		report.ExternalNetworksAfter = 1
+		cleanupErrors = append(cleanupErrors, errors.New("RQ5 Business network survived deployment cleanup"))
+	}
+	if err := errors.Join(cleanupErrors...); err != nil {
+		report.Status = "fail"
+		return report, err
+	}
+	return report, nil
+}
+
+func (state *driverState) cleanupOwnedProject(ctx context.Context, project string) (
+	dockerResourceCounts, dockerResourceCounts, bool, error) {
+	before, err := state.projectResourceCounts(ctx, project)
+	if err != nil {
+		return before, dockerResourceCounts{}, false, err
+	}
+	if before.total() == 0 {
+		return before, before, false, nil
+	}
+	_, downErr := state.composeProject(ctx, project, state.cleanupComposeEnvironment(),
+		"down", "--volumes", "--remove-orphans")
+	afterDown, probeErr := state.projectResourceCounts(ctx, project)
+	if probeErr != nil {
+		return before, afterDown, downErr != nil, errors.Join(downErr, probeErr)
+	}
+	usedFallback := downErr != nil || afterDown.total() != 0
+	if afterDown.total() != 0 {
+		if err := state.forceRemoveProjectResources(ctx, project); err != nil {
+			return before, afterDown, true, errors.Join(downErr, err)
+		}
+	}
+	after, finalErr := state.projectResourceCounts(ctx, project)
+	if finalErr == nil && after.total() != 0 {
+		finalErr = errors.New("RQ5 Compose project survived deployment cleanup")
+	}
+	return before, after, usedFallback, finalErr
+}
+
+func (state *driverState) projectResourceCounts(ctx context.Context, project string) (dockerResourceCounts, error) {
+	if !state.ownsProject(project) {
+		return dockerResourceCounts{}, errors.New("RQ5 cleanup project is outside this deployment")
+	}
+	counts := dockerResourceCounts{}
+	targets := []struct {
+		arguments []string
+		count     *int
+	}{
+		{[]string{"ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=" + project}, &counts.Containers},
+		{[]string{"volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + project}, &counts.Volumes},
+		{[]string{"network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + project}, &counts.Networks},
+	}
+	for _, target := range targets {
+		output, err := runCommand(ctx, state.repoRoot, os.Environ(), "docker", target.arguments...)
+		if err != nil {
+			return counts, err
+		}
+		*target.count = countNonEmptyLines(output)
+	}
+	return counts, nil
+}
+
+func countNonEmptyLines(value []byte) int {
+	count := 0
+	for _, line := range bytes.Split(value, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) != 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func (state *driverState) forceRemoveProjectResources(ctx context.Context, project string) error {
+	if !state.ownsProject(project) {
+		return errors.New("RQ5 force-clean project is outside this deployment")
+	}
+	targets := []struct {
+		query  []string
+		remove []string
+	}{
+		{[]string{"ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=" + project},
+			[]string{"container", "rm", "--force", "--volumes"}},
+		{[]string{"volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + project},
+			[]string{"volume", "rm"}},
+		{[]string{"network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=" + project},
+			[]string{"network", "rm"}},
+	}
+	var cleanupErrors []error
+	for _, target := range targets {
+		output, err := runCommand(ctx, state.repoRoot, os.Environ(), "docker", target.query...)
+		if err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+			continue
+		}
+		ids := strings.Fields(string(output))
+		if len(ids) == 0 {
+			continue
+		}
+		arguments := append(append([]string{}, target.remove...), ids...)
+		if _, err := runCommand(ctx, state.repoRoot, os.Environ(), "docker", arguments...); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+		}
+	}
+	return errors.Join(cleanupErrors...)
+}
+
+func (state *driverState) ownsProject(project string) bool {
+	if project == state.fixtureProject {
+		return safeProject.MatchString(project)
+	}
+	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(state.projectPrefix) + `-c[1-4]-[0-9a-f]{12}$`)
+	return safeProject.MatchString(project) && pattern.MatchString(project)
+}
+
 func applyFailClosedCycleCleanup(response *driverResponse, returnErr *error, cleanupErr error) {
 	if cleanupErr == nil {
 		return
@@ -870,14 +1103,32 @@ func (state *driverState) cycleProjectAbsent(ctx context.Context, project string
 }
 
 func (state *driverState) ensureNoResidualCycleProjects(ctx context.Context) error {
-	cyclesRoot := filepath.Join(state.runRoot, "cycles")
-	entries, err := os.ReadDir(cyclesRoot)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	workspaces, err := state.recordedCycleWorkspaces()
 	if err != nil {
 		return err
 	}
+	for _, workspace := range workspaces {
+		absent, err := state.cycleProjectAbsent(ctx, workspace.Project)
+		if err != nil {
+			return err
+		}
+		if !absent {
+			return fmt.Errorf("recorded RQ5 cycle project %q still has Docker resources", workspace.Project)
+		}
+	}
+	return nil
+}
+
+func (state *driverState) recordedCycleWorkspaces() ([]cycleWorkspace, error) {
+	cyclesRoot := filepath.Join(state.runRoot, "cycles")
+	entries, err := os.ReadDir(cyclesRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	workspaces := make([]cycleWorkspace, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -888,31 +1139,25 @@ func (state *driverState) ensureNoResidualCycleProjects(ctx context.Context) err
 			continue
 		}
 		if statErr != nil {
-			return statErr
+			return nil, statErr
 		}
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("recorded RQ5 cycle workspace is not a regular file")
+			return nil, errors.New("recorded RQ5 cycle workspace is not a regular file")
 		}
 		var workspace cycleWorkspace
 		if err := decodeJSONFile(workspacePath, &workspace); err != nil {
-			return err
+			return nil, err
 		}
-		if workspace.SchemaVersion != 1 || !safeProject.MatchString(workspace.Project) ||
-			!strings.HasPrefix(workspace.Project, state.projectPrefix+"-c") ||
+		if workspace.SchemaVersion != 1 || !state.ownsProject(workspace.Project) ||
+			workspace.Project == state.fixtureProject ||
 			workspace.GatewayContainer != workspace.Project+"-gateway-slot" ||
 			!safeProject.MatchString(workspace.GatewayContainer) ||
 			workspace.BusinessNetwork != state.businessNetwork {
-			return errors.New("recorded RQ5 cycle workspace is outside this deployment")
+			return nil, errors.New("recorded RQ5 cycle workspace is outside this deployment")
 		}
-		absent, err := state.cycleProjectAbsent(ctx, workspace.Project)
-		if err != nil {
-			return err
-		}
-		if !absent {
-			return fmt.Errorf("recorded RQ5 cycle project %q still has Docker resources", workspace.Project)
-		}
+		workspaces = append(workspaces, workspace)
 	}
-	return nil
+	return workspaces, nil
 }
 
 func (state *driverState) ensureBusinessNetwork(ctx context.Context) error {
@@ -935,6 +1180,41 @@ func (state *driverState) ensureBusinessNetwork(ctx context.Context) error {
 		return fmt.Errorf("create isolated RQ5 Business network: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func (state *driverState) businessNetworkExists(ctx context.Context) (bool, error) {
+	listed, err := runCommand(ctx, state.repoRoot, os.Environ(), "docker", "network", "ls", "--quiet",
+		"--filter", "name=^"+state.businessNetwork+"$")
+	if err != nil {
+		return false, err
+	}
+	if countNonEmptyLines(listed) == 0 {
+		return false, nil
+	}
+	if countNonEmptyLines(listed) != 1 {
+		return true, errors.New("RQ5 Business network name resolved to multiple Docker resources")
+	}
+	command := exec.CommandContext(ctx, "docker", "network", "inspect", state.businessNetwork,
+		"--format", `{{ index .Labels "taskgate.rq5.owner" }}`)
+	command.Dir = state.repoRoot
+	output, err := command.Output()
+	if err != nil {
+		return true, err
+	}
+	ownerBytes := sha256.Sum256([]byte(filepath.Clean(state.runRoot)))
+	if strings.TrimSpace(string(output)) != hex.EncodeToString(ownerBytes[:]) {
+		return true, errors.New("RQ5 Business network exists with another deployment owner")
+	}
+	return true, nil
+}
+
+func (state *driverState) cleanupBusinessNetwork(ctx context.Context) (bool, error) {
+	exists, err := state.businessNetworkExists(ctx)
+	if err != nil || !exists {
+		return exists, err
+	}
+	_, err = runCommand(ctx, state.repoRoot, os.Environ(), "docker", "network", "rm", state.businessNetwork)
+	return true, err
 }
 
 func (state *driverState) newCycleWorkspace(request driverRequest) (cycleWorkspace, error) {

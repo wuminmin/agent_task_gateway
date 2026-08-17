@@ -811,12 +811,26 @@ func validateCleanup(root string, files []CampaignEvidenceFile) error {
 		Containers int    `json:"containers"`
 		Volumes    int    `json:"volumes"`
 		Networks   int    `json:"networks"`
+		RQ5        *struct {
+			Status   string `json:"status"`
+			Residual struct {
+				Containers       int `json:"containers"`
+				Volumes          int `json:"volumes"`
+				ProjectNetworks  int `json:"project_networks"`
+				ExternalNetworks int `json:"external_networks"`
+			} `json:"residual"`
+		} `json:"rq5,omitempty"`
 	}
 	if err := decodeCampaignFile(campaignEvidencePath(root, files, "cleanup"), &cleanup); err != nil {
 		return fmt.Errorf("cleanup: %w", err)
 	}
 	if cleanup.Status != "pass" || cleanup.Containers != 0 || cleanup.Volumes != 0 || cleanup.Networks != 0 {
 		return errors.New("deployment cleanup left Compose resources")
+	}
+	if cleanup.RQ5 != nil && (cleanup.RQ5.Status != "pass" || cleanup.RQ5.Residual.Containers != 0 ||
+		cleanup.RQ5.Residual.Volumes != 0 || cleanup.RQ5.Residual.ProjectNetworks != 0 ||
+		cleanup.RQ5.Residual.ExternalNetworks != 0) {
+		return errors.New("deployment cleanup left RQ5 driver resources")
 	}
 	return nil
 }

@@ -635,6 +635,110 @@ func TestDeploymentProjectPrefixHashesCompleteIdentityWithoutTruncationCollision
 	}
 }
 
+func TestDeploymentCleanupOwnsCycleFixtureAndExternalNetworkFamilies(t *testing.T) {
+	directory := t.TempDir()
+	runRoot := filepath.Join(directory, "run")
+	cycleRoot := filepath.Join(runRoot, "cycles", "cycle-1")
+	if err := os.MkdirAll(cycleRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "rq5-cleanup-unit"
+	network := prefix + "-business"
+	project := prefix + "-c1-0123456789ab"
+	workspace := cycleWorkspace{SchemaVersion: 1, Project: project,
+		GatewayContainer: project + "-gateway-slot", BusinessNetwork: network}
+	if err := writeJSONExclusive(filepath.Join(cycleRoot, "cycle-workspace.json"), workspace, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ownerBytes := sha256.Sum256([]byte(filepath.Clean(runRoot)))
+	owner := hex.EncodeToString(ownerBytes[:])
+	dockerLog := filepath.Join(directory, "docker.log")
+	dockerPath := filepath.Join(directory, "docker")
+	script := fmt.Sprintf(`#!/bin/sh
+set -eu
+printf '%%s\n' "$*" >> "$RQ5_TEST_DOCKER_LOG"
+if [ "$1" = compose ]; then
+  [ "$DAILY_RQ5_INSTALL_DSN" = "postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable" ] || exit 90
+  exit 41
+fi
+if [ "$1" = ps ]; then
+  [ -e "$RQ5_TEST_STATE/container.removed" ] || printf 'container-id\n'
+  exit 0
+fi
+if [ "$1" = container ] && [ "$2" = rm ]; then
+  : > "$RQ5_TEST_STATE/container.removed"
+  exit 0
+fi
+if [ "$1" = volume ] && [ "$2" = ls ]; then
+  [ -e "$RQ5_TEST_STATE/volume.removed" ] || printf 'volume-id\n'
+  exit 0
+fi
+if [ "$1" = volume ] && [ "$2" = rm ]; then
+  : > "$RQ5_TEST_STATE/volume.removed"
+  exit 0
+fi
+if [ "$1" = network ] && [ "$2" = ls ]; then
+  case "$*" in
+    *name=*) [ -e "$RQ5_TEST_STATE/external-network.removed" ] || printf 'external-network-id\n' ;;
+    *) [ -e "$RQ5_TEST_STATE/project-network.removed" ] || printf 'project-network-id\n' ;;
+  esac
+  exit 0
+fi
+if [ "$1" = network ] && [ "$2" = inspect ]; then
+  [ -e "$RQ5_TEST_STATE/external-network.removed" ] && exit 1
+  printf '%s\n'
+  exit 0
+fi
+if [ "$1" = network ] && [ "$2" = rm ]; then
+  if [ "$3" = "project-network-id" ]; then
+    : > "$RQ5_TEST_STATE/project-network.removed"
+  else
+    : > "$RQ5_TEST_STATE/external-network.removed"
+  fi
+  exit 0
+fi
+exit 93
+`, owner)
+	if err := os.WriteFile(dockerPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("RQ5_TEST_DOCKER_LOG", dockerLog)
+	t.Setenv("RQ5_TEST_STATE", directory)
+	state := driverState{repoRoot: directory, runRoot: runRoot, projectPrefix: prefix,
+		fixtureProject: prefix + "-fixture", businessNetwork: network,
+		composeFile: filepath.Join(directory, "compose.yaml"), composeEnv: os.Environ()}
+	report, err := state.cleanupDeploymentResources(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "pass" || report.Projects != 2 || report.FallbackProjects != 1 ||
+		report.Before != (dockerResourceCounts{Containers: 1, Volumes: 1, Networks: 1}) ||
+		report.After.total() != 0 || report.ExternalNetworksBefore != 1 || report.ExternalNetworksAfter != 0 {
+		t.Fatalf("cleanup report = %#v", report)
+	}
+	logBytes, err := os.ReadFile(dockerLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(logBytes)
+	for _, required := range []string{
+		"compose --project-name " + project,
+		"container rm --force --volumes container-id",
+		"volume rm volume-id",
+		"network rm project-network-id",
+		"network rm " + network,
+	} {
+		if !strings.Contains(log, required) {
+			t.Fatalf("cleanup omitted %q:\n%s", required, log)
+		}
+	}
+	if !state.ownsProject(state.fixtureProject) || state.ownsProject(prefix) ||
+		state.ownsProject(prefix+"-c5-0123456789ab") || state.ownsProject(prefix+"-c1-short") {
+		t.Fatal("cleanup project ownership accepted an incomplete resource-family name")
+	}
+}
+
 func TestSecretRootCleanupFailsClosedAndRemovesOnlyExactTemporaryRoot(t *testing.T) {
 	helper := filepath.Join("..", "..", "final-v5-wsl2", "scripts", "rq5-secret-root-cleanup.sh")
 	root, err := os.MkdirTemp("/tmp", "taskgate-rq5-secrets.deployment-01.")

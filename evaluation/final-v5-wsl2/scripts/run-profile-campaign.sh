@@ -191,49 +191,128 @@ current_rq5_project=""
 current_rq5_run_root=""
 current_stage="preflight"
 cleanup_rq5() {
-  local status=0 fixture network owner expected_owner project
+  local status=0 fixture network owner expected_owner project output driver_status=not_run fallback_status=pass
+  local containers=0 volumes=0 networks=0 external_networks=0 proof driver_proof driver_proof_tmp
   local -a projects=()
+  local -a ids=()
+  local -a cleanup_env=()
   [[ -n "$current_rq5_project" ]] || return 0
   fixture="$current_rq5_project-fixture"
   network="$current_rq5_project-business"
+  cleanup_env=(env "DAILY_RQ5_BUSINESS_NETWORK=$network"
+    DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable
+    DAILY_RQ5_OA_SERVICE_TOKEN=cleanup DAILY_RQ5_OA_CALLBACK_SECRET=cleanup
+    DAILY_RQ5_OA_RECEIPT_KEY_ID=cleanup DAILY_RQ5_OA_RECEIPT_PRIVATE_KEY=cleanup
+    DAILY_RQ5_OA_SESSION_SECRET=cleanup DAILY_RQ5_OA_ALICE_PASSWORD=cleanup
+    DAILY_RQ5_OA_BOB_PASSWORD=cleanup
+    DAILY_RQ5_GATEWAY_CALLBACK_URL=http://rq5-cleanup.invalid/api/v1/oa/callback)
   if [[ -d "$current_rq5_run_root/cycles" ]]; then
     mapfile -t projects < <(find "$current_rq5_run_root/cycles" -name cycle-workspace.json -type f -print0 |
       sort -z | xargs -0 -r jq -er '.project')
   fi
   projects+=("$fixture")
+
+  driver_proof="$current_rq5_run_root/deployment-cleanup-driver.json"
+  if [[ -f "$driver_proof" && ! -L "$driver_proof" ]]; then
+    driver_status="$(jq -er '.status' "$driver_proof")" || driver_status=fail
+  else
+    driver_proof_tmp="$current_rq5_run_root/.deployment-cleanup-driver.json.tmp"
+    rm -f "$driver_proof_tmp"
+    if "$rq5_driver" --cleanup-deployment >"$driver_proof_tmp"; then
+      chmod 600 "$driver_proof_tmp"
+      mv "$driver_proof_tmp" "$driver_proof"
+      driver_status="$(jq -er '.status' "$driver_proof")" || driver_status=fail
+    else
+      driver_status=fail
+      rm -f "$driver_proof_tmp"
+    fi
+  fi
+  [[ "$driver_status" == pass ]] || status=1
+
   for project in "${projects[@]}"; do
     if [[ "$project" != "$fixture" && ! "$project" =~ ^${current_rq5_project}-c[1-4]-[0-9a-f]{12}$ ]]; then
       echo "refusing RQ5 cleanup outside deployment: $project" >&2
       status=1
+      fallback_status=fail
       continue
     fi
-    env "DAILY_RQ5_BUSINESS_NETWORK=$network" DAILY_RQ5_OA_SERVICE_TOKEN=cleanup \
-      DAILY_RQ5_OA_CALLBACK_SECRET=cleanup DAILY_RQ5_OA_RECEIPT_KEY_ID=cleanup \
-      DAILY_RQ5_OA_RECEIPT_PRIVATE_KEY=cleanup DAILY_RQ5_OA_SESSION_SECRET=cleanup \
-      DAILY_RQ5_OA_ALICE_PASSWORD=cleanup DAILY_RQ5_OA_BOB_PASSWORD=cleanup \
-      DAILY_RQ5_GATEWAY_CALLBACK_URL=http://rq5-cleanup.invalid/api/v1/oa/callback \
-      docker compose --project-name "$project" --file evaluation/daily-publication-online/compose.yaml \
-      down --volumes --remove-orphans >/dev/null 2>&1 || status=1
-    [[ -z "$(docker ps --all --quiet --filter "label=com.docker.compose.project=$project")" ]] || status=1
-    [[ -z "$(docker volume ls --quiet --filter "label=com.docker.compose.project=$project")" ]] || status=1
-    [[ -z "$(docker network ls --quiet --filter "label=com.docker.compose.project=$project")" ]] || status=1
+    "${cleanup_env[@]}" docker compose --project-name "$project" \
+      --file evaluation/daily-publication-online/compose.yaml \
+      down --volumes --remove-orphans >/dev/null 2>&1 || fallback_status=fail
+    output="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    ids=(); [[ -z "$output" ]] || mapfile -t ids <<<"$output"
+    ((${#ids[@]} == 0)) || docker container rm --force --volumes "${ids[@]}" >/dev/null 2>&1 || fallback_status=fail
+    output="$(docker volume ls --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    ids=(); [[ -z "$output" ]] || mapfile -t ids <<<"$output"
+    ((${#ids[@]} == 0)) || docker volume rm "${ids[@]}" >/dev/null 2>&1 || fallback_status=fail
+    output="$(docker network ls --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    ids=(); [[ -z "$output" ]] || mapfile -t ids <<<"$output"
+    ((${#ids[@]} == 0)) || docker network rm "${ids[@]}" >/dev/null 2>&1 || fallback_status=fail
+
+    output="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    containers=$((containers + $(awk 'NF {count++} END {print count+0}' <<<"$output")))
+    output="$(docker volume ls --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    volumes=$((volumes + $(awk 'NF {count++} END {print count+0}' <<<"$output")))
+    output="$(docker network ls --quiet --filter "label=com.docker.compose.project=$project")" || {
+      output=""; fallback_status=fail;
+    }
+    networks=$((networks + $(awk 'NF {count++} END {print count+0}' <<<"$output")))
   done
-  if docker network inspect "$network" >/dev/null 2>&1; then
-    owner="$(docker network inspect "$network" --format '{{ index .Labels "taskgate.rq5.owner" }}')"
+  output="$(docker network ls --quiet --filter "name=^${network}$")" || {
+    output=""; fallback_status=fail;
+  }
+  if [[ -n "$output" ]]; then
+    owner="$(docker network inspect "$network" --format '{{ index .Labels "taskgate.rq5.owner" }}')" || {
+      owner=""; fallback_status=fail;
+    }
     expected_owner="$(printf '%s' "$current_rq5_run_root" | sha256sum | awk '{print $1}')"
     if [[ "$owner" == "$expected_owner" ]]; then
-      docker network rm "$network" >/dev/null 2>&1 || status=1
+      docker network rm "$network" >/dev/null 2>&1 || fallback_status=fail
     else
       echo "refusing RQ5 network owned by another deployment" >&2
+      fallback_status=fail
+    fi
+  fi
+  output="$(docker network ls --quiet --filter "name=^${network}$")" || {
+    output=""; fallback_status=fail;
+  }
+  external_networks="$(awk 'NF {count++} END {print count+0}' <<<"$output")"
+  [[ "$containers" == 0 && "$volumes" == 0 && "$networks" == 0 && "$external_networks" == 0 ]] || fallback_status=fail
+  [[ "$fallback_status" == pass ]] || status=1
+
+  if [[ -n "$current_rq5_secret" ]]; then
+    if bash evaluation/final-v5-wsl2/scripts/rq5-secret-root-cleanup.sh "$current_rq5_secret"; then
+      current_rq5_secret=""
+    else
       status=1
     fi
   fi
-  if [[ -n "$current_rq5_secret" ]]; then
-    bash evaluation/final-v5-wsl2/scripts/rq5-secret-root-cleanup.sh "$current_rq5_secret" || status=1
+  proof="$current_rq5_run_root/deployment-cleanup.json"
+  jq -n --arg status "$([[ "$status" == 0 ]] && echo pass || echo fail)" \
+    --arg driver_status "$driver_status" --arg fallback_status "$fallback_status" \
+    --arg fixture_project "$fixture" --arg business_network "$network" \
+    --argjson projects "${#projects[@]}" --argjson containers "$containers" \
+    --argjson volumes "$volumes" --argjson networks "$networks" \
+    --argjson external_networks "$external_networks" \
+    '{schema_version:1,status:$status,driver_status:$driver_status,fallback_status:$fallback_status,
+      fixture_project:$fixture_project,business_network:$business_network,projects:$projects,
+      residual:{containers:$containers,volumes:$volumes,project_networks:$networks,
+        external_networks:$external_networks}}' >"$proof"
+  chmod 600 "$proof"
+  if [[ "$status" == 0 ]]; then
+    current_rq5_project=""
+    current_rq5_run_root=""
   fi
-  current_rq5_secret=""
-  current_rq5_project=""
-  current_rq5_run_root=""
   return "$status"
 }
 cleanup_current() {
@@ -569,8 +648,14 @@ for alias in "${selected_profiles[@]}"; do
     cleanup="$current_dir/cleanup.json"
     cleanup_status=pass
     [[ "$containers" == 0 && "$volumes" == 0 && "$networks" == 0 ]] || cleanup_status=fail
+    rq5_cleanup_json=null
+    if [[ -f "$current_dir/rq5-live/deployment-cleanup.json" ]]; then
+      rq5_cleanup_json="$(jq -c . "$current_dir/rq5-live/deployment-cleanup.json")"
+    fi
     jq -n --arg status "$cleanup_status" --argjson containers "$containers" --argjson volumes "$volumes" \
-      --argjson networks "$networks" '{schema_version:1,status:$status,containers:$containers,volumes:$volumes,networks:$networks}' >"$cleanup"
+      --argjson networks "$networks" --argjson rq5 "$rq5_cleanup_json" \
+      '{schema_version:1,status:$status,containers:$containers,volumes:$volumes,networks:$networks} +
+       (if $rq5 == null then {} else {rq5:$rq5} end)' >"$cleanup"
     [[ "$cleanup_status" == pass ]] || { echo "$deployment_key cleanup left Compose resources" >&2; exit 1; }
     current_project=""
     current_dir=""

@@ -99,6 +99,40 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 	}
 }
 
+func TestProfileCampaignCleanupValidatesEveryRQ5ResourceFamily(t *testing.T) {
+	root := t.TempDir()
+	cleanupPath := "cleanup.json"
+	cleanup := map[string]any{
+		"status": "pass", "containers": 0, "volumes": 0, "networks": 0,
+		"rq5": map[string]any{
+			"status": "pass",
+			"residual": map[string]any{"containers": 0, "volumes": 0,
+				"project_networks": 0, "external_networks": 0},
+		},
+	}
+	file := campaignFixtureFile(t, root, "cleanup", "", cleanupPath, cleanup)
+	if err := validateCleanup(root, []CampaignEvidenceFile{file}); err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"containers", "volumes", "project_networks", "external_networks"} {
+		t.Run(family, func(t *testing.T) {
+			mutated := map[string]any{
+				"status": "pass", "containers": 0, "volumes": 0, "networks": 0,
+				"rq5": map[string]any{
+					"status": "pass",
+					"residual": map[string]any{"containers": 0, "volumes": 0,
+						"project_networks": 0, "external_networks": 0},
+				},
+			}
+			mutated["rq5"].(map[string]any)["residual"].(map[string]any)[family] = 1
+			campaignWriteJSON(t, filepath.Join(root, cleanupPath), mutated)
+			if err := validateCleanup(root, []CampaignEvidenceFile{file}); err == nil {
+				t.Fatalf("RQ5 %s residue passed cleanup validation", family)
+			}
+		})
+	}
+}
+
 func TestCampaignEvidenceJSONLAcceptsBareSample(t *testing.T) {
 	profile := campaignJSONLTestProfile([]string{"rls/workload/scale/bounded"})
 	sample := campaignSampleFixture(profile, "workload/scale/bounded", false)

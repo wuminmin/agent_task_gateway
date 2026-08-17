@@ -355,6 +355,7 @@ rq5_owner_sha256="$(printf '%s' "$TASKGATE_FINAL_V5_RQ5_RUN_ROOT" | sha256sum | 
 rq5_compose_file=evaluation/daily-publication-online/compose.yaml
 rq5_cleanup_env=(env
   "DAILY_RQ5_BUSINESS_NETWORK=$rq5_business_network"
+  DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable
   DAILY_RQ5_OA_SERVICE_TOKEN=cleanup
   DAILY_RQ5_OA_CALLBACK_SECRET=cleanup
   DAILY_RQ5_OA_RECEIPT_KEY_ID=cleanup

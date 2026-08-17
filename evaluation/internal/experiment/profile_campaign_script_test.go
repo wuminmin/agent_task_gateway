@@ -70,6 +70,24 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		strings.Contains(script, `rq5-project-prefix.sh "$project_identity" deployment-01`) {
 		t.Fatal("RQ5 driver project prefix is not derived from the campaign identity bound in driver state")
 	}
+	for _, required := range []string{
+		`fixture="$current_rq5_project-fixture"`,
+		`network="$current_rq5_project-business"`,
+		`"$rq5_driver" --cleanup-deployment`,
+		`DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable`,
+		`docker container rm --force --volumes`,
+		`docker volume rm`,
+		`docker network rm`,
+		`label=com.docker.compose.project=$project`,
+		`taskgate.rq5.owner`,
+		`external_networks:$external_networks`,
+		`deployment-cleanup-driver.json`,
+		`deployment-cleanup.json`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("profile campaign RQ5 cleanup lacks %q", required)
+		}
+	}
 }
 
 func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {
@@ -82,5 +100,9 @@ func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {
 	publicationGuard := `[[ "$TASKGATE_EXPERIMENT_CLASS" == publication ]]`
 	if strings.Index(script, dispatch) < 0 || strings.Index(script, dispatch) > strings.Index(script, publicationGuard) {
 		t.Fatal("pilot dispatch is absent or occurs after the publication-only guard")
+	}
+	if !strings.Contains(script,
+		`DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable`) {
+		t.Fatal("formal campaign RQ5 cleanup cannot interpolate the installer service")
 	}
 }
