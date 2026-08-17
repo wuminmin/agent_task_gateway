@@ -129,9 +129,13 @@ func main() {
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	encoder := json.NewEncoder(os.Stdout)
 	var profileBindingCode string
-	if *experimentID != "rq5" {
+	{
 		var err error
-		adapterSampleProfileBinder, err = experiment.ResolveSampleProfileBinderFromEnvironment()
+		if *experimentID == "rq5" {
+			adapterSampleProfileBinder, err = experiment.ResolveRQ5SampleProfileBinderFromEnvironment()
+		} else {
+			adapterSampleProfileBinder, err = experiment.ResolveSampleProfileBinderFromEnvironment()
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			profileBindingCode = "adapter_profile_binding_invalid"
@@ -160,9 +164,7 @@ func main() {
 		} else {
 			sample = adapter.Execute(context.Background(), operation)
 		}
-		if *experimentID != "rq5" {
-			sample = bindAdapterOutputSample(operation, sample)
-		}
+		sample = bindAdapterOutputSample(operation, sample)
 		if encoder.Encode(sample) != nil {
 			os.Exit(1)
 		}

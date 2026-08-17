@@ -183,7 +183,8 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			if !plannedExperiments[file.Experiment] {
 				return fmt.Errorf("deployment evidence %s names unplanned experiment %q", file.Kind, file.Experiment)
 			}
-		case "runner_selected_cells", "rq5_cell_translation", "rq5_cell_map":
+		case "runner_selected_cells", "rq5_cell_translation", "rq5_cell_map", "rq5_profile_binding",
+			"rq5_catalog_family", "rq5_build_manifest":
 			if file.Experiment != "rq5" || !plannedExperiments["rq5"] {
 				return fmt.Errorf("deployment evidence %s is only valid for a planned RQ5 experiment", file.Kind)
 			}
@@ -215,8 +216,10 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		}
 	}
 	var rq5Mapping *RQ5WorkloadCellMap
+	rq5CatalogFamilySHA := ""
 	if plannedExperiments["rq5"] {
-		for _, kind := range []string{"runner_selected_cells", "rq5_cell_translation", "rq5_cell_map"} {
+		for _, kind := range []string{"runner_selected_cells", "rq5_cell_translation", "rq5_cell_map",
+			"rq5_profile_binding", "rq5_catalog_family", "rq5_build_manifest"} {
 			if kinds[kind+"/rq5"] != 1 {
 				return fmt.Errorf("RQ5 evidence kind %s count=%d, want 1", kind, kinds[kind+"/rq5"])
 			}
@@ -230,6 +233,13 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 	if err := validateProfileBinding(root, planned, record.Files); err != nil {
 		return err
 	}
+	if plannedExperiments["rq5"] {
+		var err error
+		rq5CatalogFamilySHA, err = validateRQ5CatalogFamilyBinding(root, record.SubmissionCommit, planned, record.Files)
+		if err != nil {
+			return err
+		}
+	}
 	if err := validateActivationEvidence(root, planned, record.Files); err != nil {
 		return err
 	}
@@ -238,7 +248,11 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 	}
 	observed := map[string]bool{}
 	for experiment, file := range rawByExperiment {
-		if err := validateCampaignJSONL(filepath.Join(root, file.Path), campaignID, experiment, planned, observed, rq5Mapping); err != nil {
+		options := rq5CampaignJSONLOptions{}
+		if experiment == "rq5" {
+			options.Mapping, options.CatalogSHA256 = rq5Mapping, rq5CatalogFamilySHA
+		}
+		if err := validateCampaignJSONL(filepath.Join(root, file.Path), campaignID, experiment, planned, observed, options); err != nil {
 			return err
 		}
 	}
@@ -337,14 +351,7 @@ func validateCampaignConfig(root, campaignID, commit, experiment string, files [
 }
 
 func validateProfileBinding(root string, planned PlannedDeploy, files []CampaignEvidenceFile) error {
-	var binding struct {
-		Version              string `json:"version"`
-		ProfileID            string `json:"profile_id"`
-		CatalogSHA256        string `json:"catalog_sha256"`
-		ClosureSHA256        string `json:"closure_sha256"`
-		DatasetBindingSHA256 string `json:"dataset_binding_sha256"`
-		PublicationIdentity  string `json:"publication_identity"`
-	}
+	var binding profileBindingWire
 	if err := decodeCampaignFile(campaignEvidencePath(root, files, "profile_binding"), &binding); err != nil {
 		return fmt.Errorf("profile binding: %w", err)
 	}
@@ -353,6 +360,58 @@ func validateProfileBinding(root string, planned PlannedDeploy, files []Campaign
 		return errors.New("ProfileBinding differs from the planned profile")
 	}
 	return nil
+}
+
+type profileBindingWire struct {
+	Version              string `json:"version"`
+	ProfileID            string `json:"profile_id"`
+	CatalogSHA256        string `json:"catalog_sha256"`
+	ClosureSHA256        string `json:"closure_sha256"`
+	DatasetBindingSHA256 string `json:"dataset_binding_sha256"`
+	PublicationIdentity  string `json:"publication_identity"`
+}
+
+func validateRQ5CatalogFamilyBinding(root, commit string, planned PlannedDeploy,
+	files []CampaignEvidenceFile) (string, error) {
+	outerPath := campaignEvidencePath(root, files, "profile_binding")
+	var outer profileBindingWire
+	if err := decodeStrictCampaignFile(outerPath, &outer); err != nil {
+		return "", fmt.Errorf("outer profile binding: %w", err)
+	}
+	dynamicFile, err := campaignExperimentEvidenceFile(files, "rq5_profile_binding", "rq5")
+	if err != nil {
+		return "", err
+	}
+	var dynamic profileBindingWire
+	if err := decodeStrictCampaignFile(filepath.Join(root, dynamicFile.Path), &dynamic); err != nil {
+		return "", fmt.Errorf("RQ5 profile binding: %w", err)
+	}
+	familyFile, err := campaignExperimentEvidenceFile(files, "rq5_catalog_family", "rq5")
+	if err != nil {
+		return "", err
+	}
+	manifestFile, err := campaignExperimentEvidenceFile(files, "rq5_build_manifest", "rq5")
+	if err != nil {
+		return "", err
+	}
+	family, err := ResolveRQ5CatalogFamilyIdentity(filepath.Join(root, familyFile.Path),
+		filepath.Join(root, manifestFile.Path), manifestFile.SHA256,
+		RQ5CatalogFamilyOwner{ProfileID: planned.ProfileID, ProfileAlias: planned.Alias,
+			ClosureSHA256: outer.ClosureSHA256, WorkloadCells: planned.Cells})
+	if err != nil {
+		return "", err
+	}
+	publicationIdentity, err := CanonicalPublicationSetSHA256(family.PublicationNames)
+	if err != nil {
+		return "", err
+	}
+	if family.SubmissionCommit != commit || dynamic.Version != outer.Version ||
+		dynamic.ProfileID != planned.ProfileID || dynamic.ClosureSHA256 != outer.ClosureSHA256 ||
+		dynamic.DatasetBindingSHA256 != outer.DatasetBindingSHA256 || dynamic.CatalogSHA256 != family.FamilySHA256 ||
+		dynamic.PublicationIdentity != publicationIdentity {
+		return "", errors.New("RQ5 ProfileBinding differs from its source-controlled Catalog family")
+	}
+	return family.FamilySHA256, nil
 }
 
 func validateActivationEvidence(root string, planned PlannedDeploy, files []CampaignEvidenceFile) error {
@@ -518,15 +577,21 @@ func decodeStrictCampaignFile(path string, target any) error {
 	return nil
 }
 
+type rq5CampaignJSONLOptions struct {
+	Mapping       *RQ5WorkloadCellMap
+	CatalogSHA256 string
+}
+
 func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedDeploy, observed map[string]bool,
-	rq5Mappings ...*RQ5WorkloadCellMap) error {
-	var rq5Mapping *RQ5WorkloadCellMap
-	if len(rq5Mappings) > 1 {
-		return errors.New("multiple RQ5 coordinate maps supplied")
+	rq5Options ...rq5CampaignJSONLOptions) error {
+	options := rq5CampaignJSONLOptions{}
+	if len(rq5Options) > 1 {
+		return errors.New("multiple RQ5 JSONL validation options supplied")
 	}
-	if len(rq5Mappings) == 1 {
-		rq5Mapping = rq5Mappings[0]
+	if len(rq5Options) == 1 {
+		options = rq5Options[0]
 	}
+	rq5Mapping := options.Mapping
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -539,7 +604,7 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 		}
 	}
 	if experiment == "rq5" {
-		if rq5Mapping == nil {
+		if rq5Mapping == nil || !digestPattern.MatchString(options.CatalogSHA256) {
 			return errors.New("RQ5 JSONL validation requires the explicit coordinate map")
 		}
 		campaign := make([]string, 0, len(allowed))
@@ -565,11 +630,15 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 			return fmt.Errorf("decode JSONL line %d: %w", lines, err)
 		}
 		identity := sample.ExperimentID + "/" + sample.CellID
+		expectedCatalog := planned.CatalogSHA256
+		if experiment == "rq5" {
+			expectedCatalog = options.CatalogSHA256
+		}
 		if sample.CampaignID != campaignID || campaignClass != "pilot" ||
 			sample.DeploymentID != "deployment-01" || sample.ExperimentID != experiment ||
 			sample.Status != "pass" || sample.PublicationEligible || !allowed[identity] ||
 			sample.ProfileBinding == nil || sample.ProfileBinding.ProfileID != planned.ProfileID ||
-			sample.ProfileBinding.CatalogSHA256 != planned.CatalogSHA256 {
+			sample.ProfileBinding.CatalogSHA256 != expectedCatalog {
 			return fmt.Errorf("JSONL line %d differs from its profile assignment", lines)
 		}
 		observedIdentity := identity

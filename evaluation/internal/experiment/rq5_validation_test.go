@@ -122,6 +122,11 @@ func validRQ5SampleForTest(iteration int, mode string) Sample {
 			SidecarArtifactSHA256: rq5TestDigest(base + 9), DirectResultSHA256: rq5TestDigest(base + 10),
 			ArtifactBytes: 700_000_000 + int64(index), HOTArtifactBytes: 139_000_000 + int64(index),
 		}
+		catalogSHA, err := expectedRQ5DailyCatalogSHA256(publication)
+		if err != nil {
+			panic(err)
+		}
+		publication.CatalogSHA256 = catalogSHA
 		evidence.Publications = append(evidence.Publications, publication)
 		byDay[day] = publication
 	}
@@ -256,6 +261,37 @@ func validRQ5SampleForTest(iteration int, mode string) Sample {
 		ReceiptSHA256: selected.ReceiptSHA256, ArtifactIntentSHA256: selected.ArtifactIntentSHA256,
 		AvailabilityAuditSHA256: selected.AvailabilityAuditSHA256, ReceiptVerified: true, ArtifactAvailable: true,
 		Status: "pass", PublicationEligible: true, RQ5Verification: evidence,
+	}
+}
+
+func TestRQ5DayReceiptCatalogMustMatchIndependentBaseline(t *testing.T) {
+	sample := validRQ5SampleForTest(1, rq5fixture.BuildMode)
+	day := sample.RQ5Verification.Publications[0].Day
+	forged := rq5TestDigest(9999)
+	sample.RQ5Verification.Publications[0].CatalogSHA256 = forged
+	for index := range sample.RQ5Verification.Lifecycle {
+		if sample.RQ5Verification.Lifecycle[index].Day == day {
+			sample.RQ5Verification.Lifecycle[index].CatalogSHA256 = forged
+		}
+	}
+	for _, query := range []*RQ5QueryEvidence{
+		&sample.RQ5Verification.Route.OldInitial, &sample.RQ5Verification.Route.NewInitial,
+		&sample.RQ5Verification.Route.OldRetained, &sample.RQ5Verification.Route.NewRestored,
+	} {
+		if query.Day == day {
+			query.CatalogSHA256 = forged
+		}
+	}
+	if sample.RQ5Verification.Route.OldInitial.Day == day {
+		sample.RQ5Verification.Route.OldCatalogSHA256 = forged
+	}
+	if sample.RQ5Verification.Route.NewInitial.Day == day {
+		sample.RQ5Verification.Route.NewCatalogSHA256 = forged
+	}
+	sample.RQ5Verification.PublicationSetSHA256 = RQ5PublicationSetSHA256(sample.RQ5Verification.Publications)
+	sample.RQ5Verification.LifecycleSHA256 = RQ5LifecycleSHA256(sample.RQ5Verification.Lifecycle)
+	if err := ValidateRQ5Evidence(sample); err == nil {
+		t.Fatal("a Receipt/publication pair with the same forged Catalog digest passed the independent daily baseline")
 	}
 }
 

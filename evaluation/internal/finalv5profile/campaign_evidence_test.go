@@ -186,7 +186,8 @@ func TestCampaignEvidenceMergerUsesRetainedRQ5CoordinateMap(t *testing.T) {
 	rawPath := filepath.Join(root, "rq5.jsonl")
 	campaignWriteJSONL(t, rawPath, campaignEnvelopeFixture(sample, "pilot", true))
 	observed := map[string]bool{}
-	if err := validateCampaignJSONL(rawPath, "p31", "rq5", profile, observed, &retained); err != nil {
+	if err := validateCampaignJSONL(rawPath, "p31", "rq5", profile, observed,
+		rq5CampaignJSONLOptions{Mapping: &retained, CatalogSHA256: profile.CatalogSHA256}); err != nil {
 		t.Fatal(err)
 	}
 	if !observed["rq5/online-transition-v1/single/build"] {
@@ -196,7 +197,7 @@ func TestCampaignEvidenceMergerUsesRetainedRQ5CoordinateMap(t *testing.T) {
 	sample["cell_id"] = "daily-publication-v5/345000/unknown"
 	campaignWriteJSONL(t, filepath.Join(root, "rq5-unknown.jsonl"), campaignEnvelopeFixture(sample, "pilot", true))
 	if err := validateCampaignJSONL(filepath.Join(root, "rq5-unknown.jsonl"), "p31", "rq5", profile,
-		map[string]bool{}, &retained); err == nil {
+		map[string]bool{}, rq5CampaignJSONLOptions{Mapping: &retained, CatalogSHA256: profile.CatalogSHA256}); err == nil {
 		t.Fatal("evidence merger accepted an unknown RQ5 experiment coordinate")
 	}
 }

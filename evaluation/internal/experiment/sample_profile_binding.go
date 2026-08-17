@@ -13,6 +13,12 @@ const (
 	profileAliasEnv         = "TASKGATE_FINAL_V5_PROFILE_ALIAS"
 	profileRegistryEnv      = "TASKGATE_FINAL_V5_PROFILE_REGISTRY"
 	datasetBindingSHA256Env = "TASKGATE_FINAL_V5_DATASET_BINDING_SHA256"
+	rq5CatalogFamilyEnv     = "TASKGATE_FINAL_V5_RQ5_CATALOG_FAMILY"
+	rq5BuildManifestEnv     = "TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST"
+	rq5BuildManifestSHAEnv  = "TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST_SHA256"
+	rq5GeneratorSHAEnv      = "TASKGATE_FINAL_V5_RQ5_GENERATOR_SHA256"
+	rq5ConfigSHAEnv         = "TASKGATE_FINAL_V5_RQ5_CONFIG_SHA256"
+	submissionCommitEnv     = "TASKGATE_SUBMISSION_COMMIT"
 )
 
 // SampleProfileBinder is the Adapter's process-scoped, independently resolved
@@ -24,6 +30,14 @@ const (
 // supplied, samples remain unbound and no registry inputs are required.
 type SampleProfileBinder struct {
 	binding *ProfileBinding
+	rq5     *finalv5RQ5CatalogExpectation
+}
+
+type finalv5RQ5CatalogExpectation struct {
+	FamilySHA256        string
+	BuildManifestSHA256 string
+	GeneratorSHA256     string
+	ConfigSHA256        string
 }
 
 // ResolveSampleProfileBinderFromEnvironment resolves the deployment profile
@@ -43,6 +57,37 @@ func ResolveSampleProfileBinderFromEnvironment() (*SampleProfileBinder, error) {
 		return nil, fmt.Errorf("resolve sample profile binding for %q: %w", alias, err)
 	}
 	return NewSampleProfileBinder(binding)
+}
+
+// ResolveRQ5SampleProfileBinderFromEnvironment independently rebuilds the RQ5
+// Catalog-family binding. It never reads the operation binding emitted by the
+// Runner, so operation==sample remains an independent equality check.
+func ResolveRQ5SampleProfileBinderFromEnvironment() (*SampleProfileBinder, error) {
+	alias := strings.TrimSpace(os.Getenv(profileAliasEnv))
+	if alias == "" {
+		return &SampleProfileBinder{}, nil
+	}
+	resolved, err := ResolveRQ5ProfileBinding(RQ5ProfileBindingRequest{
+		RegistryPath: strings.TrimSpace(os.Getenv(profileRegistryEnv)), ProfileAlias: alias,
+		DatasetBindingSHA256: strings.TrimSpace(os.Getenv(datasetBindingSHA256Env)),
+		CatalogFamilyPath:    strings.TrimSpace(os.Getenv(rq5CatalogFamilyEnv)),
+		BuildManifestPath:    strings.TrimSpace(os.Getenv(rq5BuildManifestEnv)),
+		BuildManifestSHA256:  strings.TrimSpace(os.Getenv(rq5BuildManifestSHAEnv)),
+		SubmissionCommit:     strings.TrimSpace(os.Getenv(submissionCommitEnv)),
+		GeneratorSHA256:      strings.TrimSpace(os.Getenv(rq5GeneratorSHAEnv)),
+		ConfigSHA256:         strings.TrimSpace(os.Getenv(rq5ConfigSHAEnv)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resolve RQ5 sample profile binding for %q: %w", alias, err)
+	}
+	binder, err := NewSampleProfileBinder(resolved.Binding)
+	if err != nil {
+		return nil, err
+	}
+	binder.rq5 = &finalv5RQ5CatalogExpectation{FamilySHA256: resolved.Family.FamilySHA256,
+		BuildManifestSHA256: resolved.Family.BuildManifestSHA256,
+		GeneratorSHA256:     resolved.Family.GeneratorSHA256, ConfigSHA256: resolved.Family.ConfigSHA256}
+	return binder, nil
 }
 
 // NewSampleProfileBinder constructs a binder around an already independently
@@ -124,6 +169,14 @@ func (binder *SampleProfileBinder) BindSample(sample *Sample) error {
 			if err := binder.RequireReceiptCatalog(verification.Receipt); err != nil {
 				return fmt.Errorf("Attack step %d Receipt: %w", index+1, err)
 			}
+		}
+	}
+	if sample.RQ5Verification != nil && sample.Status == "pass" {
+		if binder.rq5 == nil || binder.binding.CatalogSHA256 != binder.rq5.FamilySHA256 ||
+			sample.RQ5Verification.BuildManifestSHA256 != binder.rq5.BuildManifestSHA256 ||
+			sample.RQ5Verification.GeneratorSHA256 != binder.rq5.GeneratorSHA256 ||
+			sample.RQ5Verification.ConfigSHA256 != binder.rq5.ConfigSHA256 {
+			return errors.New("RQ5 evidence differs from the independently resolved Catalog family source identity")
 		}
 	}
 	return nil

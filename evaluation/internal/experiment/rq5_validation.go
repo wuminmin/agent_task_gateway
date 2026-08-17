@@ -139,6 +139,13 @@ func validateRQ5Publications(evidence *RQ5VerificationEvidence) (map[string]RQ5P
 				return nil, fmt.Errorf("RQ5 publication %s contains an invalid digest", day)
 			}
 		}
+		expectedCatalog, err := expectedRQ5DailyCatalogSHA256(value)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct RQ5 publication %s Catalog baseline: %w", day, err)
+		}
+		if value.CatalogSHA256 != expectedCatalog {
+			return nil, fmt.Errorf("RQ5 publication %s Catalog differs from the independently reconstructed daily baseline", day)
+		}
 		uniqueCatalogs[value.CatalogSHA256] = true
 		uniqueManifests[value.PublicationManifestSHA256] = true
 		uniqueResults[value.DirectResultSHA256] = true

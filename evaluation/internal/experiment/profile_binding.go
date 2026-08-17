@@ -1,13 +1,13 @@
 package experiment
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
 
 // ProfileBindingVersion identifies the matched-pair profile rule.
@@ -24,26 +24,7 @@ const PublicationSetVersion = "taskgate-final-v5-publication-set-v1"
 // length-delimited set, never one Publication name. Reordering the input cannot
 // change it; adding, dropping or renaming a member always does.
 func CanonicalPublicationSetSHA256(publications []string) (string, error) {
-	if len(publications) == 0 {
-		return "", errors.New("a Publication set must contain at least one Publication")
-	}
-	sorted := append([]string(nil), publications...)
-	sort.Strings(sorted)
-	hash := sha256.New()
-	hash.Write([]byte(PublicationSetVersion + "\x00"))
-	fmt.Fprintf(hash, "%d\x00", len(sorted))
-	previous := ""
-	for index, name := range sorted {
-		if strings.TrimSpace(name) == "" {
-			return "", errors.New("a Publication set member is empty")
-		}
-		if index > 0 && name == previous {
-			return "", fmt.Errorf("Publication %q appears twice in the set", name)
-		}
-		previous = name
-		fmt.Fprintf(hash, "%d\x00%s\x00", len(name), name)
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return finalv5profile.CanonicalPublicationSetSHA256(publications)
 }
 
 // ProfileBinding is the deployment profile one arm of one workload cell ran

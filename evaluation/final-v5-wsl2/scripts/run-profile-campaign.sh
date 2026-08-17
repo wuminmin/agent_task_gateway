@@ -28,8 +28,9 @@ cd "$repo"
 
 profile_registry="$repo/config/profiles/registry.json"
 rq5_cell_map_source="$repo/config/profiles/rq5-workload-cell-map-v1.json"
+rq5_catalog_family_source="$repo/config/profiles/rq5-daily-catalog-family-v1.json"
 dataset_binding="$(realpath "$TASKGATE_DATASET_BINDINGS")"
-for input in "$profile_registry" "$rq5_cell_map_source" "$dataset_binding"; do
+for input in "$profile_registry" "$rq5_cell_map_source" "$rq5_catalog_family_source" "$dataset_binding"; do
   [[ -f "$input" && ! -L "$input" ]] || { echo "required input is missing or unsafe: $input" >&2; exit 2; }
 done
 
@@ -45,6 +46,12 @@ install -m 600 "$rq5_cell_map_source" "$rq5_cell_map_retained"
 rq5_cell_map_sha="$(sha256sum "$rq5_cell_map_retained" | awk '{print $1}')"
 [[ "$rq5_cell_map_sha" == "$(sha256sum "$rq5_cell_map_source" | awk '{print $1}')" ]] || {
   echo "retained RQ5 cell map differs from its source" >&2; exit 1; }
+rq5_catalog_family_retained_rel="source/rq5-daily-catalog-family-v1.json"
+rq5_catalog_family_retained="$campaign_root/$rq5_catalog_family_retained_rel"
+install -m 600 "$rq5_catalog_family_source" "$rq5_catalog_family_retained"
+[[ "$(sha256sum "$rq5_catalog_family_retained" | awk '{print $1}')" == \
+   "$(sha256sum "$rq5_catalog_family_source" | awk '{print $1}')" ]] || {
+  echo "retained RQ5 Catalog family differs from its source" >&2; exit 1; }
 
 if [[ -n "$profiles_csv" ]]; then
   IFS=, read -r -a selected_profiles <<< "$profiles_csv"
@@ -394,6 +401,7 @@ for alias in "${selected_profiles[@]}"; do
       export TASKGATE_FINAL_V5_RQ5_DRIVER_SHA256="$rq5_sha"
       export TASKGATE_FINAL_V5_RQ5_GENERATOR_SHA256="$rq5_generator_sha"
       export TASKGATE_FINAL_V5_RQ5_CONFIG_SHA256="$rq5_config_sha"
+      export TASKGATE_FINAL_V5_RQ5_CATALOG_FAMILY="$rq5_catalog_family_retained"
       export TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST="$rq5_manifest"
       export TASKGATE_FINAL_V5_RQ5_BUILD_MANIFEST_SHA256="$(sha256sum "$rq5_manifest" | awk '{print $1}')"
       export TASKGATE_FINAL_V5_RQ5_REPO_ROOT="$repo"
@@ -402,6 +410,13 @@ for alias in "${selected_profiles[@]}"; do
       export TASKGATE_FINAL_V5_RQ5_EXPECTED_DEPLOYMENT_ID=deployment-01
       export TASKGATE_FINAL_V5_RQ5_PROJECT="$current_rq5_project"
       export TASKGATE_FINAL_V5_RQ5_SECRET_ROOT="$current_rq5_secret"
+      rq5_profile_binding="$current_dir/rq5-profile-binding.json"
+      GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-binding \
+        -registry "$profile_registry" -alias "$alias" -dataset-binding-sha256 "$binding_file_sha" \
+        -rq5-catalog-family "$rq5_catalog_family_retained" -rq5-build-manifest "$rq5_manifest" \
+        -rq5-build-manifest-sha256 "$(sha256sum "$rq5_manifest" | awk '{print $1}')" \
+        -submission-commit "$TASKGATE_SUBMISSION_COMMIT" -rq5-generator-sha256 "$rq5_generator_sha" \
+        -rq5-config-sha256 "$rq5_config_sha" -out "$rq5_profile_binding"
     fi
     for experiment in "${experiments[@]}"; do
       current_stage="cells_$experiment"
@@ -425,8 +440,10 @@ for alias in "${selected_profiles[@]}"; do
          .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
       runner="$(experiment_command "$experiment")"
       raw="$current_dir/raw/$experiment.jsonl"
+      operation_profile_binding="$profile_binding"
+      [[ "$experiment" != rq5 ]] || operation_profile_binding="$rq5_profile_binding"
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id deployment-01 \
-        -adapter "$adapter" -profile-binding "$profile_binding" -selected-cells "$selected" -output "$raw" \
+        -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
         >"$current_dir/$experiment.log" 2>&1
       GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
         -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
@@ -475,6 +492,9 @@ for alias in "${selected_profiles[@]}"; do
         add_ref runner_selected_cells rq5 "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/rq5.runner.json"
         add_ref rq5_cell_translation rq5 "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/rq5.translation.json"
         add_ref rq5_cell_map rq5 "$rq5_cell_map_retained"
+        add_ref rq5_profile_binding rq5 "$rq5_profile_binding"
+        add_ref rq5_catalog_family rq5 "$rq5_catalog_family_retained"
+        add_ref rq5_build_manifest rq5 "$rq5_manifest"
       fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
     done
