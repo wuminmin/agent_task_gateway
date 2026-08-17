@@ -129,6 +129,7 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 	}
 	sample, err := adapter.backend.Run(ctx, operation, cell)
 	if err != nil {
+		writeAdapterFailureDiagnostic("concurrency", operation, err)
 		var measured *concurrencyRunError
 		if errors.As(err, &measured) {
 			retained := measured.sample
@@ -161,6 +162,7 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 		return sample
 	}
 	if err := experiment.ValidateConcurrencyEvidence(sample); err != nil {
+		writeAdapterFailureDiagnostic("concurrency", operation, err)
 		sample.Status = "fail"
 		sample.ErrorCode = "concurrency_evidence_invariant_failed"
 		sample.Reason = "the real concurrency run completed but violated a frozen evidence invariant"

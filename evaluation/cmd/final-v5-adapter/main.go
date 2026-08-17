@@ -56,7 +56,11 @@ func initializeAdapter(ctx context.Context, experimentID string) (sourceControll
 		return nil, "source_controlled_experiment_not_implemented"
 	}
 	adapter, err := factory(ctx)
-	if err != nil || nilSourceControlledAdapter(adapter) {
+	if err != nil {
+		writeAdapterInitializationDiagnostic(experimentID, err)
+		return nil, "adapter_environment_invalid"
+	}
+	if nilSourceControlledAdapter(adapter) {
 		return nil, "adapter_environment_invalid"
 	}
 	return adapter, ""

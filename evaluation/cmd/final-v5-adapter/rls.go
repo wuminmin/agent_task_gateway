@@ -127,6 +127,7 @@ func validRLSCell(operation experiment.AdapterOperation) bool {
 // A supported cell that entered a real backend is always retained as fail.
 // Unsupported/pre-execution identity rejection remains invalid.
 func failedRLSSample(operation experiment.AdapterOperation, sample experiment.Sample, err error) experiment.Sample {
+	writeAdapterFailureDiagnostic("rls", operation, err)
 	if sample.SchemaVersion == 0 {
 		system := "taskgate"
 		if operation.Mode == "rls" {

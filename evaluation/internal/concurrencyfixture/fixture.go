@@ -31,8 +31,8 @@ const (
 
 var PrefixSQL = []string{
 	"SELECT receipt_no FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
-	"SELECT expense_type FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
-	"SELECT city FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
+	"SELECT receipt_no, expense_type FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
+	"SELECT receipt_no, city FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1",
 }
 
 type Cell struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
@@ -126,6 +127,7 @@ func TestRQ5AdapterRetainsMeasuredFailuresAndInvalids(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			diagnostics := captureAdapterDiagnostics(t)
 			evidence := minimalRQ5AdapterEvidence()
 			backend := &fakeRQ5Backend{evidence: evidence}
 			backend.err = &rq5RunError{code: test.code, invalid: test.invalid, evidence: evidence, cause: errors.New("real driver")}
@@ -136,6 +138,12 @@ func TestRQ5AdapterRetainsMeasuredFailuresAndInvalids(t *testing.T) {
 			sample := adapter.Execute(t.Context(), rq5AdapterTestOperation(rq5fixture.BuildMode))
 			if sample.Status != test.status || sample.ErrorCode != test.code || sample.RQ5Verification != evidence {
 				t.Fatalf("measured outcome was not retained: %#v", sample)
+			}
+			if strings.Contains(sample.Reason, "real driver") {
+				t.Fatalf("RQ5 driver cause leaked into the sample: %q", sample.Reason)
+			}
+			if got := diagnostics.String(); !strings.Contains(got, "real driver") {
+				t.Fatalf("RQ5 driver cause was not retained in adapter stderr: %q", got)
 			}
 		})
 	}

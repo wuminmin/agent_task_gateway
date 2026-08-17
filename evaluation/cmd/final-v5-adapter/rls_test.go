@@ -70,6 +70,7 @@ func TestRLSPolicyControlKeepsForceRLSProbeSeparateFromExplicitRejection(t *test
 }
 
 func TestFailedRLSSampleRetainsPartialEvidence(t *testing.T) {
+	diagnostics := captureAdapterDiagnostics(t)
 	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignID: "campaign", DeploymentID: "deployment-01", ExperimentID: "rls",
 		CellID: "adaptive-100-v1/100-queries/bounded", SampleID: "sample", Iteration: 1, OrderPosition: 1, RandomSeed: 20260801,
 		PairID: "pair", PairedSystemOrder: "bounded", RootGroupID: "bounded", WorkloadID: "adaptive-100-v1", Scale: "100-queries", Mode: "bounded"}
@@ -81,9 +82,12 @@ func TestFailedRLSSampleRetainsPartialEvidence(t *testing.T) {
 		len(failed.RLSVerification.Steps) != 1 || failed.RLSVerification.Steps[0].StepID != "retained" {
 		t.Fatalf("partial RLS evidence was erased: %#v", failed)
 	}
-	failed = failedRLSSample(operation, partial, &rlsInvariantError{reason: "mismatch"})
-	if failed.Status != "fail" || failed.ErrorCode != "rls_invariant_violation" {
+	failed = failedRLSSample(operation, partial, &rlsInvariantError{reason: "private validator detail"})
+	if failed.Status != "fail" || failed.ErrorCode != "rls_invariant_violation" || strings.Contains(failed.Reason, "private validator detail") {
 		t.Fatalf("invariant failure = %#v", failed)
+	}
+	if got := diagnostics.String(); !strings.Contains(got, "backend") || !strings.Contains(got, "private validator detail") {
+		t.Fatalf("RLS backend and invariant causes were not retained in adapter stderr: %q", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5attack"
@@ -9,6 +10,7 @@ import (
 )
 
 func TestAttackRealExecutionFailureRetainsPartialEvidence(t *testing.T) {
+	diagnostics := captureAdapterDiagnostics(t)
 	operation := experiment.AdapterOperation{
 		CampaignID: "campaign", DeploymentID: "deployment-01", ExperimentID: "attack", CellID: "A/direct",
 		SampleID: "sample-1", Iteration: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair-1",
@@ -29,9 +31,13 @@ func TestAttackRealExecutionFailureRetainsPartialEvidence(t *testing.T) {
 	if failed.Reason == "" || failed.Reason == "backend timeout containing private detail" {
 		t.Fatalf("failure reason is absent or leaked backend text: %q", failed.Reason)
 	}
+	if got := diagnostics.String(); !strings.Contains(got, "backend timeout containing private detail") {
+		t.Fatalf("attack backend cause was not retained in adapter stderr: %q", got)
+	}
 }
 
 func TestAttackInvariantFailureRetainsEvidenceWithDistinctCode(t *testing.T) {
+	diagnostics := captureAdapterDiagnostics(t)
 	operation := experiment.AdapterOperation{
 		CampaignID: "campaign", DeploymentID: "deployment-01", ExperimentID: "attack", CellID: "E/novel",
 		SampleID: "sample-1", Iteration: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair-1",
@@ -41,8 +47,12 @@ func TestAttackInvariantFailureRetainsEvidenceWithDistinctCode(t *testing.T) {
 	partial := baseSample(operation, "taskgate")
 	partial.AttackVerification = &experiment.AttackVerificationEvidence{Version: attackEvidenceVersion}
 	failed := failedAttackSample(operation, partial, &attackInvariantError{reason: "private validator detail"})
-	if failed.Status != "fail" || failed.ErrorCode != "attack_invariant_violation" || failed.AttackVerification == nil {
+	if failed.Status != "fail" || failed.ErrorCode != "attack_invariant_violation" || failed.AttackVerification == nil ||
+		strings.Contains(failed.Reason, "private validator detail") {
 		t.Fatalf("invariant failure was not retained distinctly: %+v", failed)
+	}
+	if got := diagnostics.String(); !strings.Contains(got, "private validator detail") {
+		t.Fatalf("attack invariant cause was not retained in adapter stderr: %q", got)
 	}
 }
 

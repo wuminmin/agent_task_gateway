@@ -109,6 +109,7 @@ func (adapter *attackAdapter) Execute(ctx context.Context, operation experiment.
 // and resource failures are measured failures. Any safely collected prefix is
 // retained; only pre-execution identity/binding rejection remains invalid.
 func failedAttackSample(operation experiment.AdapterOperation, sample experiment.Sample, err error) experiment.Sample {
+	writeAdapterFailureDiagnostic("attack", operation, err)
 	if sample.SchemaVersion == 0 {
 		sample = baseSample(operation, attackSystem(operation.Mode))
 	}

@@ -132,6 +132,7 @@ func TestConcurrencyAdapterRetainsInvalidAndFailedEvidence(t *testing.T) {
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			diagnostics := captureAdapterDiagnostics(t)
 			backend := &fakeConcurrencyBackend{capacity: validConcurrencyTestCapacity(), run: test.run}
 			adapter, err := newConcurrencyAdapterWithBackend(context.Background(), backend)
 			if err != nil {
@@ -144,6 +145,12 @@ func TestConcurrencyAdapterRetainsInvalidAndFailedEvidence(t *testing.T) {
 			}
 			if strings.Contains(sample.Reason, "private") {
 				t.Fatalf("private backend error leaked into retained evidence: %q", sample.Reason)
+			}
+			if got := diagnostics.String(); got == "" {
+				t.Fatal("backend failure was absent from adapter stderr")
+			}
+			if test.name != "offered width invalid" && !strings.Contains(diagnostics.String(), "private") {
+				t.Fatalf("private backend detail was absent from adapter stderr: %q", diagnostics.String())
 			}
 		})
 	}

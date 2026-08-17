@@ -119,6 +119,7 @@ func (adapter *rq5Adapter) Execute(ctx context.Context, operation experiment.Ada
 		delete(adapter.cycles, key)
 		sample := rq5SampleFromEvidence(operation, evidence)
 		if err := adapter.validate(sample); err != nil {
+			writeAdapterFailureDiagnostic("rq5", operation, err)
 			return rq5MeasuredFailure(sample, "rq5_evidence_invariant_failed", false)
 		}
 		return sample
@@ -128,6 +129,7 @@ func (adapter *rq5Adapter) Execute(ctx context.Context, operation experiment.Ada
 	}
 	evidence, err := adapter.backend.RunCycle(ctx, operation, cycle)
 	if err != nil {
+		writeAdapterFailureDiagnostic("rq5", operation, err)
 		var measured *rq5RunError
 		if errors.As(err, &measured) {
 			if measured.evidence != nil {
@@ -152,6 +154,7 @@ func (adapter *rq5Adapter) Execute(ctx context.Context, operation experiment.Ada
 	}
 	sample := rq5SampleFromEvidence(operation, evidence)
 	if err := adapter.validate(sample); err != nil {
+		writeAdapterFailureDiagnostic("rq5", operation, err)
 		return rq5MeasuredFailure(sample, "rq5_evidence_invariant_failed", false)
 	}
 	if adapter.datasetManifestSHA256 != "" &&
