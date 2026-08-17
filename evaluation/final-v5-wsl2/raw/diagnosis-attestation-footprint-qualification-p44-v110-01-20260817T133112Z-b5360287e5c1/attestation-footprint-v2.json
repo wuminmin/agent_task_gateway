@@ -1,15 +1,15 @@
 {
   "schema_version": 3,
   "record": "taskgate-final-v5-attestation-footprint-qualification-v3",
-  "diagnosis_id": "attestation-footprint-qualification-v110-01-20260815T074636Z-c9de1189677f",
+  "diagnosis_id": "attestation-footprint-qualification-p44-v110-01-20260817T133112Z-b5360287e5c1",
   "publication_eligible": false,
   "capability_changing": false,
   "activation_support_changing": false,
   "formal_campaign": false,
   "catalog_path": "config/profiles/result-heavy.catalog.yaml",
   "provenance": {
-    "commit": "c9de1189677f918ae570a1cef451340b65f3b529",
-    "origin_commit": "c9de1189677f918ae570a1cef451340b65f3b529",
+    "commit": "b5360287e5c1794a54b1e34682d717c22ab744f1",
+    "origin_commit": "b5360287e5c1794a54b1e34682d717c22ab744f1",
     "branch": "tkde-artifact-rerun",
     "worktree_clean": true,
     "head_equals_origin": true,
@@ -81,11 +81,11 @@
     "profile_id": "profile-a86cd4df5cad6e26",
     "profile_alias": "result-heavy",
     "profile_registry_release": "final-v5-contracts-v1.10",
-    "profile_registry_sha256": "25d8b2003e34f28d159d5f91cd57fd0471de21921eccbaee7ed1b027ef1f1ef6",
+    "profile_registry_sha256": "431929640981faf2b6069d32bb1a068da4d22d6e8a089aa633c6056296c1dc9c",
     "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
     "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
     "expected_schema_entries": 1,
-    "profile_artifact_manifest_sha256": "54a04a2c46491defde86d3f0e8d8f253a5254fe14198ad2a88b56c6c233b8499",
+    "profile_artifact_manifest_sha256": "bbc36c8a1f55168bdb5aeb24458b92d35270265050906df6bcb45a4b250868b0",
     "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b"
   },
   "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
@@ -113,9 +113,9 @@
       "index": 0,
       "label": "baseline",
       "total_calls": 0,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -128,9 +128,9 @@
       "index": 1,
       "label": "connector-construction",
       "total_calls": 4,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -143,9 +143,9 @@
       "index": 2,
       "label": "explicit-preflight-0",
       "total_calls": 8,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -158,9 +158,9 @@
       "index": 3,
       "label": "single-query-0",
       "total_calls": 17,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -173,9 +173,9 @@
       "index": 4,
       "label": "paired-query-0",
       "total_calls": 29,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -188,9 +188,9 @@
       "index": 5,
       "label": "explicit-preflight-1",
       "total_calls": 33,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -203,9 +203,9 @@
       "index": 6,
       "label": "single-query-1",
       "total_calls": 42,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -218,9 +218,9 @@
       "index": 7,
       "label": "paired-query-1",
       "total_calls": 54,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -233,9 +233,9 @@
       "index": 8,
       "label": "explicit-preflight-2",
       "total_calls": 58,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -248,9 +248,9 @@
       "index": 9,
       "label": "single-query-2",
       "total_calls": 67,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -263,9 +263,9 @@
       "index": 10,
       "label": "paired-query-2",
       "total_calls": 79,
-      "stats_reset": "2026-08-15 07:50:55.357289+00",
+      "stats_reset": "2026-08-17 13:35:59.277503+00",
       "dealloc": 0,
-      "postmaster_start_time": "2026-08-15 07:47:06.409149+00",
+      "postmaster_start_time": "2026-08-17 13:31:42.741394+00",
       "measurement_environment": {
         "postgresql_version_num": 160014,
         "pg_stat_statements_track": "all",
@@ -879,7 +879,7 @@
       "container_image_id": "sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
       "platform": "linux/amd64"
     },
-    "qualification_id": "attestation-footprint-qualification-v110-01-20260815T074636Z-c9de1189677f",
+    "qualification_id": "attestation-footprint-qualification-p44-v110-01-20260817T133112Z-b5360287e5c1",
     "scopes": [
       {
         "scope": "constructor_or_cold_pool",
@@ -919,7 +919,7 @@
       }
     ]
   },
-  "footprint_sha256": "7e51e0a3e4bc5516f4ba33749d3715d1ad7c60d53d282df8fc17a77cde6c326d",
+  "footprint_sha256": "960dd44789ae0fd569dcbb082189a87c7dc75ecc1727eee180f947ee80e95bda",
   "portable_footprint_sha256": "58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947",
   "internal_key_count": 1
 }
