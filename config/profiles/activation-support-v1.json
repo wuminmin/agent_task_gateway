@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.10",
-  "profile_registry_sha256": "431929640981faf2b6069d32bb1a068da4d22d6e8a089aa633c6056296c1dc9c",
+  "profile_registry_sha256": "2d7fa108b69ecfaed1464e939a4b2539cf60fcafd87d1e867b56b0a2dc102c66",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "516aaa25a7b82332053738c8ca4a3b398349b3ba5cf1feefd08b9c2e8a163a8b",
-  "outside_product_route_matrix_sha256": "36578eacd3657dac72fee8984058507b6578824e6725ab6c3ed1a6f6b7edc796",
-  "semantic_cache_isolation_evidence_sha256": "6a1b25d0a10f6b00ffa3f70b17c76a9824b8d161a2ede4ac2fa96948ceea39b6",
+  "activation_smoke_manifest_sha256": "672ffdb99d290d3b00c13faddd08d7dad894ae570a5eaef48c9737fe542b3adf",
+  "outside_product_route_matrix_sha256": "1997e150f9bf489eb0d83f1dd43c4a59ce017ddb54c9dd022aaaed64c68b4f4b",
+  "semantic_cache_isolation_evidence_sha256": "afcd92fd31687199e2f18df93c431eaf9c531cd2aa7c524dc0e705acabe40b32",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "2c9bff7966d358fe3d3f85d0a7a7335e3dea805a28e4925c29bd2b753ab70f6f"
+        "1a700a10fa11d2edb3b8dc9c24276c65bd3959fade0c49c72d1cd0ad3e9623fc"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d475b16151445346150afa71cf7b227d39a832b7eaa45aedb691f558ccf7b1fd"
+        "e0e4596cd882593eddc883ab168e63230095d82885f35ac98542fad54077a7fd"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "ea0559d4fe0a154aee4fc365c8f1ca4cdc343b5531661b3517cef46f25725a35"
+        "7b8e79290aef56987c94779d5a474014b6d533b749f8f68a7356252a2fd363b7"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "3429cf9585dbd4c86fa14be51f452f85d6005120ed34fc86da8cbf1a12c5c1d2"
+        "72417aaceccac2e07bb794431cb5a07b38c4cdeeb155585e7979c6493c15e93b"
       ],
       "reason": ""
     },
@@ -88,7 +88,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d6dadf8dbf9cb190a5c72d37c8be60647336cad8eb35ec26e3ccfd60e86b7b28"
+        "f22976fe5b1c77a81431a19e71b1ff3ab9c853f82f41b8f24eaee82e9279512b"
       ],
       "reason": ""
     },
@@ -105,7 +105,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "bd59db9b1f1c236b42b635d3b794b095495395c16d8d9d07a95bcb45799af02f"
+        "3f80362e20c59ad5325209e38846b4dec3c2f488ad64c4ea8ec48b6808a6afa8"
       ],
       "reason": ""
     },
@@ -122,14 +122,14 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "6cdd74b496147e6395ad133d3dfa672360cfe94072a69e1278df911799eb9587"
+        "a18533975b5cff11fb64edf0aa7b01af90062f646e8cc50a98c3905ac6b0978b"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-794efc2159ffaa5f",
       "profile_alias": "exposure-scale",
-      "catalog_sha256": "c9ee12648003104edf703219b88865aa816e7329dbf99911d586ebceb8952c02",
+      "catalog_sha256": "beb1822adb70c48ed7cc37d6bc6ebedf3085eb04a4b79685d0168c77bfbe8027",
       "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
       "profile_schema_attestation": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
       "publication_identities": [
@@ -138,7 +138,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "7e803c85ed8a1da06c26d7c0b14247e34bdc40e81da0f2c99175cde089661a17"
+        "edcc776505bb11d3fb0b154703d18ad53aa2dd681c784470c54aa3c783287ac6"
       ],
       "reason": ""
     },
@@ -156,7 +156,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "747a0ccfebc5b0124f183eaf017878a4ac6d53cbae22b0e8d486df66c80db8c7"
+        "947d1df3090ffbb1b1a7c05e05373814a6ecdd39d4058b2dcf6dbd03a2ece48f"
       ],
       "reason": ""
     },
@@ -172,7 +172,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "f14a2cab6a9809b014f15daa3fbe21e61b5a4811aab34ed4d7c1323847b13953"
+        "8f34eba5d8dae28c7a7b85e438fb4a9c9fc8c49587eb82ee5591cd1882b171b7"
       ],
       "reason": ""
     },
@@ -188,7 +188,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "33c54cbd01e2bdae8d9d6d861e5f478e22bc1531ae465008d96cb48fde863d8c"
+        "2c906137ca24ecbb6271bb1c86d957a576a624de2761e226c27e5517ff420b7c"
       ],
       "reason": ""
     }
