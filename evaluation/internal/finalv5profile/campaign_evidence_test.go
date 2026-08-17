@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
 func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *testing.T) {
@@ -17,6 +19,15 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		CatalogPath: "config/profiles/rls-bounded.catalog.yaml", CatalogSHA256: strings.Repeat("b", 64),
 		Experiments: []string{"rls"}, Cells: []string{"rls/workload/scale/bounded"}, Ready: true}
 	plan := CampaignPlan{ContractRelease: "release", Deployments: []PlannedDeploy{profile}}
+	if err := os.Mkdir(filepath.Join(root, "source"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	overridesPayload := []byte("{\"schema_version\":1,\"record\":\"taskgate-profile-deployment-overrides-v1\",\"profiles\":{\"concurrency-expense-detail\":{\"environment\":{\"GATEWAY_CONNECTOR_MAX_CONNECTIONS\":32,\"GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS\":32}}}}\n")
+	overridesPath := filepath.Join(root, "source", "deployment-overrides-v1.json")
+	if err := os.WriteFile(overridesPath, overridesPayload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overridesDigest := sha256.Sum256(overridesPayload)
 	files := []CampaignEvidenceFile{
 		campaignFixtureFile(t, root, "config", "rls", "config.json", map[string]any{
 			"schema_version": 1, "campaign_class": "pilot", "pilot_kind": "real_system",
@@ -45,9 +56,19 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		campaignFixtureFile(t, root, "cleanup", "", "cleanup.json", map[string]any{
 			"status": "pass", "containers": 0, "volumes": 0, "networks": 0,
 		}),
+		campaignFixtureFile(t, root, "deployment_configuration", "", "deployment-configuration.json", ProfileDeploymentConfig{
+			SchemaVersion: 1, Record: ProfileDeploymentConfigVersion,
+			SourcePath: "source/deployment-overrides-v1.json", SourceSHA256: hex.EncodeToString(overridesDigest[:]),
+			ProfileAlias: profile.Alias, Environment: map[string]int64{},
+		}),
 		campaignFixtureFile(t, root, "selected_cells", "rls", "cells.json", []string{profile.Cells[0]}),
 		campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", campaignEnvelopeFixture(
 			campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true)),
+		campaignFixtureRawFile(t, root, "adapter_stderr", "rls", "rls.stderr.log", nil),
+		campaignFixtureFile(t, root, "adapter_stderr_credential_scan", "rls", "rls.stderr-scan.json",
+			finalv5publication.AdapterStderrCredentialScan{SchemaVersion: 1,
+				Record: finalv5publication.AdapterStderrCredentialScanVersion, Status: "pass",
+				InputSHA256: hex.EncodeToString(sha256.New().Sum(nil)), InputBytes: 0, SensitiveValuesChecked: 1}),
 	}
 	record := ProfileCampaignDeploymentRecord{SchemaVersion: 1, CampaignID: "p30", CampaignClass: "pilot",
 		SubmissionCommit: commit, ComposeProject: "project", ProfileID: profile.ProfileID, ProfileAlias: profile.Alias,
@@ -276,6 +297,17 @@ func campaignFixtureFile(t *testing.T, root, kind, experiment, name string, valu
 		}
 		payload = append(encoded, '\n')
 	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(payload)
+	return CampaignEvidenceFile{Kind: kind, Experiment: experiment, Path: name,
+		SHA256: hex.EncodeToString(digest[:]), Bytes: int64(len(payload))}
+}
+
+func campaignFixtureRawFile(t *testing.T, root, kind, experiment, name string, payload []byte) CampaignEvidenceFile {
+	t.Helper()
+	path := filepath.Join(root, name)
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}

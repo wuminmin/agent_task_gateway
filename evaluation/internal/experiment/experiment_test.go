@@ -158,6 +158,17 @@ func TestTargetedRunnerCanRetainExactAdapterStderrPrivately(t *testing.T) {
 		filepath.Join(directory, "non-targeted.jsonl"), nil, filepath.Join(directory, "forbidden.log")); err == nil || !strings.Contains(err.Error(), "restricted to targeted diagnostics") {
 		t.Fatalf("non-targeted stderr retention was not refused: %v", err)
 	}
+	profileCampaignStderr := filepath.Join(directory, "profile-campaign.log")
+	profileCampaignErr := executeAdapterCampaignWithProfileSelection(nonTargeted, "deployment-01", os.Args[0],
+		filepath.Join(directory, "profile-campaign.jsonl"), testActivatedProfile(), profileCampaignStderr,
+		map[string]bool{"attack/retention/tiny/novel": true})
+	if profileCampaignErr != nil && strings.Contains(profileCampaignErr.Error(), "restricted to targeted diagnostics") {
+		t.Fatalf("profile-bound real-system campaign stderr was refused: %v", profileCampaignErr)
+	}
+	retained, readErr = os.ReadFile(profileCampaignStderr)
+	if readErr != nil || string(retained) != "exact adapter diagnostic\n" {
+		t.Fatalf("profile campaign retained adapter stderr = %q, err=%v", retained, readErr)
+	}
 	// A targeted pilot kind does not open the channel for a different family:
 	// the kind and the experiment must agree, so baseline_targeted cannot be
 	// used to retain another experiment's adapter stderr.

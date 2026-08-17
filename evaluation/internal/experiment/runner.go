@@ -60,7 +60,7 @@ func RunCommand(experimentID string) int {
 	deploymentID := flags.String("deployment-id", "", "fresh deployment identity")
 	adapterPath := flags.String("adapter", "", "exact executable implementing the JSONL adapter protocol")
 	adapterStderrPath := flags.String("adapter-stderr-output", "",
-		"create-exclusive private file retaining exact adapter stderr; targeted diagnostic runs only")
+		"create-exclusive private file retaining exact adapter stderr; credential-gated pilot diagnostics only")
 	profilePath := flags.String("profile-binding", "",
 		"activated deployment profile binding JSON; required for publication and profile-bound pilot runs")
 	selectedCellsPath := flags.String("selected-cells", "",
@@ -186,14 +186,14 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 
 	var adapterStderr io.WriteCloser
 	if adapterStderrPath != "" {
-		// Adapter stderr is a diagnostic channel, not evidence, so it stays shut
-		// for anything that could become publication evidence. Both targeted
-		// pilot kinds may open it: the Adapter deliberately reports only
-		// real_measurement_failed into a sample, so without this a targeted run
-		// can observe that a cell failed and never why.
+		// Adapter stderr is a private diagnostic channel, never publication
+		// evidence. Targeted pilots and profile-bound real-system pilots may open
+		// it; the latter applies a credential gate before its campaign manifest
+		// retains the file. Publication campaigns remain closed.
 		targetedDiagnostic := (config.PilotKind == "artifact_targeted" && config.ExperimentID == "artifact") ||
 			(config.PilotKind == "baseline_targeted" && config.ExperimentID == "baseline")
-		if config.CampaignClass != "pilot" || !targetedDiagnostic {
+		profileCampaignDiagnostic := config.PilotKind == "real_system" && profile != nil && selectedCells != nil
+		if config.CampaignClass != "pilot" || (!targetedDiagnostic && !profileCampaignDiagnostic) {
 			return errors.New("adapter stderr output is restricted to targeted diagnostics")
 		}
 		adapterStderr, err = os.OpenFile(adapterStderrPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)

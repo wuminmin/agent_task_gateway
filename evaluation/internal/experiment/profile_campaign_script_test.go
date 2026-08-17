@@ -26,6 +26,21 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`record-pilot-gateway-image.sh`,
 		`down --volumes --remove-orphans`,
 		`final-v5-campaign-evidence`,
+		`deployment-overrides-v1.json`,
+		`final-v5-profile-deployment-config`,
+		`apply_profile_deployment_environment "$deployment_configuration"`,
+		`export TASKGATE_FINAL_V5_CATALOG=`,
+		`export TASKGATE_PROFILE_ARTIFACT_DIR=`,
+		`export TASKGATE_FINAL_V5_REPO_ROOT=`,
+		`selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment`,
+		`selected Artifact profile requires POSTGRESQL_IDENTITY before deployment`,
+		`-adapter-stderr-output "$adapter_stderr"`,
+		`final-v5-adapter-stderr-scan`,
+		`-sensitive-json-file "$current_rq5_secret/deployment-secrets.json"`,
+		`Compose profile capacity binding drift`,
+		`add_ref adapter_stderr "$experiment"`,
+		`add_ref adapter_stderr_credential_scan "$experiment"`,
+		`add_ref deployment_configuration ""`,
 		`publication_eligible:false`,
 		`formal_campaign:false`,
 	} {
@@ -38,6 +53,15 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	}
 	if strings.Count(script, `git rev-parse HEAD`) != 1 {
 		t.Fatal("submission commit must be read only for the launch-time fixed-input assertion")
+	}
+	scan := strings.Index(script, `final-v5-adapter-stderr-scan`)
+	retain := strings.Index(script, `add_ref adapter_stderr "$experiment"`)
+	if scan < 0 || retain < 0 || scan > retain {
+		t.Fatal("Adapter stderr is not credential-gated before campaign retention")
+	}
+	if !strings.Contains(script, `-retained-source-path "$deployment_overrides_retained_rel"`) ||
+		!strings.Contains(script, `-overrides "$deployment_overrides_retained"`) {
+		t.Fatal("profile deployment configuration is not bound to its retained source-controlled override")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")

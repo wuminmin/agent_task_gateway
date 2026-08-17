@@ -27,10 +27,11 @@ cd "$repo"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo "profile campaign requires a clean worktree" >&2; exit 2; }
 
 profile_registry="$repo/config/profiles/registry.json"
+deployment_overrides_source="$repo/config/profiles/deployment-overrides-v1.json"
 rq5_cell_map_source="$repo/config/profiles/rq5-workload-cell-map-v1.json"
 rq5_catalog_family_source="$repo/config/profiles/rq5-daily-catalog-family-v1.json"
 dataset_binding="$(realpath "$TASKGATE_DATASET_BINDINGS")"
-for input in "$profile_registry" "$rq5_cell_map_source" "$rq5_catalog_family_source" "$dataset_binding"; do
+for input in "$profile_registry" "$deployment_overrides_source" "$rq5_cell_map_source" "$rq5_catalog_family_source" "$dataset_binding"; do
   [[ -f "$input" && ! -L "$input" ]] || { echo "required input is missing or unsafe: $input" >&2; exit 2; }
 done
 
@@ -52,6 +53,12 @@ install -m 600 "$rq5_catalog_family_source" "$rq5_catalog_family_retained"
 [[ "$(sha256sum "$rq5_catalog_family_retained" | awk '{print $1}')" == \
    "$(sha256sum "$rq5_catalog_family_source" | awk '{print $1}')" ]] || {
   echo "retained RQ5 Catalog family differs from its source" >&2; exit 1; }
+deployment_overrides_retained_rel="source/deployment-overrides-v1.json"
+deployment_overrides_retained="$campaign_root/$deployment_overrides_retained_rel"
+install -m 600 "$deployment_overrides_source" "$deployment_overrides_retained"
+[[ "$(sha256sum "$deployment_overrides_retained" | awk '{print $1}')" == \
+   "$(sha256sum "$deployment_overrides_source" | awk '{print $1}')" ]] || {
+  echo "retained profile deployment overrides differ from their source" >&2; exit 1; }
 
 if [[ -n "$profiles_csv" ]]; then
   IFS=, read -r -a selected_profiles <<< "$profiles_csv"
@@ -66,6 +73,19 @@ for alias in "${selected_profiles[@]}"; do
   selected_seen["$alias"]=1
 done
 echo "P30-STAGE: plan=pass ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions"
+
+artifact_qualification=""
+artifact_postgresql_identity=""
+if jq -e --argjson aliases "$(printf '%s\n' "${selected_profiles[@]}" | jq -Rsc 'split("\n")[:-1]')" '
+    [.deployments[] | select(.alias as $a | $aliases | index($a)) | .experiments[]] | any(. == "artifact")' "$plan" >/dev/null; then
+  : "${ATTESTATION_QUALIFICATION:?selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment}"
+  : "${POSTGRESQL_IDENTITY:?selected Artifact profile requires POSTGRESQL_IDENTITY before deployment}"
+  artifact_qualification="$(realpath "$ATTESTATION_QUALIFICATION")"
+  artifact_postgresql_identity="$(realpath "$POSTGRESQL_IDENTITY")"
+  for input in "$artifact_qualification" "$artifact_postgresql_identity"; do
+    [[ -f "$input" && ! -L "$input" ]] || { echo "Artifact finalizer input is missing or unsafe: $input" >&2; exit 2; }
+  done
+fi
 
 # Build the host-side adapter, observer, activator, and optional RQ5 driver from
 # one clean fixed checkout. The manifest uses the complete tracked-file set.
@@ -136,6 +156,7 @@ export TASKGATE_FINAL_V5_OBSERVER="$observer"
 export TASKGATE_FINAL_V5_OBSERVER_SHA256="$observer_sha"
 export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST="$observer_manifest"
 export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST_SHA256="$(sha256sum "$observer_manifest" | awk '{print $1}')"
+export TASKGATE_FINAL_V5_REPO_ROOT="$repo"
 
 rq5_manifest_source_digest() {
   jq -er --arg source "$1" '.source_files | split("\n") | map(select(endswith("  " + $source))) |
@@ -270,6 +291,52 @@ experiment_command() {
   esac
 }
 
+original_connector_capacity_set=false
+original_control_capacity_set=false
+original_connector_capacity=""
+original_control_capacity=""
+if [[ ${GATEWAY_CONNECTOR_MAX_CONNECTIONS+x} == x ]]; then
+  original_connector_capacity_set=true
+  original_connector_capacity="$GATEWAY_CONNECTOR_MAX_CONNECTIONS"
+fi
+if [[ ${GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS+x} == x ]]; then
+  original_control_capacity_set=true
+  original_control_capacity="$GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS"
+fi
+restore_profile_deployment_environment() {
+  if [[ "$original_connector_capacity_set" == true ]]; then
+    export GATEWAY_CONNECTOR_MAX_CONNECTIONS="$original_connector_capacity"
+  else
+    unset GATEWAY_CONNECTOR_MAX_CONNECTIONS
+  fi
+  if [[ "$original_control_capacity_set" == true ]]; then
+    export GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS="$original_control_capacity"
+  else
+    unset GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS
+  fi
+}
+apply_profile_deployment_environment() {
+  local config="$1" connector control
+  restore_profile_deployment_environment
+  connector="$(jq -r '.environment.GATEWAY_CONNECTOR_MAX_CONNECTIONS // empty' "$config")"
+  control="$(jq -r '.environment.GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS // empty' "$config")"
+  if [[ -n "$connector" || -n "$control" ]]; then
+    [[ "$connector" =~ ^[0-9]+$ && "$control" =~ ^[0-9]+$ ]] || {
+      echo "profile deployment capacity pair is incomplete" >&2; return 1; }
+    export GATEWAY_CONNECTOR_MAX_CONNECTIONS="$connector"
+    export GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS="$control"
+  fi
+}
+adapter_stderr_sensitive_args=()
+for name in GATEWAY_ADMIN_TOKEN TASKBOUND_ALICE_TOKEN TASKBOUND_CAROL_TOKEN OA_ALICE_PASSWORD OA_BOB_PASSWORD \
+  TASKGATE_FINAL_V5_CONTROL_DSN TASKGATE_FINAL_V5_BUSINESS_DSN TASKGATE_FINAL_V5_BUSINESS_OBSERVER_DSN \
+  TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY \
+  TASKGATE_FINAL_V5_CONCURRENCY_TOKEN TASKGATE_FINAL_V5_DIRECT_DSN TASKGATE_FINAL_V5_PROVSQL_DSN \
+  TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
+  TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD; do
+  adapter_stderr_sensitive_args+=(-sensitive-env "$name")
+done
+
 deployment_count=0
 for alias in "${selected_profiles[@]}"; do
   for repetition in $(seq 1 "$repetitions"); do
@@ -279,9 +346,21 @@ for alias in "${selected_profiles[@]}"; do
     catalog_path="$(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .catalog_path' "$plan")"
     catalog_sha="$(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .catalog_sha256' "$plan")"
     cells_json="$(jq -c --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .cells' "$plan")"
+    export TASKGATE_FINAL_V5_CATALOG="$repo/${catalog_path#./}"
+    unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
+    if jq -e --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments | index("artifact") != null' "$plan" >/dev/null; then
+      export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$artifact_qualification"
+      export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$artifact_postgresql_identity"
+    fi
     deployment_key="${alias}/$(printf '%03d' "$repetition")"
     current_dir="$campaign_root/deployments/${alias}/$(printf '%03d' "$repetition")"
-    mkdir -m 700 -p "$current_dir/raw" "$current_dir/config" "$current_dir/selected-cells" "$current_dir/activation"
+    mkdir -m 700 -p "$current_dir/raw" "$current_dir/config" "$current_dir/selected-cells" "$current_dir/activation" \
+      "$current_dir/adapter-stderr"
+    deployment_configuration="$current_dir/deployment-configuration.json"
+    GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-deployment-config \
+      -registry "$profile_registry" -overrides "$deployment_overrides_retained" \
+      -retained-source-path "$deployment_overrides_retained_rel" -alias "$alias" -out "$deployment_configuration"
+    apply_profile_deployment_environment "$deployment_configuration"
     project_identity="$(printf '%s\0%s\0%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$TASKGATE_SUBMISSION_COMMIT" "$alias" "$repetition" | sha256sum | awk '{print $1}')"
     current_project="$(bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh "$project_identity" deployment-01)"
     export COMPOSE_PROJECT_NAME="$current_project"
@@ -318,6 +397,13 @@ for alias in "${selected_profiles[@]}"; do
     current_stage=deployment_binding
     compose_json="$("${current_compose[@]}" config --format json)"
     [[ "$(service_env gateway GATEWAY_ADMIN_TOKEN)" == "$GATEWAY_ADMIN_TOKEN" ]] || { echo "Compose admin-token binding drift" >&2; exit 1; }
+	configured_connector="$(jq -r '.environment.GATEWAY_CONNECTOR_MAX_CONNECTIONS // empty' "$deployment_configuration")"
+	configured_control="$(jq -r '.environment.GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS // empty' "$deployment_configuration")"
+	if [[ -n "$configured_connector" ]]; then
+	  [[ "$(service_env gateway GATEWAY_CONNECTOR_MAX_CONNECTIONS)" == "$configured_connector" &&
+	     "$(service_env gateway GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS)" == "$configured_control" ]] || {
+	    echo "Compose profile capacity binding drift" >&2; exit 1; }
+	fi
     export TASKBOUND_ALICE_TOKEN="$(service_env gateway TASKBOUND_ALICE_TOKEN)"
     export TASKBOUND_CAROL_TOKEN="$(service_env gateway TASKBOUND_CAROL_TOKEN)"
     export OA_ALICE_PASSWORD="$(service_env oa-demo OA_ALICE_PASSWORD)"
@@ -355,6 +441,7 @@ for alias in "${selected_profiles[@]}"; do
     GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-artifacts --profile-id "$profile_id" \
       --source "$full_artifacts" --destination "$profile_artifacts" --manifest-out "$artifact_manifest" \
       >"$current_dir/profile-artifacts.log"
+    export TASKGATE_PROFILE_ARTIFACT_DIR="$profile_artifacts"
 
     current_stage=profile_activation
     profile_binding="$current_dir/profile-binding.json"
@@ -440,11 +527,32 @@ for alias in "${selected_profiles[@]}"; do
          .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
       runner="$(experiment_command "$experiment")"
       raw="$current_dir/raw/$experiment.jsonl"
+      adapter_stderr="$current_dir/adapter-stderr/$experiment.log"
+      adapter_stderr_scan="$current_dir/adapter-stderr/$experiment.credential-scan.json"
       operation_profile_binding="$profile_binding"
       [[ "$experiment" != rq5 ]] || operation_profile_binding="$rq5_profile_binding"
+      runner_status=0
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id deployment-01 \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
-        >"$current_dir/$experiment.log" 2>&1
+        -adapter-stderr-output "$adapter_stderr" >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
+	  export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
+	  export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
+	  export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
+	  export TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD=final-v5-provsql-local-only
+	  adapter_stderr_secret_args=()
+	  if [[ "$experiment" == rq5 && -f "$current_rq5_secret/deployment-secrets.json" ]]; then
+	    adapter_stderr_secret_args=(-sensitive-json-file "$current_rq5_secret/deployment-secrets.json")
+	  fi
+      if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
+	    -input "$adapter_stderr" -output "$adapter_stderr_scan" "${adapter_stderr_sensitive_args[@]}" \
+	    "${adapter_stderr_secret_args[@]}"; then
+        rm -f "$adapter_stderr" "$adapter_stderr_scan"
+        echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
+        exit 1
+      fi
+	  unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
+	    TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
+      (( runner_status == 0 )) || exit "$runner_status"
       GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
         -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
         -campaign-class pilot -samples-per-cell 1 "${gate_mapping_args[@]}" >/dev/null || {
@@ -485,6 +593,7 @@ for alias in "${selected_profiles[@]}"; do
     add_ref fresh_proof "" "$fresh_proof"
     add_ref gateway_image "" "$gateway_image"
     add_ref cleanup "" "$cleanup"
+    add_ref deployment_configuration "" "$deployment_configuration"
     for experiment in "${experiments[@]}"; do
       add_ref config "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/config/$experiment.json"
       add_ref selected_cells "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/$experiment.json"
@@ -497,6 +606,9 @@ for alias in "${selected_profiles[@]}"; do
         add_ref rq5_build_manifest rq5 "$rq5_manifest"
       fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
+      add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
+      add_ref adapter_stderr_credential_scan "$experiment" \
+        "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
     jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \

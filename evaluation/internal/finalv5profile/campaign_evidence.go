@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
 const ProfileCampaignEvidenceVersion = "taskgate-final-v5-profile-campaign-evidence-v1"
@@ -175,11 +177,12 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			return err
 		}
 		switch file.Kind {
-		case "profile_binding", "activation_evidence", "environment", "fresh_proof", "gateway_image", "cleanup":
+		case "profile_binding", "activation_evidence", "environment", "fresh_proof", "gateway_image", "cleanup",
+			"deployment_configuration":
 			if file.Experiment != "" {
 				return fmt.Errorf("deployment evidence %s must not name an experiment", file.Kind)
 			}
-		case "config", "selected_cells", "raw_jsonl":
+		case "config", "selected_cells", "raw_jsonl", "adapter_stderr", "adapter_stderr_credential_scan":
 			if !plannedExperiments[file.Experiment] {
 				return fmt.Errorf("deployment evidence %s names unplanned experiment %q", file.Kind, file.Experiment)
 			}
@@ -198,20 +201,24 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		}
 	}
 	for _, kind := range []string{"profile_binding", "activation_evidence", "environment",
-		"fresh_proof", "gateway_image", "cleanup"} {
+		"fresh_proof", "gateway_image", "cleanup", "deployment_configuration"} {
 		if kinds[kind+"/"] != 1 {
 			return fmt.Errorf("evidence kind %s count=%d, want 1", kind, kinds[kind+"/"])
 		}
 	}
 	for _, experiment := range planned.Experiments {
 		if kinds["config/"+experiment] != 1 || kinds["selected_cells/"+experiment] != 1 ||
-			kinds["raw_jsonl/"+experiment] != 1 {
-			return fmt.Errorf("experiment %s lacks one config/selected-cells/raw set", experiment)
+			kinds["raw_jsonl/"+experiment] != 1 || kinds["adapter_stderr/"+experiment] != 1 ||
+			kinds["adapter_stderr_credential_scan/"+experiment] != 1 {
+			return fmt.Errorf("experiment %s lacks one config/selected-cells/raw/stderr/credential-scan set", experiment)
 		}
 		if err := validateCampaignConfig(root, campaignID, commit, experiment, record.Files); err != nil {
 			return err
 		}
 		if err := validateSelectedCells(root, experiment, planned, record.Files); err != nil {
+			return err
+		}
+		if err := validateAdapterStderrEvidence(root, experiment, record.Files); err != nil {
 			return err
 		}
 	}
@@ -231,6 +238,9 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		rq5Mapping = &mapping
 	}
 	if err := validateProfileBinding(root, planned, record.Files); err != nil {
+		return err
+	}
+	if err := validateProfileDeploymentConfig(root, planned, record.Files); err != nil {
 		return err
 	}
 	if plannedExperiments["rq5"] {
@@ -263,7 +273,9 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 }
 
 func validateCampaignEvidenceFile(root string, file CampaignEvidenceFile) error {
-	if file.Kind == "" || file.Path == "" || filepath.IsAbs(file.Path) || !validCampaignDigest(file.SHA256) || file.Bytes < 1 {
+	allowEmpty := file.Kind == "adapter_stderr"
+	if file.Kind == "" || file.Path == "" || filepath.IsAbs(file.Path) || !validCampaignDigest(file.SHA256) ||
+		file.Bytes < 0 || (file.Bytes == 0 && !allowEmpty) {
 		return errors.New("invalid campaign evidence file reference")
 	}
 	abs := filepath.Clean(filepath.Join(root, file.Path))
@@ -282,6 +294,76 @@ func validateCampaignEvidenceFile(root string, file CampaignEvidenceFile) error 
 	digest := sha256.Sum256(payload)
 	if hex.EncodeToString(digest[:]) != file.SHA256 {
 		return fmt.Errorf("campaign evidence digest changed: %s", file.Path)
+	}
+	return nil
+}
+
+func validateProfileDeploymentConfig(root string, planned PlannedDeploy, files []CampaignEvidenceFile) error {
+	path := campaignEvidencePath(root, files, "deployment_configuration")
+	var config ProfileDeploymentConfig
+	if err := decodeStrictCampaignFile(path, &config); err != nil {
+		return fmt.Errorf("profile deployment configuration: %w", err)
+	}
+	if config.SchemaVersion != 1 || config.Record != ProfileDeploymentConfigVersion ||
+		config.ProfileAlias != planned.Alias || !validCampaignDigest(config.SourceSHA256) ||
+		config.SourcePath == "" || filepath.IsAbs(config.SourcePath) || filepath.Clean(config.SourcePath) != config.SourcePath {
+		return errors.New("profile deployment configuration identity is invalid")
+	}
+	sourcePath := filepath.Clean(filepath.Join(root, config.SourcePath))
+	relative, err := filepath.Rel(root, sourcePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("profile deployment configuration source escapes campaign root")
+	}
+	payload, err := readRegularProfileFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("profile deployment configuration source: %w", err)
+	}
+	var overrides ProfileDeploymentOverrides
+	if err := decodeProfileDeploymentJSON(payload, &overrides); err != nil {
+		return fmt.Errorf("decode retained profile deployment configuration source: %w", err)
+	}
+	if err := validateClosedProfileDeploymentOverrides(overrides); err != nil {
+		return fmt.Errorf("retained profile deployment configuration source: %w", err)
+	}
+	digest := sha256.Sum256(payload)
+	if hex.EncodeToString(digest[:]) != config.SourceSHA256 {
+		return errors.New("profile deployment configuration source digest changed")
+	}
+	if planned.Alias == concurrencyDeploymentProfile {
+		if err := validateProfileDeploymentEnvironment(config.Environment); err != nil {
+			return fmt.Errorf("concurrency profile deployment configuration: %w", err)
+		}
+		return nil
+	}
+	if len(config.Environment) != 0 {
+		return errors.New("ordinary profile unexpectedly carries a deployment override")
+	}
+	return nil
+}
+
+func validateAdapterStderrEvidence(root, experiment string, files []CampaignEvidenceFile) error {
+	stderrFile, err := campaignExperimentEvidenceFile(files, "adapter_stderr", experiment)
+	if err != nil {
+		return err
+	}
+	scanFile, err := campaignExperimentEvidenceFile(files, "adapter_stderr_credential_scan", experiment)
+	if err != nil {
+		return err
+	}
+	stderrPath := filepath.Join(root, stderrFile.Path)
+	info, err := os.Stat(stderrPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		return errors.New("adapter stderr is absent or not mode 0600")
+	}
+	var scan finalv5publication.AdapterStderrCredentialScan
+	if err := decodeStrictCampaignFile(filepath.Join(root, scanFile.Path), &scan); err != nil {
+		return fmt.Errorf("adapter stderr credential scan: %w", err)
+	}
+	if scan.SchemaVersion != 1 || scan.Record != finalv5publication.AdapterStderrCredentialScanVersion ||
+		scan.Status != "pass" || scan.InputSHA256 != stderrFile.SHA256 || scan.InputBytes != stderrFile.Bytes ||
+		scan.SensitiveValuesChecked < 1 || scan.URLUserinfoHits != 0 || scan.PEMMarkerHits != 0 ||
+		scan.SecretAssignmentHits != 0 || scan.JSONScalarExactHits != 0 || scan.ExactValueSubstringHits != 0 {
+		return errors.New("adapter stderr credential scan is incomplete or differs from the retained stderr")
 	}
 	return nil
 }
