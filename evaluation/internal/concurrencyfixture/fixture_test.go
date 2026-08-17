@@ -24,6 +24,27 @@ func TestFrozenConcurrencyFixtureIsExactAndDeterministic(t *testing.T) {
 	}
 }
 
+func TestNaturalContentionWidthsUseTheRetainedTenRequestWindow(t *testing.T) {
+	wantQueued := map[int]int{10: 0, 50: 40, 100: 90, 500: 490}
+	for _, cell := range FrozenCells {
+		if cell.Mode != "natural_contention" {
+			continue
+		}
+		active := cell.Width
+		if active > ServiceActiveWindow {
+			active = ServiceActiveWindow
+		}
+		queued := cell.Width - active
+		if active != ServiceActiveWindow || queued != wantQueued[cell.Width] {
+			t.Fatalf("natural width %d resolves to active/queued=%d/%d", cell.Width, active, queued)
+		}
+	}
+	if ServiceActiveWindow >= MinimumProductionPoolWidth ||
+		ServiceActiveWindow+MinimumServiceQueue < MaximumOfferedWidth {
+		t.Fatal("retained natural-contention window either saturates production pools or drops offered width")
+	}
+}
+
 func TestRoundAndParticipantBindingsAreStableAndUnique(t *testing.T) {
 	operation := RoundIdentity{
 		CampaignID: "campaign", DeploymentID: "deployment-01", ExperimentID: "concurrency",

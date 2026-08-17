@@ -59,6 +59,9 @@ func TestConcurrencyVerificationRejectsEvidenceMutations(t *testing.T) {
 		name   string
 		mutate func(*Sample)
 	}{
+		{name: "legacy 512-request active window", mutate: func(value *Sample) {
+			value.ConcurrencyVerification.HTTPActiveCapacity = 512
+		}},
 		{name: "client-only offered width", mutate: func(value *Sample) {
 			value.ConcurrencyVerification.ServiceArrivals--
 		}},
@@ -271,15 +274,18 @@ func validConcurrencyValidationSample(t *testing.T, cell concurrencyfixture.Cell
 		PlansSHA256: concurrencyfixture.PlansSHA256(), ProbeVersion: gatewayapp.ConcurrencyProbeVersion,
 		GatewayInstanceSHA256: digestForConcurrencyTest("gateway-instance"), RoundSHA256: roundSHA,
 		RootTaskIDHash: rootTaskIDHash, ContenderRequestSetSHA256: canonicalStringSetSHA256(requestDigests),
-		ExpectedWidth: int64(cell.Width), HTTPActiveCapacity: 64, HTTPQueueCapacity: 512,
-		ControlPoolCapacity: 64, ConnectorPoolCapacity: 64,
-		ServiceArrivals: int64(cell.Width), ServiceUniqueParticipants: int64(cell.Width),
+		ExpectedWidth: int64(cell.Width), HTTPActiveCapacity: concurrencyfixture.ServiceActiveWindow, HTTPQueueCapacity: 512,
+		ControlPoolCapacity:   concurrencyfixture.MinimumProductionPoolWidth,
+		ConnectorPoolCapacity: concurrencyfixture.MinimumProductionPoolWidth,
+		ServiceArrivals:       int64(cell.Width), ServiceUniqueParticipants: int64(cell.Width),
 		ServiceParticipantSetSHA256: concurrencyfixture.ParticipantSetSHA256(roundSHA, cell.Width),
-		ServicePeakBarrierWaiting:   int64(cell.Width), ServicePeakActive: minConcurrencyTestInt64(64, int64(cell.Width)),
-		ServicePeakQueued: maxConcurrencyTestInt64(0, int64(cell.Width)-64), ServiceCompleted: int64(cell.Width),
-		PeakControlPoolInUse:    minConcurrencyTestInt64(64, int64(cell.Width)),
-		RootLockWaitersObserved: rootWaiters,
-		ProductionCASAttempts:   productionAttempts, ProductionCASConflicts: productionConflicts,
+		ServicePeakBarrierWaiting:   int64(cell.Width),
+		ServicePeakActive:           minConcurrencyTestInt64(concurrencyfixture.ServiceActiveWindow, int64(cell.Width)),
+		ServicePeakQueued:           maxConcurrencyTestInt64(0, int64(cell.Width)-concurrencyfixture.ServiceActiveWindow),
+		ServiceCompleted:            int64(cell.Width),
+		PeakControlPoolInUse:        minConcurrencyTestInt64(concurrencyfixture.MinimumProductionPoolWidth, int64(cell.Width)),
+		RootLockWaitersObserved:     rootWaiters,
+		ProductionCASAttempts:       productionAttempts, ProductionCASConflicts: productionConflicts,
 		ProductionCASRetries: productionRetries, NaturalCASAttempts: naturalAttempts,
 		NaturalCASConflicts: naturalConflicts, NaturalCASRetries: naturalRetries,
 		InitialRoot: initial, BeforeBoundary: before, AtBoundary: atBoundary, AfterRejectedOverflow: atBoundary,

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -286,11 +287,21 @@ func TestConcurrencyConstructorRequiresAuthenticatedProductionCapacity(t *testin
 		{name: "wrong probe", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) { value.Version = "other" }},
 		{name: "no instance", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) { value.GatewayInstanceSHA256 = "" }},
 		{name: "no queue", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) { value.HTTPQueueCapacity = 0 }},
-		{name: "width below 500", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
-			value.HTTPActiveCapacity, value.HTTPQueueCapacity = 32, 467
+		{name: "legacy unbounded active window", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
+			value.HTTPActiveCapacity = 512
 		}},
-		{name: "small control pool", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) { value.ControlPoolCapacity = 31 }},
-		{name: "small connector pool", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) { value.ConnectorPoolCapacity = 31 }},
+		{name: "wrong active window", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
+			value.HTTPActiveCapacity = concurrencyfixture.ServiceActiveWindow - 1
+		}},
+		{name: "width below 500", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
+			value.HTTPQueueCapacity = concurrencyfixture.MinimumServiceQueue - 1
+		}},
+		{name: "small control pool", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
+			value.ControlPoolCapacity = concurrencyfixture.MinimumProductionPoolWidth - 1
+		}},
+		{name: "small connector pool", mutate: func(value *gatewayapp.ConcurrencyProbeCapacity) {
+			value.ConnectorPoolCapacity = concurrencyfixture.MinimumProductionPoolWidth - 1
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -305,6 +316,32 @@ func TestConcurrencyConstructorRequiresAuthenticatedProductionCapacity(t *testin
 		capacity: valid, capErr: errors.New("authenticated preflight unavailable"),
 	}); err == nil {
 		t.Fatal("failed authenticated preflight was accepted")
+	}
+}
+
+func TestNaturalContentionHarnessPinsTheTenRequestActiveWindow(t *testing.T) {
+	compose, err := os.ReadFile("../../../compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(compose)
+	if !strings.Contains(text, "GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE:-10}") ||
+		!strings.Contains(text, "GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE:-512}") {
+		t.Fatal("Compose does not bind the retained 10-active/512-queued concurrency harness")
+	}
+	if err := validateConcurrencyCapacity(validConcurrencyTestCapacity()); err != nil {
+		t.Fatalf("retained harness capacity was rejected: %v", err)
+	}
+}
+
+func TestNaturalContentionDoesNotAbsorbGenericConflict(t *testing.T) {
+	conflict := &mcpCallError{Code: "CONFLICT", Message: "request conflicts with current state"}
+	err := firstConcurrencyContenderFailure([]concurrencyCallResult{{index: 23, err: conflict}})
+	if err == nil || !errors.Is(err, conflict) || !strings.Contains(err.Error(), "contender 23 failed") {
+		t.Fatalf("generic CONFLICT was absorbed or relabelled: %v", err)
+	}
+	if err := firstConcurrencyContenderFailure([]concurrencyCallResult{{index: 1}}); err != nil {
+		t.Fatalf("successful contender was rejected: %v", err)
 	}
 }
 
@@ -373,7 +410,9 @@ func validConcurrencyTaskForTest(taskID, parentTaskID, rootTaskID string) concur
 func validConcurrencyTestCapacity() gatewayapp.ConcurrencyProbeCapacity {
 	return gatewayapp.ConcurrencyProbeCapacity{
 		Version: gatewayapp.ConcurrencyProbeVersion, GatewayInstanceSHA256: strings.Repeat("a", 64),
-		HTTPActiveCapacity: 64, HTTPQueueCapacity: 512, ControlPoolCapacity: 64, ConnectorPoolCapacity: 64,
+		HTTPActiveCapacity: concurrencyfixture.ServiceActiveWindow, HTTPQueueCapacity: 512,
+		ControlPoolCapacity:   concurrencyfixture.MinimumProductionPoolWidth,
+		ConnectorPoolCapacity: concurrencyfixture.MinimumProductionPoolWidth,
 	}
 }
 

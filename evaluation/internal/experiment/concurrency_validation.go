@@ -40,9 +40,10 @@ func validateConcurrencyVerificationStrict(sample Sample) error {
 		!validSHA256(evidence.ContenderRequestSetSHA256) {
 		return errors.New("concurrency round, Gateway instance, or same-root identity binding is invalid")
 	}
-	if evidence.ExpectedWidth != width || evidence.HTTPActiveCapacity < 1 || evidence.HTTPQueueCapacity < 1 ||
-		evidence.HTTPActiveCapacity+evidence.HTTPQueueCapacity < 500 || evidence.ControlPoolCapacity < 32 ||
-		evidence.ConnectorPoolCapacity < 32 {
+	if evidence.ExpectedWidth != width || evidence.HTTPActiveCapacity != int64(concurrencyfixture.ServiceActiveWindow) ||
+		evidence.HTTPQueueCapacity < int64(concurrencyfixture.MinimumServiceQueue) ||
+		evidence.ControlPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) ||
+		evidence.ConnectorPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) {
 		return errors.New("concurrency run lacks the preregistered 500-client production capacity")
 	}
 	if evidence.ServiceArrivals != width || evidence.ServiceUniqueParticipants != width ||

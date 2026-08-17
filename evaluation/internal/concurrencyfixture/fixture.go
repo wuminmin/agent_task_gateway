@@ -24,6 +24,15 @@ const (
 	RootBudgetLimit      = int64(5)
 	UsageBeforeBoundary  = int64(4)
 	ExpectedFinalOutcome = int64(5)
+	// The authenticated service barrier still observes the complete offered
+	// width. Only this many released requests may enter the production handler
+	// at once; the rest remain in the bounded service queue. Ten is the retained
+	// natural-contention window that produced real OutcomeRadix CAS telemetry
+	// without saturating the 32-connection Control and Connector pools.
+	ServiceActiveWindow        = 10
+	MaximumOfferedWidth        = 500
+	MinimumServiceQueue        = MaximumOfferedWidth - ServiceActiveWindow
+	MinimumProductionPoolWidth = 32
 
 	ContenderSQL = "SELECT receipt_no, expense_type FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1"
 	OverflowSQL  = "SELECT receipt_no, city FROM final_v5_concurrency_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 1"
@@ -89,12 +98,17 @@ func FixtureSHA256() string {
 		Relation     string   `json:"relation"`
 		Profile      string   `json:"profile"`
 		MaxQueries   int64    `json:"max_queries"`
+		ActiveWindow int      `json:"service_active_window"`
+		QueueMinimum int      `json:"service_queue_minimum"`
+		PoolMinimum  int      `json:"production_pool_minimum"`
 	}{
 		Version: Version, Cells: FrozenCells, PrefixSQL: PrefixSQL,
 		ContenderSQL: ContenderSQL, OverflowSQL: OverflowSQL,
 		BudgetLimit: RootBudgetLimit, UsageBefore: UsageBeforeBoundary,
 		FinalOutcome: ExpectedFinalOutcome, Product: ProductName, Relation: PhysicalRelation,
 		Profile: BudgetProfile, MaxQueries: ResourceMaxQueries,
+		ActiveWindow: ServiceActiveWindow, QueueMinimum: MinimumServiceQueue,
+		PoolMinimum: MinimumProductionPoolWidth,
 	})
 }
 
@@ -180,7 +194,9 @@ func jsonSHA256(value any) string {
 }
 
 func Validate() error {
-	if len(FrozenCells) != 9 || len(PrefixSQL) != 3 {
+	if len(FrozenCells) != 9 || len(PrefixSQL) != 3 || ServiceActiveWindow != 10 ||
+		MaximumOfferedWidth != 500 || MinimumServiceQueue != 490 ||
+		ServiceActiveWindow >= MinimumProductionPoolWidth {
 		return fmt.Errorf("concurrency fixture matrix or prefix is incomplete")
 	}
 	seen := map[Cell]bool{}

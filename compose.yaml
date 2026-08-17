@@ -360,7 +360,9 @@ services:
       # The authenticated probe observes server arrivals/active/queued requests;
       # it never fabricates MCP results and exposes no task/query identities.
       GATEWAY_EVALUATION_CONCURRENCY_TOKEN: ${TASKGATE_FINAL_V5_CONCURRENCY_TOKEN:-}
-      GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE:-512}
+      # Preserve the full authenticated arrival barrier while admitting only
+      # the retained natural-contention cohort into the production handler.
+      GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE:-10}
       GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE:-512}
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}

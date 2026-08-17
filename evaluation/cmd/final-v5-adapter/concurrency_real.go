@@ -192,10 +192,8 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 		retained.ClientFullDrainMS = durationMS(time.Since(measurementStarted))
 		return retained, &concurrencyRunError{code: code, sample: retained, cause: cause}
 	}
-	for _, result := range callResults {
-		if result.err != nil {
-			return lateFailure("concurrency_contender_call_failed", fmt.Errorf("contender %d failed: %w", result.index, result.err))
-		}
+	if err := firstConcurrencyContenderFailure(callResults); err != nil {
+		return lateFailure("concurrency_contender_call_failed", err)
 	}
 	probeSnapshot, err := waitForProbeCompletion(ctx, backend.probe, roundSHA, int64(cell.Width))
 	if err != nil {
@@ -249,6 +247,20 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 			cause: errors.New("production OutcomeRadix reported no natural CAS conflict")}
 	}
 	return sample, nil
+}
+
+// firstConcurrencyContenderFailure deliberately treats every failed tool call,
+// including the public CONFLICT code, as fatal. Only a successful production
+// response carries OutcomeRadix CAS attempts/conflicts/retries; CONFLICT also
+// covers unrelated Control-store failures and therefore cannot be re-labelled
+// or retried into natural-contention evidence by the harness.
+func firstConcurrencyContenderFailure(results []concurrencyCallResult) error {
+	for _, result := range results {
+		if result.err != nil {
+			return fmt.Errorf("contender %d failed: %w", result.index, result.err)
+		}
+	}
+	return nil
 }
 
 func (backend *realConcurrencyBackend) provisionTaskFamily(ctx context.Context, operation experiment.AdapterOperation,

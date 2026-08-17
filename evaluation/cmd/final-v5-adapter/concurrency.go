@@ -20,7 +20,6 @@ import (
 
 const (
 	concurrencyProbeTokenEnv   = "TASKGATE_FINAL_V5_CONCURRENCY_TOKEN"
-	concurrencyMinimumPool     = int64(32)
 	concurrencyEvidenceVersion = "taskgate-final-v5-concurrency-verification-v1"
 )
 
@@ -108,9 +107,10 @@ func newConcurrencyAdapterWithBackend(ctx context.Context, backend concurrencyBa
 
 func validateConcurrencyCapacity(capacity gatewayapp.ConcurrencyProbeCapacity) error {
 	if capacity.Version != gatewayapp.ConcurrencyProbeVersion || !validDigest(capacity.GatewayInstanceSHA256) ||
-		capacity.HTTPActiveCapacity < 1 || capacity.HTTPQueueCapacity < 1 ||
-		capacity.HTTPActiveCapacity+capacity.HTTPQueueCapacity < 500 ||
-		capacity.ControlPoolCapacity < concurrencyMinimumPool || capacity.ConnectorPoolCapacity < concurrencyMinimumPool {
+		capacity.HTTPActiveCapacity != int64(concurrencyfixture.ServiceActiveWindow) ||
+		capacity.HTTPQueueCapacity < int64(concurrencyfixture.MinimumServiceQueue) ||
+		capacity.ControlPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) ||
+		capacity.ConnectorPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) {
 		return errors.New("authenticated Gateway concurrency capacity cannot execute the frozen width-500 matrix")
 	}
 	return nil
