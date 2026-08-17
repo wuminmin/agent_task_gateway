@@ -11,6 +11,8 @@ func TestRunRejectsOpenOrCredentialBearingCLIInputs(t *testing.T) {
 		{"unknown"},
 		{"generate"},
 		{"generate", "--output-dir", "candidate", "--artifact-dir", "artifacts", "--dsn", "secret"},
+		{"generate-current-binding"},
+		{"generate-current-binding", "--output-dir", "candidate", "--artifact-dir", "artifacts", "--dsn", "secret"},
 		{"validate"},
 		{"validate", "--input-dir", "candidate", "extra"},
 	} {

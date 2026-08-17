@@ -138,6 +138,28 @@ func TestGenerationFixesScaleOutcomeExpectationsBeforeLiveObservation(t *testing
 	}
 }
 
+func TestCurrentBindingGenerationFixesOracleBeforeLiveObservation(t *testing.T) {
+	value, err := os.ReadFile("current_binding.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oracleIndex := bytes.Index(value, []byte("finalv5binding.GenerateScaleOutcomeCandidateExpectations("))
+	attestationIndex := bytes.Index(value, []byte("AttestCatalogModel("))
+	datasetIndex := bytes.Index(value, []byte("finalv5dataset.VerifyBenchmarkPostgreSQL("))
+	observationIndex := bytes.Index(value, []byte("ObservePublicationClosure("))
+	bindingIndex := bytes.Index(value, []byte("finalv5binding.BuildCompleteBinding("))
+	if oracleIndex < 0 || attestationIndex < 0 || datasetIndex < 0 || observationIndex < 0 || bindingIndex < 0 ||
+		oracleIndex >= attestationIndex || attestationIndex >= datasetIndex || datasetIndex >= observationIndex || observationIndex >= bindingIndex {
+		t.Fatalf("current binding expectations are not fixed before live observation: oracle=%d attestation=%d Dataset=%d observation=%d binding=%d",
+			oracleIndex, attestationIndex, datasetIndex, observationIndex, bindingIndex)
+	}
+	for _, forbidden := range []string{".Prepare(", ".PrepareContext(", ".Derive(", "pg_query"} {
+		if bytes.Contains(value, []byte(forbidden)) {
+			t.Fatalf("current binding generator contains forbidden oracle boundary %q", forbidden)
+		}
+	}
+}
+
 func TestStrictProvenanceRejectsUnknownField(t *testing.T) {
 	value, err := canonicalJSON(ProvenanceReport{})
 	if err != nil {
