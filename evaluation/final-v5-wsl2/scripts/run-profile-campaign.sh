@@ -90,17 +90,22 @@ if [[ -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions
 fi
 echo "P30-STAGE: plan=pass ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions preregistered_rounds=$preregistration_rounds preregistered_aggregates=$(jq '.preregistered_aggregates | length' "$plan")"
 
-artifact_qualification=""
-artifact_postgresql_identity=""
+finalizer_qualification=""
+finalizer_postgresql_identity=""
+finalizer_qualification_sha256=""
+finalizer_postgresql_identity_sha256=""
 if jq -e --argjson aliases "$(printf '%s\n' "${selected_profiles[@]}" | jq -Rsc 'split("\n")[:-1]')" '
-    [.deployments[] | select(.alias as $a | $aliases | index($a)) | .experiments[]] | any(. == "artifact")' "$plan" >/dev/null; then
-  : "${ATTESTATION_QUALIFICATION:?selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment}"
-  : "${POSTGRESQL_IDENTITY:?selected Artifact profile requires POSTGRESQL_IDENTITY before deployment}"
-  artifact_qualification="$(realpath "$ATTESTATION_QUALIFICATION")"
-  artifact_postgresql_identity="$(realpath "$POSTGRESQL_IDENTITY")"
-  for input in "$artifact_qualification" "$artifact_postgresql_identity"; do
-    [[ -f "$input" && ! -L "$input" ]] || { echo "Artifact finalizer input is missing or unsafe: $input" >&2; exit 2; }
+    [.deployments[] | select(.alias as $a | $aliases | index($a)) | .experiments[]] |
+    any(. == "scale" or . == "artifact" or . == "provsql")' "$plan" >/dev/null; then
+  : "${ATTESTATION_QUALIFICATION:?selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment}"
+  : "${POSTGRESQL_IDENTITY:?selected Scale/Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment}"
+  finalizer_qualification="$(realpath "$ATTESTATION_QUALIFICATION")"
+  finalizer_postgresql_identity="$(realpath "$POSTGRESQL_IDENTITY")"
+  for input in "$finalizer_qualification" "$finalizer_postgresql_identity"; do
+    [[ -f "$input" && ! -L "$input" ]] || { echo "Scale/Artifact/ProvSQL finalizer input is missing or unsafe: $input" >&2; exit 2; }
   done
+  finalizer_qualification_sha256="$(sha256sum "$finalizer_qualification" | awk '{print $1}')"
+  finalizer_postgresql_identity_sha256="$(sha256sum "$finalizer_postgresql_identity" | awk '{print $1}')"
 fi
 
 # Build the host-side adapter, observer, activator, and optional RQ5 driver from
@@ -470,9 +475,13 @@ for alias in "${selected_profiles[@]}"; do
     cells_json="$(jq -c --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .cells' "$plan")"
     export TASKGATE_FINAL_V5_CATALOG="$repo/${catalog_path#./}"
     unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
-    if jq -e --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments | index("artifact") != null' "$plan" >/dev/null; then
-      export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$artifact_qualification"
-      export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$artifact_postgresql_identity"
+    requires_finalizer_material=false
+    if jq -e --arg alias "$alias" '
+        [.deployments[] | select(.alias == $alias) | .experiments[]] |
+        any(. == "scale" or . == "artifact" or . == "provsql")' "$plan" >/dev/null; then
+      export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"
+      export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"
+      requires_finalizer_material=true
     fi
     deployment_key="${alias}/$(printf '%03d' "$repetition")"
     current_dir="$campaign_root/deployments/${alias}/$(printf '%03d' "$repetition")"
@@ -601,10 +610,21 @@ for alias in "${selected_profiles[@]}"; do
     jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
       --arg compose_project "$current_project" --arg profile_alias "$alias" --arg profile_id "$profile_id" \
       --arg catalog_sha256 "$catalog_sha" --argjson repetition "$repetition" \
+      --argjson requires_finalizer_material "$requires_finalizer_material" \
+      --arg finalizer_qualification "$finalizer_qualification" \
+      --arg finalizer_qualification_sha256 "$finalizer_qualification_sha256" \
+      --arg finalizer_postgresql_identity "$finalizer_postgresql_identity" \
+      --arg finalizer_postgresql_identity_sha256 "$finalizer_postgresql_identity_sha256" \
       '{schema_version:1,record:"taskgate-p30-fresh-profile-deployment-v1",status:"pass",
         campaign_class:"pilot",publication_eligible:false,campaign_id:$campaign_id,
         submission_commit:$submission_commit,compose_project:$compose_project,profile_alias:$profile_alias,
-        profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition}' >"$fresh_proof"
+        profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition} +
+       (if $requires_finalizer_material then
+          {finalizer_material:{attestation_qualification_path:$finalizer_qualification,
+            attestation_qualification_sha256:$finalizer_qualification_sha256,
+            postgresql_identity_path:$finalizer_postgresql_identity,
+            postgresql_identity_sha256:$finalizer_postgresql_identity_sha256}}
+        else {} end)' >"$fresh_proof"
 
     mapfile -t experiments < <(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments[]' "$plan")
     if printf '%s\n' "${experiments[@]}" | grep -qx rq5; then

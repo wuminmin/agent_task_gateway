@@ -38,8 +38,15 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`export TASKGATE_FINAL_V5_CATALOG=`,
 		`export TASKGATE_PROFILE_ARTIFACT_DIR=`,
 		`export TASKGATE_FINAL_V5_REPO_ROOT=`,
-		`selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment`,
-		`selected Artifact profile requires POSTGRESQL_IDENTITY before deployment`,
+		`selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`,
+		`selected Scale/Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment`,
+		`any(. == "scale" or . == "artifact" or . == "provsql")`,
+		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`,
+		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"`,
+		`attestation_qualification_path:$finalizer_qualification`,
+		`attestation_qualification_sha256:$finalizer_qualification_sha256`,
+		`postgresql_identity_path:$finalizer_postgresql_identity`,
+		`postgresql_identity_sha256:$finalizer_postgresql_identity_sha256`,
 		`-adapter-stderr-output "$adapter_stderr"`,
 		`final-v5-adapter-stderr-scan`,
 		`-sensitive-json-file "$current_rq5_secret/deployment-secrets.json"`,
@@ -78,6 +85,15 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	preregistrationInstall := strings.Index(script, `install -m 600 "$preregistration_source" "$preregistration_retained"`)
 	if preregistrationInstall < 0 || preregistrationInstall > composeUp {
 		t.Fatal("concurrency preregistration is not retained and digest-checked before service startup")
+	}
+	qualificationGate := strings.Index(script, `selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`)
+	qualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`)
+	runnerDispatch := strings.Index(script, `go run "./evaluation/cmd/$runner"`)
+	if qualificationGate < 0 || qualificationGate > composeUp {
+		t.Fatal("Scale/Artifact/ProvSQL qualification material is not required before deployment startup")
+	}
+	if qualificationExport < 0 || runnerDispatch < 0 || qualificationExport > runnerDispatch {
+		t.Fatal("Scale/Artifact/ProvSQL qualification material is not exported before experiment runner dispatch")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")
