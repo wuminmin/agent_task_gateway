@@ -463,3 +463,25 @@ oracles, campaigns, or the paper are complete.
     evaluation-side generator repairs only; it does not approve any candidate
     byte, frozen-file replacement, release, live run, measurement, capability
     flip, campaign, publication evidence, tag, or tag movement.
+
+30. **Use a preregistered fixed-N aggregate for width-50 natural contention.**
+    (Taken 2026-08-17 by author wuminmin, answered "A" in the agent
+    conversation to the stop options reported by ledger row `P42-width50`.)
+    The `concurrency/shared-root/50/natural_contention` cell keeps its width,
+    mode, topology, offered-concurrency guard, and claim scope, but its
+    observation unit becomes a fixed number `N` of preregistered natural
+    contention rounds. The statistical threshold, `N`, aggregate acceptance
+    rule, round/deployment identity model, and source-controlled digest anchor
+    must all be frozen before any such round runs. Every one of the `N` rounds
+    is retained unconditionally; there is no early stop after an observed
+    conflict and no selective omission. The aggregate is the only acceptance
+    outlet. If all `N` rounds miss the unchanged natural-conflict guard, the
+    cell remains invalid with the meaning that offered concurrency was not
+    observed in the preregistered rounds.
+
+    This decision rejects options B and C: the frozen width matrix and natural
+    contention claim remain unchanged. It authorises zero-deployment design,
+    runner/validator/launcher implementation, tests, and any required freeze
+    candidate preparation only. It does not approve a candidate byte, live
+    run, measurement, capability flip, release, campaign, publication
+    evidence, tag, or tag movement.
