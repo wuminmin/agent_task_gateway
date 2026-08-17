@@ -244,9 +244,9 @@ func profileGateConcurrencySample() Sample {
 
 func profileGateRQ5Samples() []Sample {
 	result := make([]Sample, 0, 2)
-	for _, mode := range []string{"build", "retained"} {
-		sample := profileGateSample("rq5", "online-transition-v1/single/"+mode,
-			"online-transition-v1", "single", mode, "taskgate")
+	for _, mode := range []string{"build_verify_activate", "retained_route"} {
+		sample := profileGateSample("rq5", "daily-publication-v5/345000/"+mode,
+			"daily-publication-v5", "345000", mode, "taskgate")
 		sample.RQ5Verification = &RQ5VerificationEvidence{}
 		result = append(result, sample)
 	}

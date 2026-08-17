@@ -183,6 +183,10 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			if !plannedExperiments[file.Experiment] {
 				return fmt.Errorf("deployment evidence %s names unplanned experiment %q", file.Kind, file.Experiment)
 			}
+		case "runner_selected_cells", "rq5_cell_translation", "rq5_cell_map":
+			if file.Experiment != "rq5" || !plannedExperiments["rq5"] {
+				return fmt.Errorf("deployment evidence %s is only valid for a planned RQ5 experiment", file.Kind)
+			}
 		default:
 			return fmt.Errorf("deployment evidence has unknown kind %q", file.Kind)
 		}
@@ -210,6 +214,19 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 			return err
 		}
 	}
+	var rq5Mapping *RQ5WorkloadCellMap
+	if plannedExperiments["rq5"] {
+		for _, kind := range []string{"runner_selected_cells", "rq5_cell_translation", "rq5_cell_map"} {
+			if kinds[kind+"/rq5"] != 1 {
+				return fmt.Errorf("RQ5 evidence kind %s count=%d, want 1", kind, kinds[kind+"/rq5"])
+			}
+		}
+		mapping, err := validateRQ5CoordinateEvidence(root, planned, record.Files)
+		if err != nil {
+			return err
+		}
+		rq5Mapping = &mapping
+	}
 	if err := validateProfileBinding(root, planned, record.Files); err != nil {
 		return err
 	}
@@ -221,7 +238,7 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 	}
 	observed := map[string]bool{}
 	for experiment, file := range rawByExperiment {
-		if err := validateCampaignJSONL(filepath.Join(root, file.Path), campaignID, experiment, planned, observed); err != nil {
+		if err := validateCampaignJSONL(filepath.Join(root, file.Path), campaignID, experiment, planned, observed, rq5Mapping); err != nil {
 			return err
 		}
 	}
@@ -412,7 +429,104 @@ func validateSelectedCells(root, experiment string, planned PlannedDeploy, files
 	return nil
 }
 
-func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedDeploy, observed map[string]bool) error {
+func validateRQ5CoordinateEvidence(root string, planned PlannedDeploy,
+	files []CampaignEvidenceFile) (RQ5WorkloadCellMap, error) {
+	mapFile, err := campaignExperimentEvidenceFile(files, "rq5_cell_map", "rq5")
+	if err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	mapping, mappingSHA, err := LoadRQ5WorkloadCellMap(filepath.Join(root, mapFile.Path))
+	if err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	if mappingSHA != mapFile.SHA256 {
+		return RQ5WorkloadCellMap{}, errors.New("retained RQ5 cell map digest differs from its evidence reference")
+	}
+	translationFile, err := campaignExperimentEvidenceFile(files, "rq5_cell_translation", "rq5")
+	if err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	var translation RQ5CellTranslationEvidence
+	if err := decodeStrictCampaignFile(filepath.Join(root, translationFile.Path), &translation); err != nil {
+		return RQ5WorkloadCellMap{}, fmt.Errorf("RQ5 cell translation: %w", err)
+	}
+	if translation.MappingRetainedPath != mapFile.Path {
+		return RQ5WorkloadCellMap{}, errors.New("RQ5 cell translation names a different retained map path")
+	}
+	if err := translation.Validate(mapping, mappingSHA); err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	campaignFile, err := campaignExperimentEvidenceFile(files, "selected_cells", "rq5")
+	if err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	runnerFile, err := campaignExperimentEvidenceFile(files, "runner_selected_cells", "rq5")
+	if err != nil {
+		return RQ5WorkloadCellMap{}, err
+	}
+	var campaignSelected, runnerSelected []string
+	if err := decodeStrictCampaignFile(filepath.Join(root, campaignFile.Path), &campaignSelected); err != nil {
+		return RQ5WorkloadCellMap{}, fmt.Errorf("RQ5 campaign selected cells: %w", err)
+	}
+	if err := decodeStrictCampaignFile(filepath.Join(root, runnerFile.Path), &runnerSelected); err != nil {
+		return RQ5WorkloadCellMap{}, fmt.Errorf("RQ5 runner selected cells: %w", err)
+	}
+	if !equalSortedStrings(campaignSelected, translation.CampaignCells) ||
+		!equalSortedStrings(runnerSelected, translation.ExperimentCells) {
+		return RQ5WorkloadCellMap{}, errors.New("RQ5 retained selected-cell forms differ from the translation evidence")
+	}
+	wantCampaign := make([]string, 0, len(planned.Cells))
+	for _, cell := range planned.Cells {
+		if strings.HasPrefix(cell, "rq5/") {
+			wantCampaign = append(wantCampaign, cell)
+		}
+	}
+	if !equalSortedStrings(campaignSelected, wantCampaign) {
+		return RQ5WorkloadCellMap{}, errors.New("RQ5 campaign coordinates differ from the planned profile partition")
+	}
+	return mapping, nil
+}
+
+func campaignExperimentEvidenceFile(files []CampaignEvidenceFile, kind, experiment string) (CampaignEvidenceFile, error) {
+	var matched CampaignEvidenceFile
+	count := 0
+	for _, file := range files {
+		if file.Kind == kind && file.Experiment == experiment {
+			matched = file
+			count++
+		}
+	}
+	if count != 1 {
+		return CampaignEvidenceFile{}, fmt.Errorf("evidence kind %s/%s count=%d, want 1", kind, experiment, count)
+	}
+	return matched, nil
+}
+
+func decodeStrictCampaignFile(path string, target any) error {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("file has trailing JSON")
+	}
+	return nil
+}
+
+func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedDeploy, observed map[string]bool,
+	rq5Mappings ...*RQ5WorkloadCellMap) error {
+	var rq5Mapping *RQ5WorkloadCellMap
+	if len(rq5Mappings) > 1 {
+		return errors.New("multiple RQ5 coordinate maps supplied")
+	}
+	if len(rq5Mappings) == 1 {
+		rq5Mapping = rq5Mappings[0]
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -420,7 +534,26 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 	defer file.Close()
 	allowed := map[string]bool{}
 	for _, cell := range planned.Cells {
-		allowed[cell] = true
+		if strings.HasPrefix(cell, experiment+"/") {
+			allowed[cell] = true
+		}
+	}
+	if experiment == "rq5" {
+		if rq5Mapping == nil {
+			return errors.New("RQ5 JSONL validation requires the explicit coordinate map")
+		}
+		campaign := make([]string, 0, len(allowed))
+		for cell := range allowed {
+			campaign = append(campaign, cell)
+		}
+		translated, err := rq5Mapping.TranslateCampaignCells(campaign)
+		if err != nil {
+			return err
+		}
+		allowed = make(map[string]bool, len(translated))
+		for _, cell := range translated {
+			allowed[cell] = true
+		}
 	}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
@@ -439,10 +572,18 @@ func validateCampaignJSONL(path, campaignID, experiment string, planned PlannedD
 			sample.ProfileBinding.CatalogSHA256 != planned.CatalogSHA256 {
 			return fmt.Errorf("JSONL line %d differs from its profile assignment", lines)
 		}
-		if observed[identity] {
-			return fmt.Errorf("JSONL cell %s is duplicated", identity)
+		observedIdentity := identity
+		if experiment == "rq5" {
+			campaign, err := rq5Mapping.TranslateExperimentCells([]string{identity})
+			if err != nil {
+				return fmt.Errorf("JSONL line %d: %w", lines, err)
+			}
+			observedIdentity = campaign[0]
 		}
-		observed[identity] = true
+		if observed[observedIdentity] {
+			return fmt.Errorf("JSONL cell %s is duplicated", observedIdentity)
+		}
+		observed[observedIdentity] = true
 	}
 	if err := scanner.Err(); err != nil {
 		return err

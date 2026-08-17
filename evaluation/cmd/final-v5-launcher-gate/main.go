@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
 
 func main() {
@@ -17,6 +18,9 @@ func main() {
 	samplesPerCell := flag.Int("samples-per-cell", 1, "exact retained sample count per selected cell")
 	retainedInput := flag.Bool("retained-sample-input", false,
 		"offline audit only: wrap immutable pre-fix flat Sample JSONL in memory")
+	campaignSelectedPath := flag.String("campaign-selected-cells", "",
+		"RQ5 only: strict JSON array of the untranslated campaign coordinates")
+	rq5MapPath := flag.String("rq5-cell-map", "", "RQ5 only: exact source-controlled coordinate map")
 	flag.Parse()
 
 	if *experimentID == "" || *selectedPath == "" || *inputPath == "" || *campaignClass == "" {
@@ -33,6 +37,24 @@ func main() {
 	var selected []string
 	if err := experiment.StrictJSON(selectedBytes, &selected); err != nil {
 		fail(fmt.Errorf("decode selected cells: %w", err))
+	}
+	if *experimentID == "rq5" {
+		if *campaignSelectedPath == "" || *rq5MapPath == "" {
+			fail(fmt.Errorf("RQ5 launcher gate requires -campaign-selected-cells and -rq5-cell-map"))
+		}
+		campaignSelectedBytes, err := os.ReadFile(*campaignSelectedPath)
+		if err != nil {
+			fail(err)
+		}
+		var campaignSelected []string
+		if err := experiment.StrictJSON(campaignSelectedBytes, &campaignSelected); err != nil {
+			fail(fmt.Errorf("decode RQ5 campaign-selected cells: %w", err))
+		}
+		if err := validateRQ5LauncherSelection(*rq5MapPath, campaignSelected, selected); err != nil {
+			fail(err)
+		}
+	} else if *campaignSelectedPath != "" || *rq5MapPath != "" {
+		fail(fmt.Errorf("RQ5 coordinate mapping flags are invalid for experiment %s", *experimentID))
 	}
 
 	var records []experiment.ProfileCampaignSampleV1
@@ -60,6 +82,40 @@ func main() {
 		"samples":        len(records),
 		"selected_cells": len(selected),
 	})
+}
+
+func validateRQ5LauncherSelection(mapPath string, campaignSelected, experimentSelected []string) error {
+	mapping, _, err := finalv5profile.LoadRQ5WorkloadCellMap(mapPath)
+	if err != nil {
+		return err
+	}
+	translated, err := mapping.TranslateCampaignCells(campaignSelected)
+	if err != nil {
+		return err
+	}
+	if !sameStrings(translated, experimentSelected) {
+		return fmt.Errorf("RQ5 runner-selected cells do not match the explicit campaign coordinate translation")
+	}
+	return nil
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[string]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		counts[value]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func fail(err error) {

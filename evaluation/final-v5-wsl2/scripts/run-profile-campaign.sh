@@ -17,7 +17,7 @@ repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-1}"
 profiles_csv="${TASKGATE_CAMPAIGN_PROFILES:-}"
 [[ "$repetitions" =~ ^[1-9][0-9]*$ ]] || { echo "TASKGATE_CAMPAIGN_REPETITIONS must be positive" >&2; exit 2; }
 
-for command in docker git go jq sha256sum curl; do
+for command in docker git go jq sha256sum curl install; do
   command -v "$command" >/dev/null || { echo "$command is required" >&2; exit 2; }
 done
 
@@ -27,8 +27,9 @@ cd "$repo"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo "profile campaign requires a clean worktree" >&2; exit 2; }
 
 profile_registry="$repo/config/profiles/registry.json"
+rq5_cell_map_source="$repo/config/profiles/rq5-workload-cell-map-v1.json"
 dataset_binding="$(realpath "$TASKGATE_DATASET_BINDINGS")"
-for input in "$profile_registry" "$dataset_binding"; do
+for input in "$profile_registry" "$rq5_cell_map_source" "$dataset_binding"; do
   [[ -f "$input" && ! -L "$input" ]] || { echo "required input is missing or unsafe: $input" >&2; exit 2; }
 done
 
@@ -38,6 +39,12 @@ mkdir -m 700 -p "$campaign_root/source" "$campaign_root/deployments"
 plan="$campaign_root/campaign-plan.json"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-plan -require-ready >"$plan"
 chmod 600 "$plan"
+rq5_cell_map_retained_rel="source/rq5-workload-cell-map-v1.json"
+rq5_cell_map_retained="$campaign_root/$rq5_cell_map_retained_rel"
+install -m 600 "$rq5_cell_map_source" "$rq5_cell_map_retained"
+rq5_cell_map_sha="$(sha256sum "$rq5_cell_map_retained" | awk '{print $1}')"
+[[ "$rq5_cell_map_sha" == "$(sha256sum "$rq5_cell_map_source" | awk '{print $1}')" ]] || {
+  echo "retained RQ5 cell map differs from its source" >&2; exit 1; }
 
 if [[ -n "$profiles_csv" ]]; then
   IFS=, read -r -a selected_profiles <<< "$profiles_csv"
@@ -398,8 +405,19 @@ for alias in "${selected_profiles[@]}"; do
     fi
     for experiment in "${experiments[@]}"; do
       current_stage="cells_$experiment"
-      selected="$current_dir/selected-cells/$experiment.json"
-      jq --arg experiment "$experiment" '[.[] | select(startswith($experiment + "/"))]' <<<"$cells_json" >"$selected"
+      campaign_selected="$current_dir/selected-cells/$experiment.json"
+      jq --arg experiment "$experiment" '[.[] | select(startswith($experiment + "/"))]' <<<"$cells_json" >"$campaign_selected"
+      selected="$campaign_selected"
+      gate_mapping_args=()
+      if [[ "$experiment" == rq5 ]]; then
+        selected="$current_dir/selected-cells/rq5.runner.json"
+        translation="$current_dir/selected-cells/rq5.translation.json"
+        GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-rq5-cell-map \
+          -map config/profiles/rq5-workload-cell-map-v1.json \
+          -campaign-selected "$campaign_selected" -experiment-selected-out "$selected" \
+          -evidence-out "$translation" -retained-map-path "$rq5_cell_map_retained_rel"
+        gate_mapping_args=(-campaign-selected-cells "$campaign_selected" -rq5-cell-map "$rq5_cell_map_retained")
+      fi
       config="$current_dir/config/$experiment.json"
       jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
         '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
@@ -412,7 +430,7 @@ for alias in "${selected_profiles[@]}"; do
         >"$current_dir/$experiment.log" 2>&1
       GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
         -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
-        -campaign-class pilot -samples-per-cell 1 >/dev/null || {
+        -campaign-class pilot -samples-per-cell 1 "${gate_mapping_args[@]}" >/dev/null || {
         echo "$deployment_key/$experiment retained a failed or misrouted cell" >&2; exit 1; }
       echo "P30-STAGE: cells=pass deployment=$deployment_key experiment=$experiment count=$(jq -s 'length' "$raw")"
     done
@@ -453,6 +471,11 @@ for alias in "${selected_profiles[@]}"; do
     for experiment in "${experiments[@]}"; do
       add_ref config "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/config/$experiment.json"
       add_ref selected_cells "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/$experiment.json"
+      if [[ "$experiment" == rq5 ]]; then
+        add_ref runner_selected_cells rq5 "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/rq5.runner.json"
+        add_ref rq5_cell_translation rq5 "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/rq5.translation.json"
+        add_ref rq5_cell_map rq5 "$rq5_cell_map_retained"
+      fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
