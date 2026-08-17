@@ -150,6 +150,7 @@ func (adapter *rq5Adapter) Execute(ctx context.Context, operation experiment.Ada
 		return failedSample(operation, "real_rq5_cycle_failed")
 	}
 	if evidence == nil {
+		writeAdapterFailureDiagnostic("rq5", operation, errors.New("RQ5 driver omitted cycle evidence"))
 		return failedSample(operation, "rq5_driver_omitted_cycle_evidence")
 	}
 	sample := rq5SampleFromEvidence(operation, evidence)
@@ -159,10 +160,12 @@ func (adapter *rq5Adapter) Execute(ctx context.Context, operation experiment.Ada
 	}
 	if adapter.datasetManifestSHA256 != "" &&
 		evidence.DatasetManifestSHA256 != adapter.datasetManifestSHA256 {
+		writeAdapterFailureDiagnostic("rq5", operation, errors.New("RQ5 dataset manifest changed across cycles"))
 		return rq5MeasuredFailure(sample, "rq5_dataset_manifest_changed_across_cycles", false)
 	}
 	runtimeIdentity := rq5EvidenceRuntimeIdentity(evidence)
 	if adapter.runtimeIdentity != "" && runtimeIdentity != adapter.runtimeIdentity {
+		writeAdapterFailureDiagnostic("rq5", operation, errors.New("RQ5 runtime image identity changed across cycles"))
 		return rq5MeasuredFailure(sample, "rq5_runtime_image_changed_across_cycles", false)
 	}
 	adapter.datasetManifestSHA256 = evidence.DatasetManifestSHA256

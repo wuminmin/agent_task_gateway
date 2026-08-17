@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
 func captureAdapterDiagnostics(t *testing.T) *bytes.Buffer {
@@ -15,6 +19,34 @@ func captureAdapterDiagnostics(t *testing.T) *bytes.Buffer {
 	adapterDiagnosticOutput = &output
 	t.Cleanup(func() { adapterDiagnosticOutput = previous })
 	return &output
+}
+
+func TestEveryAdapterFailureCauseReachesDiagnosticBoundary(t *testing.T) {
+	output := captureAdapterDiagnostics(t)
+	for _, adapter := range experimentIDs {
+		operation := experiment.AdapterOperation{WorkloadID: "cause", Scale: "negative", Mode: "control"}
+		writeAdapterFailureDiagnostic(adapter, operation, fmt.Errorf("%s private cause", adapter))
+	}
+	for _, adapter := range experimentIDs {
+		want := adapter + " cause/negative/control failed: " + adapter + " private cause"
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("%s cause was not retained on stderr: %q", adapter, output.String())
+		}
+	}
+}
+
+func TestEveryAdapterExecutionSourceUsesCauseDiagnostic(t *testing.T) {
+	for _, adapter := range experimentIDs {
+		payload, err := os.ReadFile(adapter + ".go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		operationCall := `writeAdapterFailureDiagnostic("` + adapter + `"`
+		sampleCall := `writeAdapterSampleFailureDiagnostic("` + adapter + `"`
+		if !strings.Contains(string(payload), operationCall) && !strings.Contains(string(payload), sampleCall) {
+			t.Errorf("%s execution source has no cause diagnostic call", adapter)
+		}
+	}
 }
 
 func TestAdapterInitializationFailureWritesCauseToDiagnosticBoundary(t *testing.T) {

@@ -91,6 +91,7 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 		}
 		sample, err := adapter.executeDependencyE2E(ctx, operation, binding, cell)
 		if err != nil {
+			writeAdapterFailureDiagnostic("scale", operation, err)
 			return retainTaskGateRejection(
 				retainedScaleFailure(operation, sample, "dependency_e2e_measurement_failed"), err)
 		}
@@ -106,6 +107,7 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 		}
 		sample, err := executeOutcomeMerkle(ctx, operation)
 		if err != nil {
+			writeAdapterFailureDiagnostic("scale", operation, err)
 			return retainedScaleFailure(operation, sample, "outcome_merkle_measurement_failed")
 		}
 		return validateScalePass(sample)
@@ -119,6 +121,7 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 		}
 		sample, err := executeKernelStorage(operation)
 		if err != nil {
+			writeAdapterFailureDiagnostic("scale", operation, err)
 			return retainedScaleFailure(operation, sample, "kernel_storage_measurement_failed")
 		}
 		return validateScalePass(sample)
@@ -130,6 +133,7 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 func validateScalePass(sample experiment.Sample) experiment.Sample {
 	if sample.Status == "pass" {
 		if err := experiment.ValidateScaleEvidence(sample); err != nil {
+			writeAdapterSampleFailureDiagnostic("scale", sample, err)
 			sample.Status = "fail"
 			sample.ErrorCode = "scale_evidence_invariant_failed"
 			sample.Reason = "the retained real scale sample failed its independent evidence invariant"
@@ -175,6 +179,11 @@ func validateDependencyCellBinding(scale string, cell dependencyCellBinding) err
 func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation experiment.AdapterOperation,
 	binding adapterDeploymentBinding, cell dependencyCellBinding) (experiment.Sample, error) {
 	spec, _ := experiment.ParseDependencyScale(operation.Scale)
+	profileTask, err := resolveScaleProfileTask(operation, cell.Task)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	cell.Task = profileTask
 	probeDigest, err := adapter.real.verifyDatasetProbe(ctx, binding)
 	if err != nil {
 		return experiment.Sample{}, err

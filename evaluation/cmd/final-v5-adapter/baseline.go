@@ -377,8 +377,7 @@ func (adapter *realAdapter) Execute(ctx context.Context, operation experiment.Ad
 		// does belong on the diagnostic channel: without this a targeted run
 		// can observe that a cell failed and never why, which is exactly the
 		// position S5/SF10 left this repository in on 2026-08-16.
-		fmt.Fprintf(os.Stderr, "baseline %s/%s/%s failed: %v\n",
-			operation.WorkloadID, operation.Scale, operation.Mode, err)
+		writeAdapterFailureDiagnostic("baseline", operation, err)
 		return invalidSample(operation, "real_measurement_failed")
 	}
 	return sample

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -271,7 +272,7 @@ func TestProvSQLFailureAndInvariantPathsRetainPartialEvidence(t *testing.T) {
 	adapter := &provSQLAdapter{binding: adapterDeploymentBinding{SectionSHA256: strings.Repeat("d", 64)},
 		datasetSHA256: provsqlfixture.ExpectedDatasetSHA256()}
 	failed := adapter.retainedProvSQLFailure(operation, expected, spec, nonce, "direct_complete_typed_drain",
-		system, execution, "external_query_or_drain", "provsql_direct_measurement_failed")
+		system, execution, "external_query_or_drain", "provsql_direct_measurement_failed", errors.New("typed drain failed"))
 	if failed.Status != "fail" || failed.ErrorCode != "provsql_direct_measurement_failed" ||
 		failed.RowCount != 2 || failed.ResultSHA256 != execution.ResultSHA256 || failed.ProvSQLVerification == nil ||
 		failed.ProvSQLVerification.TypedDrainFields != 8 || failed.ProvSQLVerification.FailureStage != "external_query_or_drain" {
@@ -282,7 +283,7 @@ func TestProvSQLFailureAndInvariantPathsRetainPartialEvidence(t *testing.T) {
 	failed.ErrorCode, failed.Reason = "", ""
 	failed.Counters = map[string]int64{}
 	failed.Counters["retained_marker"] = 7
-	invariant := retainedProvSQLInvariantFailure(failed)
+	invariant := retainedProvSQLInvariantFailure(failed, errors.New("evidence invariant failed"))
 	if invariant.Status != "fail" || invariant.ErrorCode != "provsql_evidence_invariant_failed" ||
 		invariant.Counters["retained_marker"] != 7 || invariant.ResultSHA256 != execution.ResultSHA256 ||
 		invariant.ProvSQLVerification == nil || invariant.ProvSQLVerification.FailureStage != "adapter_evidence_invariant" {

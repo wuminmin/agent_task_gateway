@@ -133,7 +133,7 @@ func (adapter *compilerAdapter) Execute(ctx context.Context, operation experimen
 	}
 	compiler, err := one.NewCompiler()
 	if err != nil {
-		return compilerOutcome(sample, "fail", "compiler_fixture_constructor_failed")
+		return compilerFailure(sample, "fail", "compiler_fixture_constructor_failed", err)
 	}
 	if operation.Mode == "structured_rejection" {
 		return validateCompilerPass(adapter.executeCompilerControl(sample, compiler, one))
@@ -144,6 +144,7 @@ func (adapter *compilerAdapter) Execute(ctx context.Context, operation experimen
 func validateCompilerPass(sample experiment.Sample) experiment.Sample {
 	if sample.Status == "pass" {
 		if err := experiment.ValidateCompilerEvidence(sample); err != nil {
+			writeAdapterSampleFailureDiagnostic("compiler", sample, err)
 			sample.Status = "fail"
 			sample.ErrorCode = "compiler_evidence_invariant_failed"
 			sample.Reason = "the retained real compiler sample failed its independent evidence invariant"
@@ -160,23 +161,23 @@ func (adapter *compilerAdapter) executeCompilerMeasurement(ctx context.Context, 
 			sample.CompilerVerification.StructuredErrorCode = string(structured.Code)
 			sample.CompilerVerification.StructuredErrorRelationSHA256 = compilerRelationSHA256(structured.Relation)
 		}
-		return compilerOutcome(sample, "fail", "compiler_supported_cell_rejected")
+		return compilerFailure(sample, "fail", "compiler_supported_cell_rejected", measuredErr)
 	}
 
 	allocation, allocationMetrics, allocationErr := compiler.CompileAllocationMeasured(one.MeasuredRoot)
 	if err := setCompilerAllocations(&sample, allocationMetrics); err != nil {
-		return compilerOutcome(sample, "invalid", "compiler_allocation_counter_overflow")
+		return compilerFailure(sample, "invalid", "compiler_allocation_counter_overflow", err)
 	}
 	if allocationErr != nil {
 		if structured, ok := asCompilerError(allocationErr); ok {
 			sample.CompilerVerification.AllocationErrorCode = string(structured.Code)
 		}
-		return compilerOutcome(sample, "fail", "compiler_allocation_run_failed")
+		return compilerFailure(sample, "fail", "compiler_allocation_run_failed", allocationErr)
 	}
 
 	repeat, repeatErr := compiler.Compile(one.MeasuredRoot)
 	if repeatErr != nil {
-		return compilerOutcome(sample, "fail", "compiler_repeat_run_failed")
+		return compilerFailure(sample, "fail", "compiler_repeat_run_failed", repeatErr)
 	}
 	artifacts := map[string]viewcompiler.Artifact{"measured": measured, "repeat": repeat, "allocation": allocation}
 	for name, root := range one.SemanticRoots {
@@ -185,14 +186,14 @@ func (adapter *compilerAdapter) executeCompilerMeasurement(ctx context.Context, 
 		}
 		compiled, err := compiler.Compile(root)
 		if err != nil {
-			return compilerOutcome(sample, "fail", "compiler_semantic_variant_failed")
+			return compilerFailure(sample, "fail", "compiler_semantic_variant_failed", fmt.Errorf("compile semantic variant %s: %w", name, err))
 		}
 		artifacts[name] = compiled
 	}
 
 	if compilerfixture.JSONSHA256(measured) != compilerfixture.JSONSHA256(repeat) ||
 		compilerfixture.JSONSHA256(measured) != compilerfixture.JSONSHA256(allocation) {
-		return compilerOutcome(sample, "fail", "compiler_artifact_nondeterministic")
+		return compilerFailure(sample, "fail", "compiler_artifact_nondeterministic", errors.New("measured, repeat, and allocation artifacts differ"))
 	}
 	direct := artifacts["direct"]
 	for name, artifact := range artifacts {
@@ -203,7 +204,7 @@ func (adapter *compilerAdapter) executeCompilerMeasurement(ctx context.Context, 
 			artifact.InterfaceDigest != direct.InterfaceDigest ||
 			compilerfixture.JSONSHA256(artifact.Outputs) != compilerfixture.JSONSHA256(direct.Outputs) ||
 			compilerfixture.JSONSHA256(artifact.BaseProducts) != compilerfixture.JSONSHA256(direct.BaseProducts) {
-			return compilerOutcome(sample, "fail", "compiler_semantic_variant_drift")
+			return compilerFailure(sample, "fail", "compiler_semantic_variant_drift", fmt.Errorf("semantic variant %s differs from direct", name))
 		}
 	}
 
@@ -223,14 +224,18 @@ func (adapter *compilerAdapter) executeCompilerMeasurement(ctx context.Context, 
 		var err error
 		oracle, err = adapter.oracle.Verify(ctx, one, artifacts["nested"])
 		if err != nil {
-			return compilerOutcome(sample, "invalid", "compiler_postgresql_oracle_failed")
+			return compilerFailure(sample, "invalid", "compiler_postgresql_oracle_failed", err)
 		}
 		adapter.cache[cacheKey] = oracle
 	}
 	expectedResult, err := canonicalRowsSHA256(one.ExpectedRows)
 	if err != nil || oracle.DirectResultSHA256 != expectedResult || oracle.NestedResultSHA256 != expectedResult ||
 		oracle.DirectResultSHA256 != oracle.NestedResultSHA256 || oracle.Rows != int64(len(one.ExpectedRows)) || oracle.Columns <= 0 {
-		return compilerOutcome(sample, "fail", "compiler_postgresql_result_mismatch")
+		cause := err
+		if cause == nil {
+			cause = errors.New("PostgreSQL oracle result differs from the source-controlled expected rows")
+		}
+		return compilerFailure(sample, "fail", "compiler_postgresql_result_mismatch", cause)
 	}
 
 	descriptor := compilerfixture.DescribeArtifact(measured, one.Registry)
@@ -248,7 +253,7 @@ func (adapter *compilerAdapter) executeCompilerControl(sample experiment.Sample,
 	setCompilerTiming(&sample, metrics)
 	allocationArtifact, allocationMetrics, allocationErr := compiler.CompileAllocationMeasured(one.MeasuredRoot)
 	if err := setCompilerAllocations(&sample, allocationMetrics); err != nil {
-		return compilerOutcome(sample, "invalid", "compiler_allocation_counter_overflow")
+		return compilerFailure(sample, "invalid", "compiler_allocation_counter_overflow", err)
 	}
 	if compileErr == nil || allocationErr == nil {
 		if compileErr == nil {
@@ -259,7 +264,7 @@ func (adapter *compilerAdapter) executeCompilerControl(sample experiment.Sample,
 			descriptor := compilerfixture.DescribeArtifact(allocationArtifact, one.Registry)
 			sample.CompilerVerification.Artifacts = append(sample.CompilerVerification.Artifacts, compilerArtifactEvidence("unexpected_allocation", descriptor))
 		}
-		return compilerOutcome(sample, "fail", "compiler_limit_control_unexpected_success")
+		return compilerFailure(sample, "fail", "compiler_limit_control_unexpected_success", errors.New("compiler limit control unexpectedly succeeded"))
 	}
 	structured, compileOK := asCompilerError(compileErr)
 	allocationStructured, allocationOK := asCompilerError(allocationErr)
@@ -276,7 +281,7 @@ func (adapter *compilerAdapter) executeCompilerControl(sample experiment.Sample,
 		want = viewcompiler.CodeSourceLimit
 	}
 	if !compileOK || !allocationOK || structured.Code != want || allocationStructured.Code != want || structured.Relation != allocationStructured.Relation {
-		return compilerOutcome(sample, "fail", "compiler_limit_control_wrong_error")
+		return compilerFailure(sample, "fail", "compiler_limit_control_wrong_error", fmt.Errorf("compiler limit control returned compile=%v allocation=%v, want %s", compileErr, allocationErr, want))
 	}
 	sample.Rejected = true
 	sample.RejectedNoResult = true
@@ -286,7 +291,8 @@ func (adapter *compilerAdapter) executeCompilerControl(sample experiment.Sample,
 	return sample
 }
 
-func compilerOutcome(sample experiment.Sample, status, code string) experiment.Sample {
+func compilerFailure(sample experiment.Sample, status, code string, cause error) experiment.Sample {
+	writeAdapterSampleFailureDiagnostic("compiler", sample, cause)
 	sample.Status, sample.ErrorCode = status, code
 	sample.Reason = "source-controlled compiler adapter failed closed; detailed diagnostics remain outside the evidence channel"
 	return sample

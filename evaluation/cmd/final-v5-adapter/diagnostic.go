@@ -22,6 +22,14 @@ func writeAdapterFailureDiagnostic(adapter string, operation experiment.AdapterO
 		adapter, operation.WorkloadID, operation.Scale, operation.Mode, err)
 }
 
+func writeAdapterSampleFailureDiagnostic(adapter string, sample experiment.Sample, err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintf(adapterDiagnosticOutput, "%s %s/%s/%s failed: %v\n",
+		adapter, sample.WorkloadID, sample.Scale, sample.Mode, err)
+}
+
 func writeAdapterInitializationDiagnostic(adapter string, err error) {
 	if err == nil {
 		return

@@ -125,7 +125,7 @@ func (adapter *artifactAdapter) Execute(ctx context.Context, operation experimen
 		// A retained failure still has to be diagnosable by the operator running
 		// the deployment, so the underlying error goes to this process's stderr,
 		// which never enters a sample, an evidence file or an agent context.
-		fmt.Fprintf(os.Stderr, "artifact cell %s: %v\n", cell.Identity, err)
+		writeAdapterFailureDiagnostic("artifact", operation, err)
 		return retainTaskGateRejection(retainedArtifactFailure(operation, sample, artifactFailureCode(err)), err)
 	}
 	return validateArtifactPass(sample)
@@ -150,6 +150,7 @@ func artifactFailureCode(err error) string {
 func validateArtifactPass(sample experiment.Sample) experiment.Sample {
 	if sample.Status == "pass" {
 		if err := experiment.ValidateArtifactEvidence(sample); err != nil {
+			writeAdapterSampleFailureDiagnostic("artifact", sample, err)
 			sample.Status = "fail"
 			sample.ErrorCode = "artifact_evidence_invariant_failed"
 			sample.Reason = "the retained real artifact sample failed its independent evidence invariant"

@@ -224,7 +224,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 		execution, executeErr := executeProvSQLExternal(ctx, adapter.direct, spec, nonce, false, adapter.directSystem)
 		if executeErr != nil {
 			return adapter.retainedProvSQLFailure(operation, expected, spec, nonce, "direct_complete_typed_drain",
-				adapter.directSystem, execution, "external_query_or_drain", "provsql_direct_measurement_failed")
+				adapter.directSystem, execution, "external_query_or_drain", "provsql_direct_measurement_failed", executeErr)
 		}
 		sample = externalProvSQLSample(operation, execution, "postgresql", provsqlfixture.PhysicalSQL)
 		sample.ProvSQLVerification = adapter.provSQLVerification(operation, expected, spec, nonce,
@@ -233,11 +233,11 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 		execution, executeErr := executeProvSQLExternal(ctx, adapter.provsql, spec, nonce, true, adapter.provSQLSystem)
 		if executeErr != nil {
 			return adapter.retainedProvSQLFailure(operation, expected, spec, nonce, "provsql_complete_typed_drain",
-				adapter.provSQLSystem, execution, "external_query_or_circuit_verification", "provsql_circuit_measurement_failed")
+				adapter.provSQLSystem, execution, "external_query_or_circuit_verification", "provsql_circuit_measurement_failed", executeErr)
 		}
-		if adapter.validateAndAdvanceProvSQLSequence(nonce, execution) != nil {
+		if sequenceErr := adapter.validateAndAdvanceProvSQLSequence(nonce, execution); sequenceErr != nil {
 			return adapter.retainedProvSQLFailure(operation, expected, spec, nonce, "provsql_complete_typed_drain",
-				adapter.provSQLSystem, execution, "cross_operation_sequence", "provsql_circuit_measurement_failed")
+				adapter.provSQLSystem, execution, "cross_operation_sequence", "provsql_circuit_measurement_failed", sequenceErr)
 		}
 		sample = externalProvSQLSample(operation, execution, "provsql", provsqlfixture.PhysicalSQL)
 		sample.ProvSQLVerification = adapter.provSQLVerification(operation, expected, spec, nonce,
@@ -251,7 +251,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 				ResultSHA256: sample.ResultSHA256, TypedDrainFields: sample.RowCount * int64(sample.ColumnCount),
 				TypedDrainSHA256: sample.ResultSHA256}
 			failed := adapter.retainedProvSQLFailure(operation, expected, spec, nonce, "taskgate_released_parquet_v8",
-				provSQLSystem{}, execution, "taskgate_query_or_verifier", "provsql_taskgate_measurement_failed")
+				provSQLSystem{}, execution, "taskgate_query_or_verifier", "provsql_taskgate_measurement_failed", executeErr)
 			copyProvSQLPartialSample(&failed, sample)
 			failed.ProvSQLVerification = adapter.provSQLVerification(operation, expected, spec, nonce,
 				"taskgate_released_parquet_v8", provSQLSystem{}, execution)
@@ -271,7 +271,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 		validate = experiment.ValidateProvSQLWarmupEvidence
 	}
 	if err := validate(sample); err != nil {
-		return retainedProvSQLInvariantFailure(sample)
+		return retainedProvSQLInvariantFailure(sample, err)
 	}
 	return sample
 }
@@ -294,7 +294,8 @@ func copyProvSQLTaskGateSnapshots(target, source *experiment.ProvSQLVerification
 	target.ObserverWindow = source.ObserverWindow
 }
 
-func retainedProvSQLInvariantFailure(sample experiment.Sample) experiment.Sample {
+func retainedProvSQLInvariantFailure(sample experiment.Sample, cause error) experiment.Sample {
+	writeAdapterSampleFailureDiagnostic("provsql", sample, cause)
 	sample.Status = "fail"
 	sample.ErrorCode = "provsql_evidence_invariant_failed"
 	sample.Reason = "the retained real ProvSQL sample failed its independent evidence invariant"
@@ -349,7 +350,8 @@ func (adapter *provSQLAdapter) provSQLVerification(operation experiment.AdapterO
 
 func (adapter *provSQLAdapter) retainedProvSQLFailure(operation experiment.AdapterOperation, expected boundQueryExpectation,
 	spec provsqlfixture.Scale, nonce int64, boundary string, system provSQLSystem, execution provSQLExecution,
-	stage, code string) experiment.Sample {
+	stage, code string, cause error) experiment.Sample {
+	writeAdapterFailureDiagnostic("provsql", operation, cause)
 	sample := failedSample(operation, code)
 	sample.ClientAvailableMS, sample.ClientFullDrainMS = execution.AvailableMS, execution.FullDrainMS
 	if execution.FullDrainMS > 0 {
