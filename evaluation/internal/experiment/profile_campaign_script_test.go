@@ -38,14 +38,19 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`export TASKGATE_FINAL_V5_CATALOG=`,
 		`export TASKGATE_PROFILE_ARTIFACT_DIR=`,
 		`export TASKGATE_FINAL_V5_REPO_ROOT=`,
-		`selected Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`,
-		`selected Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment`,
+		`selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment`,
+		`selected Artifact profile requires POSTGRESQL_IDENTITY before deployment`,
+		`selected ProvSQL profile requires PROVSQL_ATTESTATION_QUALIFICATION before deployment`,
+		`selected ProvSQL profile requires PROVSQL_POSTGRESQL_IDENTITY before deployment`,
 		`selected Scale profile requires SCALE_ATTESTATION_QUALIFICATION before deployment`,
 		`selected Scale profile requires SCALE_POSTGRESQL_IDENTITY before deployment`,
-		`any(. == "artifact" or . == "provsql")`,
+		`any(. == "artifact")`,
+		`any(. == "provsql")`,
 		`any(. == "scale")`,
 		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`,
 		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"`,
+		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$provsql_finalizer_qualification"`,
+		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$provsql_finalizer_postgresql_identity"`,
 		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$scale_finalizer_qualification"`,
 		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$scale_finalizer_postgresql_identity"`,
 		`finalizer_material_dispatch`,
@@ -53,6 +58,10 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`attestation_qualification_sha256:$finalizer_qualification_sha256`,
 		`postgresql_identity_path:$finalizer_postgresql_identity`,
 		`postgresql_identity_sha256:$finalizer_postgresql_identity_sha256`,
+		`attestation_qualification_path:$provsql_finalizer_qualification`,
+		`attestation_qualification_sha256:$provsql_finalizer_qualification_sha256`,
+		`postgresql_identity_path:$provsql_finalizer_postgresql_identity`,
+		`postgresql_identity_sha256:$provsql_finalizer_postgresql_identity_sha256`,
 		`attestation_qualification_path:$scale_finalizer_qualification`,
 		`attestation_qualification_sha256:$scale_finalizer_qualification_sha256`,
 		`postgresql_identity_path:$scale_finalizer_postgresql_identity`,
@@ -96,26 +105,38 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	if preregistrationInstall < 0 || preregistrationInstall > composeUp {
 		t.Fatal("concurrency preregistration is not retained and digest-checked before service startup")
 	}
-	qualificationGate := strings.Index(script, `selected Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`)
+	qualificationGate := strings.Index(script, `selected Artifact profile requires ATTESTATION_QUALIFICATION before deployment`)
+	provSQLQualificationGate := strings.Index(script, `selected ProvSQL profile requires PROVSQL_ATTESTATION_QUALIFICATION before deployment`)
 	scaleQualificationGate := strings.Index(script, `selected Scale profile requires SCALE_ATTESTATION_QUALIFICATION before deployment`)
 	qualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`)
+	provSQLQualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$provsql_finalizer_qualification"`)
 	scaleQualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$scale_finalizer_qualification"`)
 	materialUnset := strings.LastIndex(script, `unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY`)
 	runnerDispatch := strings.Index(script, `go run "./evaluation/cmd/$runner"`)
 	if qualificationGate < 0 || qualificationGate > composeUp {
-		t.Fatal("Artifact/ProvSQL qualification material is not required before deployment startup")
+		t.Fatal("Artifact qualification material is not required before deployment startup")
+	}
+	if provSQLQualificationGate < 0 || provSQLQualificationGate > composeUp {
+		t.Fatal("ProvSQL qualification material is not required before deployment startup")
 	}
 	if scaleQualificationGate < 0 || scaleQualificationGate > composeUp {
 		t.Fatal("Scale qualification material is not required before deployment startup")
 	}
 	if qualificationExport < 0 || runnerDispatch < 0 || qualificationExport > runnerDispatch {
-		t.Fatal("Artifact/ProvSQL qualification material is not exported before experiment runner dispatch")
+		t.Fatal("Artifact qualification material is not exported before experiment runner dispatch")
+	}
+	if provSQLQualificationExport < 0 || provSQLQualificationExport > runnerDispatch {
+		t.Fatal("ProvSQL qualification material is not exported before experiment runner dispatch")
 	}
 	if scaleQualificationExport < 0 || scaleQualificationExport > runnerDispatch {
 		t.Fatal("Scale qualification material is not exported before experiment runner dispatch")
 	}
-	if materialUnset < 0 || materialUnset > qualificationExport || materialUnset > scaleQualificationExport {
+	if materialUnset < 0 || materialUnset > qualificationExport || materialUnset > provSQLQualificationExport ||
+		materialUnset > scaleQualificationExport {
 		t.Fatal("experiment dispatch can inherit finalizer material from a preceding experiment")
+	}
+	if strings.Contains(script, `artifact | provsql)`) {
+		t.Fatal("Artifact and ProvSQL still share one finalizer material dispatch")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")
