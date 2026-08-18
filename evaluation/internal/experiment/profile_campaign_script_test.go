@@ -144,6 +144,39 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	}
 }
 
+func TestProfileCampaignArtifactRootMatchesMaterializerLayout(t *testing.T) {
+	launcherPath := filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-profile-campaign.sh")
+	launcherPayload, err := os.ReadFile(launcherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializerPath := filepath.Join("..", "finalv5profile", "artifacts.go")
+	materializerPayload, err := os.ReadFile(materializerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializer := string(materializerPayload)
+	if !strings.Contains(materializer, `final := filepath.Join(destinationRoot, profile.ID)`) {
+		t.Fatal("profile artifact materializer no longer writes beneath destination/<profile-id>")
+	}
+
+	launcher := string(launcherPayload)
+	materialize := strings.Index(launcher, `--destination "$profile_artifacts"`)
+	deriveProfileRoot := strings.Index(launcher, `profile_artifact_dir="$profile_artifacts/$profile_id"`)
+	exportProfileRoot := strings.Index(launcher,
+		`export TASKGATE_PROFILE_ARTIFACT_DIR="$(cd "$profile_artifact_dir" && pwd)"`)
+	activationParentRoot := strings.Index(launcher, `-profile-artifact-root "$profile_artifacts"`)
+	if materialize < 0 || deriveProfileRoot < materialize || exportProfileRoot < deriveProfileRoot {
+		t.Fatal("finalizer artifact root is not derived from the materializer's destination/<profile-id> layout")
+	}
+	if activationParentRoot < exportProfileRoot {
+		t.Fatal("activation no longer receives the parent root from which it derives its own profile-id directory")
+	}
+	if strings.Contains(launcher, `export TASKGATE_PROFILE_ARTIFACT_DIR="$profile_artifacts"`) {
+		t.Fatal("finalizer artifact root still names the parent that contains multiple profile directories")
+	}
+}
+
 func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {
 	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-deployment.sh"))
 	if err != nil {

@@ -605,7 +605,12 @@ for alias in "${selected_profiles[@]}"; do
     GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-artifacts --profile-id "$profile_id" \
       --source "$full_artifacts" --destination "$profile_artifacts" --manifest-out "$artifact_manifest" \
       >"$current_dir/profile-artifacts.log"
-    export TASKGATE_PROFILE_ARTIFACT_DIR="$profile_artifacts"
+    profile_artifact_dir="$profile_artifacts/$profile_id"
+    [[ -d "$profile_artifact_dir" && ! -L "$profile_artifact_dir" ]] || {
+      echo "materialized profile artifact directory is missing or unsafe: $profile_artifact_dir" >&2
+      exit 1
+    }
+    export TASKGATE_PROFILE_ARTIFACT_DIR="$(cd "$profile_artifact_dir" && pwd)"
 
     current_stage=profile_activation
     profile_binding="$current_dir/profile-binding.json"
