@@ -83,8 +83,9 @@ func TestBuildDeploymentManifestUsesExactImageIDAndVerifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(override), `image: "`+testImageID+`"`) ||
+		!strings.Contains(string(override), `build: !reset null`) ||
 		strings.Contains(string(override), manifest.ImageTag) {
-		t.Fatalf("Compose override does not select only the immutable image ID:\n%s", override)
+		t.Fatalf("Compose override does not select only the immutable image ID and remove the ordinary build:\n%s", override)
 	}
 	verified, err := VerifyBuildDeployment(context.Background(), engine, manifestPath, overridePath,
 		expectedSource(), manifestBindings())

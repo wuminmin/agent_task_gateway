@@ -197,6 +197,42 @@ export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST="$observer_manifest"
 export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST_SHA256="$(sha256sum "$observer_manifest" | awk '{print $1}')"
 export TASKGATE_FINAL_V5_REPO_ROOT="$repo"
 
+# Build the Gateway once from the same clean, published submission tree that
+# produced the sealed host-side tools. Every deployment, including profiles
+# whose present cells do not open an observer window, uses the immutable image
+# ID override. A single Compose topology avoids a profile-routing branch where
+# Artifact/Scale/ProvSQL could silently fall back to the ordinary COPY . . image.
+formal_gateway_build_manifest="$campaign_root/source/formal-gateway-build.json"
+formal_gateway_compose_override="$campaign_root/source/compose.formal-gateway.yaml"
+formal_gateway_build_log="$campaign_root/source/formal-gateway-build.log"
+formal_gateway_tag="taskgate-final-v5-gateway:${TASKGATE_SUBMISSION_COMMIT}"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build build \
+  -root "$repo" -tag "$formal_gateway_tag" \
+  -manifest-out "$formal_gateway_build_manifest" \
+  -compose-override-out "$formal_gateway_compose_override" \
+  -dataset-binding "$TASKGATE_DATASET_BINDINGS" \
+  -profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY" | tee "$formal_gateway_build_log"
+chmod 600 "$formal_gateway_build_log"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build verify-build \
+  -root "$repo" -manifest "$formal_gateway_build_manifest" \
+  -compose-override "$formal_gateway_compose_override" \
+  -dataset-binding "$TASKGATE_DATASET_BINDINGS" \
+  -profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY"
+formal_gateway_image_id="$(jq -er '.image_id' "$formal_gateway_build_manifest")"
+formal_gateway_build_manifest_sha256="$(sha256sum "$formal_gateway_build_manifest" | awk '{print $1}')"
+formal_gateway_compose_override_sha256="$(sha256sum "$formal_gateway_compose_override" | awk '{print $1}')"
+jq -e --arg commit "$TASKGATE_SUBMISSION_COMMIT" --arg image "$formal_gateway_image_id" \
+  --arg dataset "$binding_file_sha" --arg registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256" '
+    .submission_commit == $commit and .clean_tree_at_build == true and .image_id == $image and
+    .build_target == "gateway" and .dataset_binding_sha256 == $dataset and
+    .profile_registry_sha256 == $registry and
+    (.build_context_sha256 | test("^[0-9a-f]{64}$")) and
+    (.source_manifest_sha256 | test("^[0-9a-f]{64}$"))
+  ' "$formal_gateway_build_manifest" >/dev/null || {
+  echo "formal Gateway build manifest does not seal the fixed campaign inputs" >&2; exit 1;
+}
+echo "P53-STAGE: formal_gateway_build=pass image=$formal_gateway_image_id manifest_sha256=$formal_gateway_build_manifest_sha256 builds=1"
+
 rq5_manifest_source_digest() {
   jq -er --arg source "$1" '.source_files | split("\n") | map(select(endswith("  " + $source))) |
     if length == 1 then .[0] | capture("^(?<sha>[0-9a-f]{64})  ").sha else error("RQ5 source missing") end' "$rq5_manifest"
@@ -206,7 +242,12 @@ rq5_config_sha="$(rq5_manifest_source_digest evaluation/daily-publication/config
 
 compose_files=(compose.yaml compose.debug.yaml evaluation/final-v5-wsl2/compose.real-pilot.yaml
   evaluation/final-v5-wsl2/compose.provsql.yaml evaluation/final-v5-wsl2/compose.observer-v3.yaml)
-compose_files_colon="$(IFS=:; printf '%s' "${compose_files[*]}")"
+# Keep the shared formal Compose helper as the only insertion rule. The
+# activator receives the identical file order used for phase 1 and inspection.
+# shellcheck source=formal-campaign-compose.sh
+source evaluation/final-v5-wsl2/scripts/formal-campaign-compose.sh
+deployment_compose_files=("${compose_files[@]:0:4}" "$formal_gateway_compose_override" "${compose_files[4]}")
+compose_files_colon="$(IFS=:; printf '%s' "${deployment_compose_files[*]}")"
 # The activation diagnostic is deliberately disabled by an empty token. Give
 # every fresh pilot deployment one ephemeral process-only token before Compose
 # resolves its environment; it is never written to retained evidence.
@@ -522,11 +563,19 @@ for alias in "${selected_profiles[@]}"; do
     project_identity="$(printf '%s\0%s\0%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$TASKGATE_SUBMISSION_COMMIT" "$alias" "$repetition" | sha256sum | awk '{print $1}')"
     current_project="$(bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh "$project_identity" deployment-01)"
     export COMPOSE_PROJECT_NAME="$current_project"
-    current_compose=(docker compose --project-name "$current_project")
-    for compose_file in "${compose_files[@]}"; do current_compose+=(--file "$compose_file"); done
-    bash evaluation/final-v5-wsl2/scripts/compose-host-preflight.sh "$current_project" "${compose_files[@]}"
+    taskgate_formal_campaign_compose current_compose "$current_project" \
+      "$formal_gateway_compose_override" "${compose_files[@]}"
+    bash evaluation/final-v5-wsl2/scripts/compose-host-preflight.sh "$current_project" "${deployment_compose_files[@]}"
     bash evaluation/final-v5-wsl2/scripts/check-profile-deployment-compose.sh \
-      "$deployment_configuration" "${compose_files[@]}"
+      "$deployment_configuration" "${deployment_compose_files[@]}"
+    compose_runtime_json="$("${current_compose[@]}" config --format json)"
+    jq -e --arg image "$formal_gateway_image_id" '
+      .services.gateway.image == $image and .services.gateway.pull_policy == "never" and
+      (.services.gateway | has("build") | not)
+    ' <<<"$compose_runtime_json" >/dev/null || {
+      echo "profile deployment does not select the verified formal Gateway image ID" >&2; exit 1;
+    }
+    unset compose_runtime_json
     [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo "worktree changed before $deployment_key" >&2; exit 1; }
     echo "P30-STAGE: deployment_start=$deployment_key compose_project=$current_project cells=$(jq 'length' <<<"$cells_json")"
 
@@ -627,6 +676,35 @@ for alias in "${selected_profiles[@]}"; do
     gateway_image="$current_dir/gateway-image.json"
     gateway_container="$("${current_compose[@]}" ps -q gateway)"
     bash evaluation/final-v5-wsl2/scripts/record-pilot-gateway-image.sh "$gateway_container" "$gateway_image" "$repo"
+    formal_gateway_runtime="$current_dir/formal-gateway-runtime.json"
+    GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build verify \
+      -root "$repo" -container "$gateway_container" -out "$formal_gateway_runtime" \
+      >/dev/null
+    formal_gateway_runtime_sha256="$(sha256sum "$formal_gateway_runtime" | awk '{print $1}')"
+    jq -e --slurpfile manifest "$formal_gateway_build_manifest" '
+      .submission_commit == $manifest[0].submission_commit and
+      .build_context_sha256 == $manifest[0].build_context_sha256 and
+      .source_manifest_sha256 == $manifest[0].source_manifest_sha256 and
+      .build_target == $manifest[0].build_target and
+      .local_image_id == $manifest[0].image_id and
+      .container_image_id == $manifest[0].image_id and
+      .builder_base_image == $manifest[0].builder_base_image and
+      .runtime_base_image == $manifest[0].runtime_base_image
+    ' "$formal_gateway_runtime" >/dev/null || {
+      echo "running Gateway identity differs from the campaign formal build manifest" >&2; exit 1;
+    }
+    jq -e --arg image "$formal_gateway_image_id" --slurpfile manifest "$formal_gateway_build_manifest" '
+      .formal_gateway_built == true and .formal_build_label == "v1" and
+      .container_image_id == $image and .image_id == $image and
+      .source_provenance.submission_commit == $manifest[0].submission_commit and
+      .source_provenance.build_context_sha256 == $manifest[0].build_context_sha256 and
+      .source_provenance.source_manifest_sha256 == $manifest[0].source_manifest_sha256 and
+      .source_provenance.build_target == $manifest[0].build_target and
+      .source_provenance.builder_base_image == $manifest[0].builder_base_image and
+      .source_provenance.runtime_base_image == $manifest[0].runtime_base_image
+    ' "$gateway_image" >/dev/null || {
+      echo "P20 Gateway image observation differs from the verified formal image" >&2; exit 1;
+    }
     environment="$current_dir/environment.json"
     export TASKGATE_DEPLOYMENT_ID=deployment-01 TASKGATE_ENVIRONMENT_OUTPUT="$environment"
     if [[ "$binding_strict_valid" == 1 ]]; then
@@ -654,10 +732,30 @@ for alias in "${selected_profiles[@]}"; do
       --arg scale_finalizer_qualification_sha256 "$scale_finalizer_qualification_sha256" \
       --arg scale_finalizer_postgresql_identity "$scale_finalizer_postgresql_identity" \
       --arg scale_finalizer_postgresql_identity_sha256 "$scale_finalizer_postgresql_identity_sha256" \
+      --arg formal_gateway_image_id "$formal_gateway_image_id" \
+      --arg formal_gateway_build_manifest "$formal_gateway_build_manifest" \
+      --arg formal_gateway_build_manifest_sha256 "$formal_gateway_build_manifest_sha256" \
+      --arg formal_gateway_compose_override "$formal_gateway_compose_override" \
+      --arg formal_gateway_compose_override_sha256 "$formal_gateway_compose_override_sha256" \
+      --arg formal_gateway_runtime "$formal_gateway_runtime" \
+      --arg formal_gateway_runtime_sha256 "$formal_gateway_runtime_sha256" \
+      --slurpfile formal_gateway_manifest "$formal_gateway_build_manifest" \
       '{schema_version:1,record:"taskgate-p30-fresh-profile-deployment-v1",status:"pass",
         campaign_class:"pilot",publication_eligible:false,campaign_id:$campaign_id,
         submission_commit:$submission_commit,compose_project:$compose_project,profile_alias:$profile_alias,
-        profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition} +
+        profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition,
+        formal_gateway_built:true,
+        formal_gateway:{image_id:$formal_gateway_image_id,
+          build_manifest_path:$formal_gateway_build_manifest,
+          build_manifest_sha256:$formal_gateway_build_manifest_sha256,
+          compose_override_path:$formal_gateway_compose_override,
+          compose_override_sha256:$formal_gateway_compose_override_sha256,
+          runtime_identity_path:$formal_gateway_runtime,
+          runtime_identity_sha256:$formal_gateway_runtime_sha256,
+          build_context_sha256:$formal_gateway_manifest[0].build_context_sha256,
+          source_manifest_sha256:$formal_gateway_manifest[0].source_manifest_sha256,
+          dataset_binding_sha256:$formal_gateway_manifest[0].dataset_binding_sha256,
+          profile_registry_sha256:$formal_gateway_manifest[0].profile_registry_sha256}} +
        (if $requires_finalizer_material then
           {finalizer_material_dispatch:
             ((if $requires_artifact_provsql_material then
@@ -813,6 +911,10 @@ for alias in "${selected_profiles[@]}"; do
     add_ref environment "" "$environment"
     add_ref fresh_proof "" "$fresh_proof"
     add_ref gateway_image "" "$gateway_image"
+    add_ref formal_gateway_runtime "" "$formal_gateway_runtime"
+    add_ref formal_gateway_build_manifest "" "$formal_gateway_build_manifest"
+    add_ref formal_gateway_compose_override "" "$formal_gateway_compose_override"
+    add_ref formal_gateway_build_log "" "$formal_gateway_build_log"
     add_ref cleanup "" "$cleanup"
     add_ref deployment_configuration "" "$deployment_configuration"
     for experiment in "${experiments[@]}"; do

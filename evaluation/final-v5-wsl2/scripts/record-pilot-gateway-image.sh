@@ -67,6 +67,8 @@ record="$(jq -n \
     record_kind: "taskgate-pilot-gateway-image-observation-v1",
     experiment_class: "pilot",
     provenance_assertion: "observation_only_not_publication_verification",
+    formal_gateway_built: (image_label("taskgate.formal_build") == "v1"),
+    formal_build_label: image_label("taskgate.formal_build"),
     captured_at: $captured_at,
     container_id: $container_id,
     image_reference: $image_reference,
@@ -84,6 +86,9 @@ record="$(jq -n \
       submission_commit: image_label("org.opencontainers.image.revision"),
       build_context_sha256: image_label("taskgate.build_context_sha256"),
       source_manifest_sha256: image_label("taskgate.source_manifest_sha256"),
+      build_target: image_label("taskgate.build_target"),
+      builder_base_image: image_label("taskgate.builder_base_image"),
+      runtime_base_image: image_label("taskgate.runtime_base_image"),
       clean_tree_at_build: null
     },
     repository_at_capture: {

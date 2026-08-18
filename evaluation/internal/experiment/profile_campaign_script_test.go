@@ -177,6 +177,63 @@ func TestProfileCampaignArtifactRootMatchesMaterializerLayout(t *testing.T) {
 	}
 }
 
+func TestProfileCampaignUsesOneFormalGatewayImageForEveryDeployment(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-profile-campaign.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(payload)
+	build := strings.Index(script, `go run ./evaluation/cmd/final-v5-gateway-build build`)
+	deploymentLoop := strings.Index(script, "deployment_count=0\nfor alias in \"${selected_profiles[@]}\"; do")
+	if build < 0 || deploymentLoop < 0 || build > deploymentLoop {
+		t.Fatal("formal Gateway is not built once before the deployment loop")
+	}
+	if strings.Count(script, `go run ./evaluation/cmd/final-v5-gateway-build build`) != 1 {
+		t.Fatal("profile campaign has more than one formal Gateway build path")
+	}
+	for _, required := range []string{
+		`-manifest-out "$formal_gateway_build_manifest"`,
+		`-compose-override-out "$formal_gateway_compose_override"`,
+		`-dataset-binding "$TASKGATE_DATASET_BINDINGS"`,
+		`-profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY"`,
+		`taskgate_formal_campaign_compose current_compose`,
+		`.services.gateway.image == $image and .services.gateway.pull_policy == "never" and
+      (.services.gateway | has("build") | not)`,
+		`go run ./evaluation/cmd/final-v5-gateway-build verify`,
+		`.formal_gateway_built == true and .formal_build_label == "v1"`,
+		`formal_gateway_built:true`,
+		`build_context_sha256:$formal_gateway_manifest[0].build_context_sha256`,
+		`dataset_binding_sha256:$formal_gateway_manifest[0].dataset_binding_sha256`,
+		`add_ref formal_gateway_runtime "" "$formal_gateway_runtime"`,
+		`add_ref formal_gateway_build_manifest "" "$formal_gateway_build_manifest"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("profile campaign formal Gateway wiring lacks %q", required)
+		}
+	}
+	if strings.Contains(script, `if [[ "$requires_finalizer_material" == true ]]`) {
+		t.Fatal("formal Gateway image selection is conditional on the current profile")
+	}
+
+	observation, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "record-pilot-gateway-image.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := string(observation)
+	for _, required := range []string{
+		`formal_gateway_built: (image_label("taskgate.formal_build") == "v1")`,
+		`formal_build_label: image_label("taskgate.formal_build")`,
+		`build_target: image_label("taskgate.build_target")`,
+		`builder_base_image: image_label("taskgate.builder_base_image")`,
+		`runtime_base_image: image_label("taskgate.runtime_base_image")`,
+		`image_source_equivalence_asserted: false`,
+	} {
+		if !strings.Contains(record, required) {
+			t.Fatalf("P20 Gateway observation lacks %q", required)
+		}
+	}
+}
+
 func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {
 	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-deployment.sh"))
 	if err != nil {

@@ -167,7 +167,12 @@ func (manifest BuildManifest) ComposeOverride() ([]byte, error) {
 	if err := manifest.Validate(); err != nil {
 		return nil, err
 	}
-	return []byte("services:\n  gateway:\n    image: \"" + manifest.ImageID + "\"\n    pull_policy: never\n"), nil
+	// !reset is load bearing: an ordinary base Compose file carries
+	// gateway.build. Merely adding an immutable image and pull_policy leaves that
+	// build stanza merged in, so a later `compose up` could recreate the
+	// ordinary Dockerfile image if the verified image disappeared locally.
+	return []byte("services:\n  gateway:\n    image: \"" + manifest.ImageID +
+		"\"\n    pull_policy: never\n    build: !reset null\n"), nil
 }
 
 // WriteBuildDeployment writes the manifest and its exact Compose override with

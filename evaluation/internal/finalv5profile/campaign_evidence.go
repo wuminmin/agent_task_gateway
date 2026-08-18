@@ -324,7 +324,8 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		}
 		switch file.Kind {
 		case "profile_binding", "activation_evidence", "environment", "fresh_proof", "gateway_image", "cleanup",
-			"deployment_configuration":
+			"deployment_configuration", "formal_gateway_runtime", "formal_gateway_build_manifest",
+			"formal_gateway_compose_override", "formal_gateway_build_log":
 			if file.Experiment != "" {
 				return fmt.Errorf("deployment evidence %s must not name an experiment", file.Kind)
 			}
@@ -347,7 +348,8 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		}
 	}
 	for _, kind := range []string{"profile_binding", "activation_evidence", "environment",
-		"fresh_proof", "gateway_image", "cleanup", "deployment_configuration"} {
+		"fresh_proof", "gateway_image", "cleanup", "deployment_configuration", "formal_gateway_runtime",
+		"formal_gateway_build_manifest", "formal_gateway_compose_override", "formal_gateway_build_log"} {
 		if kinds[kind+"/"] != 1 {
 			return fmt.Errorf("evidence kind %s count=%d, want 1", kind, kinds[kind+"/"])
 		}
@@ -404,6 +406,9 @@ func validateCampaignDeploymentRecord(root, campaignID, commit string, planned P
 		return err
 	}
 	if err := validateEnvironmentAndImage(root, commit, record.Files); err != nil {
+		return err
+	}
+	if err := validateFormalGatewayEvidence(root, commit, planned, record.Files); err != nil {
 		return err
 	}
 	observed := map[string]bool{}
@@ -739,6 +744,8 @@ func validateEnvironmentAndImage(root, commit string, files []CampaignEvidenceFi
 		RecordKind          string `json:"record_kind"`
 		ExperimentClass     string `json:"experiment_class"`
 		ProvenanceAssertion string `json:"provenance_assertion"`
+		FormalGatewayBuilt  bool   `json:"formal_gateway_built"`
+		FormalBuildLabel    string `json:"formal_build_label"`
 		ContainerImageID    string `json:"container_image_id"`
 		ImageID             string `json:"image_id"`
 	}
@@ -747,8 +754,126 @@ func validateEnvironmentAndImage(root, commit string, files []CampaignEvidenceFi
 	}
 	if image.RecordKind != "taskgate-pilot-gateway-image-observation-v1" || image.ExperimentClass != "pilot" ||
 		image.ProvenanceAssertion != "observation_only_not_publication_verification" ||
+		!image.FormalGatewayBuilt || image.FormalBuildLabel != "v1" ||
 		image.ContainerImageID == "" || image.ContainerImageID != image.ImageID {
 		return errors.New("Gateway image observation is incomplete")
+	}
+	return nil
+}
+
+func validateFormalGatewayEvidence(root, commit string, planned PlannedDeploy, files []CampaignEvidenceFile) error {
+	type formalManifest struct {
+		SchemaVersion        int    `json:"schema_version"`
+		SubmissionCommit     string `json:"submission_commit"`
+		CleanTreeAtBuild     bool   `json:"clean_tree_at_build"`
+		BuildContextSHA256   string `json:"build_context_sha256"`
+		SourceManifestSHA256 string `json:"source_manifest_sha256"`
+		ImageID              string `json:"image_id"`
+		BuildTarget          string `json:"build_target"`
+		BuilderBaseImage     string `json:"builder_base_image"`
+		RuntimeBaseImage     string `json:"runtime_base_image"`
+		DatasetBindingSHA256 string `json:"dataset_binding_sha256"`
+		ProfileRegistrySHA   string `json:"profile_registry_sha256"`
+	}
+	type runtimeIdentity struct {
+		Version              string `json:"version"`
+		SubmissionCommit     string `json:"submission_commit"`
+		CleanTreeAtBuild     bool   `json:"clean_tree_at_build"`
+		BuildContextSHA256   string `json:"build_context_sha256"`
+		SourceManifestSHA256 string `json:"source_manifest_sha256"`
+		BuildTarget          string `json:"build_target"`
+		LocalImageID         string `json:"local_image_id"`
+		ContainerImageID     string `json:"container_image_id"`
+		BuilderBaseImage     string `json:"builder_base_image"`
+		RuntimeBaseImage     string `json:"runtime_base_image"`
+		AggregateSHA256      string `json:"aggregate_sha256"`
+	}
+	type formalSummary struct {
+		ImageID               string `json:"image_id"`
+		BuildManifestPath     string `json:"build_manifest_path"`
+		BuildManifestSHA256   string `json:"build_manifest_sha256"`
+		ComposeOverridePath   string `json:"compose_override_path"`
+		ComposeOverrideSHA256 string `json:"compose_override_sha256"`
+		RuntimeIdentityPath   string `json:"runtime_identity_path"`
+		RuntimeIdentitySHA256 string `json:"runtime_identity_sha256"`
+		BuildContextSHA256    string `json:"build_context_sha256"`
+		SourceManifestSHA256  string `json:"source_manifest_sha256"`
+		DatasetBindingSHA256  string `json:"dataset_binding_sha256"`
+		ProfileRegistrySHA256 string `json:"profile_registry_sha256"`
+	}
+	var fresh struct {
+		SchemaVersion      int           `json:"schema_version"`
+		FormalGatewayBuilt bool          `json:"formal_gateway_built"`
+		FormalGateway      formalSummary `json:"formal_gateway"`
+	}
+
+	manifestPath := campaignEvidencePath(root, files, "formal_gateway_build_manifest")
+	runtimePath := campaignEvidencePath(root, files, "formal_gateway_runtime")
+	overridePath := campaignEvidencePath(root, files, "formal_gateway_compose_override")
+	var manifest formalManifest
+	if err := decodeCampaignFile(manifestPath, &manifest); err != nil {
+		return fmt.Errorf("formal Gateway build manifest: %w", err)
+	}
+	var runtime runtimeIdentity
+	if err := decodeCampaignFile(runtimePath, &runtime); err != nil {
+		return fmt.Errorf("formal Gateway runtime identity: %w", err)
+	}
+	if err := decodeCampaignFile(campaignEvidencePath(root, files, "fresh_proof"), &fresh); err != nil {
+		return fmt.Errorf("fresh proof formal Gateway summary: %w", err)
+	}
+	var binding profileBindingWire
+	if err := decodeCampaignFile(campaignEvidencePath(root, files, "profile_binding"), &binding); err != nil {
+		return fmt.Errorf("formal Gateway profile binding: %w", err)
+	}
+	if manifest.SchemaVersion != 1 || manifest.SubmissionCommit != commit || !manifest.CleanTreeAtBuild ||
+		manifest.BuildTarget != "gateway" || !validCampaignDigest(manifest.BuildContextSHA256) ||
+		!validCampaignDigest(manifest.SourceManifestSHA256) || !validCampaignDigest(manifest.DatasetBindingSHA256) ||
+		!validCampaignDigest(manifest.ProfileRegistrySHA) || manifest.ImageID == "" ||
+		manifest.DatasetBindingSHA256 != binding.DatasetBindingSHA256 {
+		return errors.New("formal Gateway build manifest differs from the fixed campaign inputs")
+	}
+	if runtime.Version != "taskgate-gateway-runtime-identity-v1" || runtime.SubmissionCommit != commit ||
+		!runtime.CleanTreeAtBuild || runtime.BuildContextSHA256 != manifest.BuildContextSHA256 ||
+		runtime.SourceManifestSHA256 != manifest.SourceManifestSHA256 || runtime.BuildTarget != manifest.BuildTarget ||
+		runtime.LocalImageID != manifest.ImageID || runtime.ContainerImageID != manifest.ImageID ||
+		runtime.BuilderBaseImage != manifest.BuilderBaseImage || runtime.RuntimeBaseImage != manifest.RuntimeBaseImage ||
+		!validCampaignDigest(runtime.AggregateSHA256) {
+		return errors.New("formal Gateway runtime identity differs from its build manifest")
+	}
+	fileByKind := func(kind string) CampaignEvidenceFile {
+		for _, file := range files {
+			if file.Kind == kind && file.Experiment == "" {
+				return file
+			}
+		}
+		return CampaignEvidenceFile{}
+	}
+	manifestFile := fileByKind("formal_gateway_build_manifest")
+	runtimeFile := fileByKind("formal_gateway_runtime")
+	overrideFile := fileByKind("formal_gateway_compose_override")
+	if fresh.SchemaVersion != 1 || !fresh.FormalGatewayBuilt || fresh.FormalGateway.ImageID != manifest.ImageID ||
+		filepath.Clean(fresh.FormalGateway.BuildManifestPath) != filepath.Clean(manifestPath) ||
+		fresh.FormalGateway.BuildManifestSHA256 != manifestFile.SHA256 ||
+		filepath.Clean(fresh.FormalGateway.ComposeOverridePath) != filepath.Clean(overridePath) ||
+		fresh.FormalGateway.ComposeOverrideSHA256 != overrideFile.SHA256 ||
+		filepath.Clean(fresh.FormalGateway.RuntimeIdentityPath) != filepath.Clean(runtimePath) ||
+		fresh.FormalGateway.RuntimeIdentitySHA256 != runtimeFile.SHA256 ||
+		fresh.FormalGateway.BuildContextSHA256 != manifest.BuildContextSHA256 ||
+		fresh.FormalGateway.SourceManifestSHA256 != manifest.SourceManifestSHA256 ||
+		fresh.FormalGateway.DatasetBindingSHA256 != manifest.DatasetBindingSHA256 ||
+		fresh.FormalGateway.ProfileRegistrySHA256 != manifest.ProfileRegistrySHA {
+		return errors.New("fresh proof does not bind the formal Gateway build/runtime/input identities")
+	}
+	override, err := os.ReadFile(overridePath)
+	if err != nil {
+		return fmt.Errorf("read formal Gateway Compose override: %w", err)
+	}
+	wantOverride := fmt.Sprintf("services:\n  gateway:\n    image: %q\n    pull_policy: never\n    build: !reset null\n", manifest.ImageID)
+	if string(override) != wantOverride {
+		return errors.New("formal Gateway Compose override does not name the manifest image ID")
+	}
+	if planned.ProfileID == "" {
+		return errors.New("formal Gateway evidence has no planned profile owner")
 	}
 	return nil
 }

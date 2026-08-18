@@ -33,6 +33,29 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 	overridesDigest := sha256.Sum256(overridesPayload)
 	rawFile := campaignFixtureFile(t, root, "raw_jsonl", "rls", "raw.jsonl", campaignEnvelopeFixture(
 		campaignSampleFixture(profile, "workload/scale/bounded", false), "pilot", true))
+	imageID := "sha256:" + strings.Repeat("1", 64)
+	contextSHA := strings.Repeat("2", 64)
+	sourceSHA := strings.Repeat("3", 64)
+	datasetSHA := strings.Repeat("d", 64)
+	registrySHA := strings.Repeat("4", 64)
+	builderBase := "golang@sha256:" + strings.Repeat("5", 64)
+	runtimeBase := "debian@sha256:" + strings.Repeat("6", 64)
+	formalManifest := campaignFixtureFile(t, root, "formal_gateway_build_manifest", "", "formal-build.json", map[string]any{
+		"schema_version": 1, "submission_commit": commit, "clean_tree_at_build": true,
+		"build_context_sha256": contextSHA, "source_manifest_sha256": sourceSHA, "image_id": imageID,
+		"image_tag": "taskgate:test", "platform": "linux/amd64", "build_target": "gateway",
+		"builder_base_image": builderBase, "runtime_base_image": runtimeBase,
+		"dataset_binding_sha256": datasetSHA, "profile_registry_sha256": registrySHA,
+	})
+	formalRuntime := campaignFixtureFile(t, root, "formal_gateway_runtime", "", "formal-runtime.json", map[string]any{
+		"version": "taskgate-gateway-runtime-identity-v1", "submission_commit": commit, "clean_tree_at_build": true,
+		"build_context_sha256": contextSHA, "source_manifest_sha256": sourceSHA, "build_target": "gateway",
+		"local_image_id": imageID, "container_image_id": imageID, "builder_base_image": builderBase,
+		"runtime_base_image": runtimeBase, "aggregate_sha256": strings.Repeat("7", 64),
+	})
+	formalOverride := campaignFixtureRawFile(t, root, "formal_gateway_compose_override", "", "formal-override.yaml",
+		[]byte(fmt.Sprintf("services:\n  gateway:\n    image: %q\n    pull_policy: never\n    build: !reset null\n", imageID)))
+	formalLog := campaignFixtureRawFile(t, root, "formal_gateway_build_log", "", "formal-build.log", []byte("formal build: pass\n"))
 	files := []CampaignEvidenceFile{
 		campaignFixtureFile(t, root, "config", "rls", "config.json", map[string]any{
 			"schema_version": 1, "campaign_class": "pilot", "pilot_kind": "real_system",
@@ -43,7 +66,7 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		campaignFixtureFile(t, root, "profile_binding", "", "profile-binding.json", map[string]any{
 			"version": "taskgate-final-v5-profile-binding-v1", "profile_id": profile.ProfileID,
 			"closure_sha256": strings.Repeat("c", 64), "catalog_sha256": profile.CatalogSHA256,
-			"dataset_binding_sha256": strings.Repeat("d", 64), "publication_identity": strings.Repeat("e", 64),
+			"dataset_binding_sha256": datasetSHA, "publication_identity": strings.Repeat("e", 64),
 		}),
 		campaignFixtureFile(t, root, "activation_evidence", "", "activation.json", map[string]any{
 			"record": ActivationEvidenceVersion, "status": "pass", "profile_id": profile.ProfileID,
@@ -52,12 +75,29 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 		campaignFixtureFile(t, root, "environment", "", "environment.json", map[string]any{
 			"git_commit": commit, "git_status": []string{}, "publication_eligible": false,
 		}),
-		campaignFixtureFile(t, root, "fresh_proof", "", "fresh.json", map[string]any{"schema_version": 1}),
+		campaignFixtureFile(t, root, "fresh_proof", "", "fresh.json", map[string]any{
+			"schema_version": 1, "formal_gateway_built": true,
+			"formal_gateway": map[string]any{
+				"image_id": imageID, "build_manifest_path": filepath.Join(root, formalManifest.Path),
+				"build_manifest_sha256":   formalManifest.SHA256,
+				"compose_override_path":   filepath.Join(root, formalOverride.Path),
+				"compose_override_sha256": formalOverride.SHA256,
+				"runtime_identity_path":   filepath.Join(root, formalRuntime.Path),
+				"runtime_identity_sha256": formalRuntime.SHA256,
+				"build_context_sha256":    contextSHA, "source_manifest_sha256": sourceSHA,
+				"dataset_binding_sha256": datasetSHA, "profile_registry_sha256": registrySHA,
+			},
+		}),
 		campaignFixtureFile(t, root, "gateway_image", "", "gateway-image.json", map[string]any{
 			"record_kind": "taskgate-pilot-gateway-image-observation-v1", "experiment_class": "pilot",
 			"provenance_assertion": "observation_only_not_publication_verification",
-			"container_image_id":   "sha256:image", "image_id": "sha256:image",
+			"formal_gateway_built": true, "formal_build_label": "v1",
+			"container_image_id": imageID, "image_id": imageID,
 		}),
+		formalRuntime,
+		formalManifest,
+		formalOverride,
+		formalLog,
 		campaignFixtureFile(t, root, "cleanup", "", "cleanup.json", map[string]any{
 			"status": "pass", "containers": 0, "volumes": 0, "networks": 0,
 		}),
