@@ -1,6 +1,8 @@
 package experiment
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +77,36 @@ func TestProfileCampaignGateRetainsPreregisteredPassOrExactMiss(t *testing.T) {
 		WrapRetainedSamplesForProfileCampaignAudit([]Sample{miss}, "pilot"), 1, &contract, digest); err != nil {
 		t.Fatal(err)
 	}
+	diagnostic, err := json.Marshal(NewPreregisteredConcurrencyMissDiagnosticV1(miss,
+		os.ErrDeadlineExceeded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := AdapterOperation{ExperimentID: miss.ExperimentID, CellID: miss.CellID, SampleID: miss.SampleID}
+	if err := validatePreregisteredConcurrencyMissDiagnostics("concurrency", []AdapterOperation{operation},
+		[]*Sample{&miss}, append(diagnostic, '\n')); err != nil {
+		t.Fatalf("exact miss diagnostic changed runner exit semantics: %v", err)
+	}
+	directory := t.TempDir()
+	samplePath := filepath.Join(directory, "exact-miss.jsonl")
+	samplePayload, err := json.Marshal(miss)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(samplePath, append(samplePayload, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_SAMPLE_FILE", samplePath)
+	t.Setenv("TASKGATE_TEST_ADAPTER_STDERR", string(diagnostic))
+	var retainedDiagnostic bytes.Buffer
+	processSamples, processErr := runAdapterProcess(os.Args[0], "concurrency", []AdapterOperation{operation},
+		&retainedDiagnostic)
+	if processErr != nil || len(processSamples) != 1 || processSamples[0] == nil ||
+		processSamples[0].Status != "invalid" || retainedDiagnostic.String() != string(diagnostic)+"\n" {
+		t.Fatalf("exact miss did not cross the real runner process boundary: samples=%+v stderr=%q err=%v",
+			processSamples, retainedDiagnostic.String(), processErr)
+	}
 
 	driftedDigest := strings.Repeat("0", 64)
 	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
@@ -86,6 +118,14 @@ func TestProfileCampaignGateRetainsPreregisteredPassOrExactMiss(t *testing.T) {
 	if err := ValidateProfileCampaignExperimentGateWithPreregistration("concurrency", selected,
 		WrapRetainedSamplesForProfileCampaignAudit([]Sample{wrong}, "pilot"), 1, &contract, digest); err == nil {
 		t.Fatal("a non-preregistered invalid outcome was retained as a round miss")
+	}
+	if err := validatePreregisteredConcurrencyMissDiagnostics("concurrency", []AdapterOperation{operation},
+		[]*Sample{&wrong}, append(diagnostic, '\n')); err == nil {
+		t.Fatal("a non-exact failure diagnostic changed runner exit semantics")
+	}
+	if err := validatePreregisteredConcurrencyMissDiagnostics("concurrency", []AdapterOperation{operation},
+		[]*Sample{&miss}, append(append(diagnostic, '\n'), []byte("unexpected stderr\n")...)); err == nil {
+		t.Fatal("ordinary stderr accompanying an exact miss was ignored")
 	}
 }
 

@@ -129,7 +129,6 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 	}
 	sample, err := adapter.backend.Run(ctx, operation, cell)
 	if err != nil {
-		writeAdapterFailureDiagnostic("concurrency", operation, err)
 		var measured *concurrencyRunError
 		if errors.As(err, &measured) {
 			retained := measured.sample
@@ -143,13 +142,20 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 				retained.Status = "invalid"
 				retained.ErrorCode = measured.code
 				retained.Reason = "the requested concurrency width was not observed at the authenticated Gateway service boundary"
+				if observedPass, validationErr := experiment.ValidatePreregisteredConcurrencyRound(retained); validationErr == nil && !observedPass {
+					writePreregisteredConcurrencyMissDiagnostic(retained, err)
+				} else {
+					writeAdapterFailureDiagnostic("concurrency", operation, err)
+				}
 				return retained
 			}
+			writeAdapterFailureDiagnostic("concurrency", operation, err)
 			retained.Status = "fail"
 			retained.ErrorCode = measured.code
 			retained.Reason = "a real concurrency backend operation was attempted and failed; retained evidence must be audited"
 			return retained
 		}
+		writeAdapterFailureDiagnostic("concurrency", operation, err)
 		if sample.SchemaVersion != 0 {
 			sample.Status = "fail"
 			sample.ErrorCode = "real_concurrency_measurement_failed"

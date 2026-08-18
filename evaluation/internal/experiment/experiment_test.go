@@ -73,6 +73,14 @@ func runTestAdapter() {
 	if message := os.Getenv("TASKGATE_TEST_ADAPTER_STDERR"); message != "" {
 		_, _ = fmt.Fprintln(os.Stderr, message)
 	}
+	if samplePath := os.Getenv("TASKGATE_TEST_ADAPTER_SAMPLE_FILE"); samplePath != "" {
+		payload, err := os.ReadFile(samplePath)
+		if err != nil {
+			os.Exit(1)
+		}
+		_, _ = os.Stdout.Write(payload)
+		return
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	status := os.Getenv("TASKGATE_TEST_ADAPTER_STATUS")

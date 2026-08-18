@@ -142,6 +142,106 @@ func TestConcurrencyProbeRejectsUnauthenticatedAndDuplicateParticipants(t *testi
 	}
 }
 
+func TestConcurrencyProbeHandoffNeverRaisesActiveGaugeAboveWindow(t *testing.T) {
+	const (
+		activeWindow = 3
+		requestCount = 600
+	)
+	probe, err := NewConcurrencyProbe(ConcurrencyProbeConfig{
+		Token: concurrencyProbeTestToken, MaxActive: activeWindow, MaxQueued: requestCount,
+		ConnectorMaxConnections: activeWindow,
+		PoolStats: func() sql.DBStats {
+			return sql.DBStats{MaxOpenConnections: activeWindow}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundSHA := probeTestSHA("handoff-pressure")
+	round := &concurrencyProbeRound{
+		mode: "natural_contention", expected: requestCount,
+		participants: make(map[string]struct{}, requestCount), release: make(chan struct{}),
+	}
+	probe.rounds[roundSHA] = round
+
+	releaseHandler := make(chan struct{}, activeWindow)
+	enteredHandler := make(chan struct{}, requestCount)
+	handler := probe.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		enteredHandler <- struct{}{}
+		<-releaseHandler
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	var requests sync.WaitGroup
+	requests.Add(requestCount)
+	for index := 0; index < requestCount; index++ {
+		go func(index int) {
+			defer requests.Done()
+			request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+			request.Header.Set(ConcurrencyRoundHeader, roundSHA)
+			request.Header.Set(ConcurrencyParticipantHeader, probeTestSHA("handoff-participant-"+string(rune(index))))
+			request.Header.Set(ConcurrencyAuthorizationHeader, concurrencyProbeTestToken)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusNoContent {
+				t.Errorf("request %d status = %d", index, recorder.Code)
+			}
+		}(index)
+	}
+
+	for completed := 0; completed < requestCount; completed++ {
+		select {
+		case <-enteredHandler:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("handler entry %d timed out", completed+1)
+		}
+		releaseHandler <- struct{}{}
+	}
+	requests.Wait()
+	probe.mu.Lock()
+	snapshot := probe.snapshotLocked(roundSHA, round)
+	probe.mu.Unlock()
+	if snapshot.PeakActive > activeWindow || snapshot.Active != 0 || snapshot.Completed != requestCount {
+		t.Fatalf("handoff gauge escaped window: peak=%d active=%d completed=%d window=%d",
+			snapshot.PeakActive, snapshot.Active, snapshot.Completed, activeWindow)
+	}
+}
+
+func TestConcurrencyProbeCompletionPrecedesSlotHandoff(t *testing.T) {
+	probe, err := NewConcurrencyProbe(ConcurrencyProbeConfig{
+		Token: concurrencyProbeTestToken, MaxActive: 1, MaxQueued: 1, ConnectorMaxConnections: 1,
+		PoolStats: func() sql.DBStats { return sql.DBStats{MaxOpenConnections: 1} },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	round := &concurrencyProbeRound{active: 1}
+	probe.activeSlots <- struct{}{}
+	probe.mu.Lock()
+	done := make(chan struct{})
+	go func() {
+		probe.completeAndRelease(round)
+		close(done)
+	}()
+	select {
+	case probe.activeSlots <- struct{}{}:
+		probe.mu.Unlock()
+		<-done
+		t.Fatal("admission slot was released before the active/completed gauge transaction")
+	case <-time.After(20 * time.Millisecond):
+	}
+	probe.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("completion handoff did not finish")
+	}
+	if round.active != 0 || round.completed != 1 || len(probe.activeSlots) != 0 {
+		t.Fatalf("completion handoff = active %d, completed %d, slots %d",
+			round.active, round.completed, len(probe.activeSlots))
+	}
+}
+
 func TestConcurrencyProbeCapacityFailsClosed(t *testing.T) {
 	valid := ConcurrencyProbeConfig{
 		Token: concurrencyProbeTestToken, MaxActive: 1, MaxQueued: 1, ConnectorMaxConnections: 1,

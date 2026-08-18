@@ -633,7 +633,6 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation,
 				processErrors = append(processErrors, fmt.Errorf("retain adapter stderr: %w", err))
 			}
 		}
-		processErrors = append(processErrors, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary"))
 	}
 	scanner := bufio.NewScanner(&output)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
@@ -687,7 +686,57 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation,
 	if line != len(operations) {
 		processErrors = append(processErrors, fmt.Errorf("adapter returned %d lines for %d operations", line, len(operations)))
 	}
+	if stderr.Len() != 0 {
+		if adapterStderr == nil || validatePreregisteredConcurrencyMissDiagnostics(experimentID, operations, samples, stderr.Bytes()) != nil {
+			processErrors = append(processErrors, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary"))
+		}
+	}
 	return samples, errors.Join(processErrors...)
+}
+
+func validatePreregisteredConcurrencyMissDiagnostics(experimentID string, operations []AdapterOperation,
+	samples []*Sample, payload []byte) error {
+	if experimentID != "concurrency" || len(operations) != len(samples) || len(payload) == 0 {
+		return errors.New("adapter diagnostics are outside the preregistered concurrency path")
+	}
+	exactMisses := make(map[string]Sample)
+	for index, sample := range samples {
+		if sample == nil || sample.SampleID != operations[index].SampleID {
+			continue
+		}
+		observedPass, err := ValidatePreregisteredConcurrencyRound(*sample)
+		if err == nil && !observedPass {
+			exactMisses[sample.SampleID] = *sample
+		}
+	}
+	if len(exactMisses) == 0 {
+		return errors.New("adapter diagnostics have no exact preregistered miss")
+	}
+	seen := make(map[string]bool, len(exactMisses))
+	scanner := bufio.NewScanner(bytes.NewReader(payload))
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	for scanner.Scan() {
+		var diagnostic PreregisteredConcurrencyMissDiagnosticV1
+		if err := StrictJSON(scanner.Bytes(), &diagnostic); err != nil {
+			return err
+		}
+		if err := diagnostic.Validate(); err != nil {
+			return err
+		}
+		sample, exists := exactMisses[diagnostic.SampleID]
+		if !exists || seen[diagnostic.SampleID] || diagnostic.ExperimentID != sample.ExperimentID ||
+			diagnostic.CellID != sample.CellID {
+			return errors.New("preregistered miss diagnostic differs from its retained sample")
+		}
+		seen[diagnostic.SampleID] = true
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if len(seen) != len(exactMisses) {
+		return errors.New("preregistered miss diagnostic count differs from retained exact misses")
+	}
+	return nil
 }
 
 // validateOperationProfileBinding is fail-closed per sample. It never accepts a

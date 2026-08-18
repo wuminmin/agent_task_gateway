@@ -203,10 +203,7 @@ func (probe *ConcurrencyProbe) Middleware(next http.Handler) http.Handler {
 			}
 		}
 		probe.enterActive(round, queued)
-		defer func() {
-			<-probe.activeSlots
-			probe.complete(round)
-		}()
+		defer probe.completeAndRelease(round)
 		// The probe binding is consumed at the service boundary. Never pass the
 		// private authorization token (or round metadata) into MCP logging,
 		// tracing, tool dispatch, or application error paths.
@@ -389,6 +386,11 @@ func (probe *ConcurrencyProbe) complete(round *concurrencyProbeRound) {
 	}
 	round.completed++
 	probe.observePoolLocked(round)
+}
+
+func (probe *ConcurrencyProbe) completeAndRelease(round *concurrencyProbeRound) {
+	probe.complete(round)
+	<-probe.activeSlots
 }
 
 func (probe *ConcurrencyProbe) observePoolLocked(round *concurrencyProbeRound) {

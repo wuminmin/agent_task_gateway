@@ -147,7 +147,7 @@ func TestProfileCampaignEvidenceBindsTheFixedCommitAndEveryDeploymentFile(t *tes
 	}
 }
 
-func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) {
+func TestPreregisteredExactMissRoundsReachAggregateAndTrueFailureStops(t *testing.T) {
 	root := t.TempDir()
 	contract, digest, err := concurrencyfixture.LoadPreregistration(
 		filepath.Join("..", "..", "..", concurrencyfixture.PreregistrationSourcePath))
@@ -161,7 +161,7 @@ func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) 
 	}
 	aggregate := plan.PreregisteredAggregates[0]
 	caseIndex := 0
-	makeRecords := func(passAt int, duplicateRound bool) []ProfileCampaignDeploymentRecord {
+	makeRecords := func(passAt, failureAt int, duplicateRound bool) []ProfileCampaignDeploymentRecord {
 		caseIndex++
 		caseDir := filepath.Join(root, fmt.Sprintf("case-%d", caseIndex))
 		if err := os.Mkdir(caseDir, 0o700); err != nil {
@@ -172,6 +172,8 @@ func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) 
 			status, code := contract.MissStatus, contract.MissErrorCode
 			if repetition == passAt {
 				status, code = contract.SuccessStatus, ""
+			} else if repetition == failureAt {
+				status, code = "fail", "production_invariant_failed"
 			}
 			roundLabel := repetition
 			if duplicateRound && repetition == contract.Rounds {
@@ -192,19 +194,38 @@ func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) 
 			campaignWriteJSONL(t, path, campaignEnvelopeFixture(sample, "pilot", true))
 			payload, _ := os.ReadFile(path)
 			rawDigest := sha256.Sum256(payload)
+			rawFile := CampaignEvidenceFile{Kind: "raw_jsonl", Experiment: "concurrency",
+				Path:   filepath.ToSlash(filepath.Join(filepath.Base(caseDir), filepath.Base(path))),
+				SHA256: hex.EncodeToString(rawDigest[:]), Bytes: int64(len(payload))}
+			passes, misses := 0, 1
+			if status == contract.SuccessStatus {
+				passes, misses = 1, 0
+			}
+			gateFile := campaignFixtureFile(t, root, "launcher_gate", "concurrency",
+				filepath.ToSlash(filepath.Join(filepath.Base(caseDir), "gate-"+strconv.Itoa(repetition)+".json")), map[string]any{
+					"schema_version": 1, "status": "pass", "experiment_id": "concurrency",
+					"campaign_class": "pilot", "samples": 1, "selected_cells": 1,
+					"input_sha256": rawFile.SHA256, "preregistration_sha256": digest,
+					"preregistered_round_passes": passes, "preregistered_round_misses": misses,
+				})
 			records[repetition-1] = ProfileCampaignDeploymentRecord{
 				ProfileAlias: contract.ProfileAlias, Repetition: repetition,
-				Files: []CampaignEvidenceFile{{Kind: "raw_jsonl", Experiment: "concurrency",
-					Path:   filepath.ToSlash(filepath.Join(filepath.Base(caseDir), filepath.Base(path))),
-					SHA256: hex.EncodeToString(rawDigest[:]), Bytes: int64(len(payload))}},
+				Files: []CampaignEvidenceFile{rawFile, gateFile},
 			}
 		}
 		return records
 	}
 
 	selected := map[string]bool{contract.ProfileAlias: true}
+	records := makeRecords(contract.Rounds, 0, false)
+	for _, record := range records {
+		if err := validateLauncherGateEvidence(root, "concurrency", contract.ProfileAlias, record.Files,
+			plan.PreregisteredAggregates); err != nil {
+			t.Fatalf("round %d did not reach the launcher gate: %v", record.Repetition, err)
+		}
+	}
 	evidence, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
-		selected, makeRecords(contract.Rounds, false))
+		selected, records)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,15 +234,19 @@ func TestPreregisteredAggregateRequiresAllRoundsAndAtLeastOnePass(t *testing.T) 
 		t.Fatalf("aggregate evidence = %+v", evidence)
 	}
 	allMiss, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
-		selected, makeRecords(0, false))
+		selected, makeRecords(0, 0, false))
 	if err != nil || len(allMiss) != 1 || allMiss[0].Status != "invalid" ||
 		allMiss[0].ErrorCode != concurrencyfixture.PreregisteredMissCode ||
 		allMiss[0].Reason != "offered concurrency not observed in 11 preregistered rounds" {
 		t.Fatalf("all-miss aggregate = %+v, err=%v", allMiss, err)
 	}
 	if _, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
-		selected, makeRecords(contract.Rounds, true)); err == nil {
+		selected, makeRecords(contract.Rounds, 0, true)); err == nil {
 		t.Fatal("duplicate fresh-deployment round identity was accepted")
+	}
+	if _, err := validatePreregisteredAggregates(root, "p43", []CampaignPreregisteredAggregate{aggregate},
+		selected, makeRecords(contract.Rounds, contract.Rounds-1, false)); err == nil {
+		t.Fatal("a non-exact true failure reached the preregistered aggregate")
 	}
 }
 

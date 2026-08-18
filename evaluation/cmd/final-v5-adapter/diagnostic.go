@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -35,4 +36,9 @@ func writeAdapterInitializationDiagnostic(adapter string, err error) {
 		return
 	}
 	fmt.Fprintf(adapterDiagnosticOutput, "%s adapter initialization failed: %v\n", adapter, err)
+}
+
+func writePreregisteredConcurrencyMissDiagnostic(sample experiment.Sample, err error) {
+	diagnostic := experiment.NewPreregisteredConcurrencyMissDiagnosticV1(sample, err)
+	_ = json.NewEncoder(adapterDiagnosticOutput).Encode(diagnostic)
 }
