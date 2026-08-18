@@ -96,16 +96,34 @@ finalizer_qualification_sha256=""
 finalizer_postgresql_identity_sha256=""
 if jq -e --argjson aliases "$(printf '%s\n' "${selected_profiles[@]}" | jq -Rsc 'split("\n")[:-1]')" '
     [.deployments[] | select(.alias as $a | $aliases | index($a)) | .experiments[]] |
-    any(. == "scale" or . == "artifact" or . == "provsql")' "$plan" >/dev/null; then
-  : "${ATTESTATION_QUALIFICATION:?selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment}"
-  : "${POSTGRESQL_IDENTITY:?selected Scale/Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment}"
+    any(. == "artifact" or . == "provsql")' "$plan" >/dev/null; then
+  : "${ATTESTATION_QUALIFICATION:?selected Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment}"
+  : "${POSTGRESQL_IDENTITY:?selected Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment}"
   finalizer_qualification="$(realpath "$ATTESTATION_QUALIFICATION")"
   finalizer_postgresql_identity="$(realpath "$POSTGRESQL_IDENTITY")"
   for input in "$finalizer_qualification" "$finalizer_postgresql_identity"; do
-    [[ -f "$input" && ! -L "$input" ]] || { echo "Scale/Artifact/ProvSQL finalizer input is missing or unsafe: $input" >&2; exit 2; }
+    [[ -f "$input" && ! -L "$input" ]] || { echo "Artifact/ProvSQL finalizer input is missing or unsafe: $input" >&2; exit 2; }
   done
   finalizer_qualification_sha256="$(sha256sum "$finalizer_qualification" | awk '{print $1}')"
   finalizer_postgresql_identity_sha256="$(sha256sum "$finalizer_postgresql_identity" | awk '{print $1}')"
+fi
+
+scale_finalizer_qualification=""
+scale_finalizer_postgresql_identity=""
+scale_finalizer_qualification_sha256=""
+scale_finalizer_postgresql_identity_sha256=""
+if jq -e --argjson aliases "$(printf '%s\n' "${selected_profiles[@]}" | jq -Rsc 'split("\n")[:-1]')" '
+    [.deployments[] | select(.alias as $a | $aliases | index($a)) | .experiments[]] |
+    any(. == "scale")' "$plan" >/dev/null; then
+  : "${SCALE_ATTESTATION_QUALIFICATION:?selected Scale profile requires SCALE_ATTESTATION_QUALIFICATION before deployment}"
+  : "${SCALE_POSTGRESQL_IDENTITY:?selected Scale profile requires SCALE_POSTGRESQL_IDENTITY before deployment}"
+  scale_finalizer_qualification="$(realpath "$SCALE_ATTESTATION_QUALIFICATION")"
+  scale_finalizer_postgresql_identity="$(realpath "$SCALE_POSTGRESQL_IDENTITY")"
+  for input in "$scale_finalizer_qualification" "$scale_finalizer_postgresql_identity"; do
+    [[ -f "$input" && ! -L "$input" ]] || { echo "Scale finalizer input is missing or unsafe: $input" >&2; exit 2; }
+  done
+  scale_finalizer_qualification_sha256="$(sha256sum "$scale_finalizer_qualification" | awk '{print $1}')"
+  scale_finalizer_postgresql_identity_sha256="$(sha256sum "$scale_finalizer_postgresql_identity" | awk '{print $1}')"
 fi
 
 # Build the host-side adapter, observer, activator, and optional RQ5 driver from
@@ -475,14 +493,23 @@ for alias in "${selected_profiles[@]}"; do
     cells_json="$(jq -c --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .cells' "$plan")"
     export TASKGATE_FINAL_V5_CATALOG="$repo/${catalog_path#./}"
     unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
+    mapfile -t experiments < <(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments[]' "$plan")
+    deployment_experiments="$(printf '%s\n' "${experiments[@]}" | jq -Rsc 'split("\n")[:-1]')"
     requires_finalizer_material=false
-    if jq -e --arg alias "$alias" '
-        [.deployments[] | select(.alias == $alias) | .experiments[]] |
-        any(. == "scale" or . == "artifact" or . == "provsql")' "$plan" >/dev/null; then
-      export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"
-      export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"
-      requires_finalizer_material=true
-    fi
+    requires_artifact_provsql_material=false
+    requires_scale_material=false
+    for experiment in "${experiments[@]}"; do
+      case "$experiment" in
+      artifact | provsql)
+        requires_finalizer_material=true
+        requires_artifact_provsql_material=true
+        ;;
+      scale)
+        requires_finalizer_material=true
+        requires_scale_material=true
+        ;;
+      esac
+    done
     deployment_key="${alias}/$(printf '%03d' "$repetition")"
     current_dir="$campaign_root/deployments/${alias}/$(printf '%03d' "$repetition")"
     mkdir -m 700 -p "$current_dir/raw" "$current_dir/config" "$current_dir/selected-cells" "$current_dir/activation" \
@@ -611,22 +638,39 @@ for alias in "${selected_profiles[@]}"; do
       --arg compose_project "$current_project" --arg profile_alias "$alias" --arg profile_id "$profile_id" \
       --arg catalog_sha256 "$catalog_sha" --argjson repetition "$repetition" \
       --argjson requires_finalizer_material "$requires_finalizer_material" \
+      --argjson requires_artifact_provsql_material "$requires_artifact_provsql_material" \
+      --argjson requires_scale_material "$requires_scale_material" \
+      --argjson deployment_experiments "$deployment_experiments" \
       --arg finalizer_qualification "$finalizer_qualification" \
       --arg finalizer_qualification_sha256 "$finalizer_qualification_sha256" \
       --arg finalizer_postgresql_identity "$finalizer_postgresql_identity" \
       --arg finalizer_postgresql_identity_sha256 "$finalizer_postgresql_identity_sha256" \
+      --arg scale_finalizer_qualification "$scale_finalizer_qualification" \
+      --arg scale_finalizer_qualification_sha256 "$scale_finalizer_qualification_sha256" \
+      --arg scale_finalizer_postgresql_identity "$scale_finalizer_postgresql_identity" \
+      --arg scale_finalizer_postgresql_identity_sha256 "$scale_finalizer_postgresql_identity_sha256" \
       '{schema_version:1,record:"taskgate-p30-fresh-profile-deployment-v1",status:"pass",
         campaign_class:"pilot",publication_eligible:false,campaign_id:$campaign_id,
         submission_commit:$submission_commit,compose_project:$compose_project,profile_alias:$profile_alias,
         profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition} +
        (if $requires_finalizer_material then
-          {finalizer_material:{attestation_qualification_path:$finalizer_qualification,
-            attestation_qualification_sha256:$finalizer_qualification_sha256,
-            postgresql_identity_path:$finalizer_postgresql_identity,
-            postgresql_identity_sha256:$finalizer_postgresql_identity_sha256}}
+          {finalizer_material_dispatch:
+            ((if $requires_artifact_provsql_material then
+                [{experiments:[$deployment_experiments[] | select(. == "artifact" or . == "provsql")],
+                  attestation_qualification_path:$finalizer_qualification,
+                  attestation_qualification_sha256:$finalizer_qualification_sha256,
+                  postgresql_identity_path:$finalizer_postgresql_identity,
+                  postgresql_identity_sha256:$finalizer_postgresql_identity_sha256}]
+              else [] end) +
+             (if $requires_scale_material then
+                [{experiments:["scale"],
+                  attestation_qualification_path:$scale_finalizer_qualification,
+                  attestation_qualification_sha256:$scale_finalizer_qualification_sha256,
+                  postgresql_identity_path:$scale_finalizer_postgresql_identity,
+                  postgresql_identity_sha256:$scale_finalizer_postgresql_identity_sha256}]
+              else [] end))}
         else {} end)' >"$fresh_proof"
 
-    mapfile -t experiments < <(jq -er --arg alias "$alias" '.deployments[] | select(.alias == $alias) | .experiments[]' "$plan")
     if printf '%s\n' "${experiments[@]}" | grep -qx rq5; then
       current_rq5_run_root="$current_dir/rq5-live"
       current_rq5_project="$(bash evaluation/final-v5-wsl2/scripts/rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" deployment-01)"
@@ -654,6 +698,17 @@ for alias in "${selected_profiles[@]}"; do
         -rq5-config-sha256 "$rq5_config_sha" -out "$rq5_profile_binding"
     fi
     for experiment in "${experiments[@]}"; do
+      unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
+      case "$experiment" in
+      artifact | provsql)
+        export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"
+        export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"
+        ;;
+      scale)
+        export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$scale_finalizer_qualification"
+        export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$scale_finalizer_postgresql_identity"
+        ;;
+      esac
       current_stage="cells_$experiment"
       campaign_selected="$current_dir/selected-cells/$experiment.json"
       jq --arg experiment "$experiment" '[.[] | select(startswith($experiment + "/"))]' <<<"$cells_json" >"$campaign_selected"

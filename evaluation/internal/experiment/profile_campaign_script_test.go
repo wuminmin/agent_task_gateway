@@ -38,15 +38,25 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`export TASKGATE_FINAL_V5_CATALOG=`,
 		`export TASKGATE_PROFILE_ARTIFACT_DIR=`,
 		`export TASKGATE_FINAL_V5_REPO_ROOT=`,
-		`selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`,
-		`selected Scale/Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment`,
-		`any(. == "scale" or . == "artifact" or . == "provsql")`,
+		`selected Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`,
+		`selected Artifact/ProvSQL profile requires POSTGRESQL_IDENTITY before deployment`,
+		`selected Scale profile requires SCALE_ATTESTATION_QUALIFICATION before deployment`,
+		`selected Scale profile requires SCALE_POSTGRESQL_IDENTITY before deployment`,
+		`any(. == "artifact" or . == "provsql")`,
+		`any(. == "scale")`,
 		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`,
 		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$finalizer_postgresql_identity"`,
+		`export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$scale_finalizer_qualification"`,
+		`export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$scale_finalizer_postgresql_identity"`,
+		`finalizer_material_dispatch`,
 		`attestation_qualification_path:$finalizer_qualification`,
 		`attestation_qualification_sha256:$finalizer_qualification_sha256`,
 		`postgresql_identity_path:$finalizer_postgresql_identity`,
 		`postgresql_identity_sha256:$finalizer_postgresql_identity_sha256`,
+		`attestation_qualification_path:$scale_finalizer_qualification`,
+		`attestation_qualification_sha256:$scale_finalizer_qualification_sha256`,
+		`postgresql_identity_path:$scale_finalizer_postgresql_identity`,
+		`postgresql_identity_sha256:$scale_finalizer_postgresql_identity_sha256`,
 		`-adapter-stderr-output "$adapter_stderr"`,
 		`final-v5-adapter-stderr-scan`,
 		`-sensitive-json-file "$current_rq5_secret/deployment-secrets.json"`,
@@ -86,14 +96,26 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	if preregistrationInstall < 0 || preregistrationInstall > composeUp {
 		t.Fatal("concurrency preregistration is not retained and digest-checked before service startup")
 	}
-	qualificationGate := strings.Index(script, `selected Scale/Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`)
+	qualificationGate := strings.Index(script, `selected Artifact/ProvSQL profile requires ATTESTATION_QUALIFICATION before deployment`)
+	scaleQualificationGate := strings.Index(script, `selected Scale profile requires SCALE_ATTESTATION_QUALIFICATION before deployment`)
 	qualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$finalizer_qualification"`)
+	scaleQualificationExport := strings.Index(script, `export TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION="$scale_finalizer_qualification"`)
+	materialUnset := strings.LastIndex(script, `unset TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY`)
 	runnerDispatch := strings.Index(script, `go run "./evaluation/cmd/$runner"`)
 	if qualificationGate < 0 || qualificationGate > composeUp {
-		t.Fatal("Scale/Artifact/ProvSQL qualification material is not required before deployment startup")
+		t.Fatal("Artifact/ProvSQL qualification material is not required before deployment startup")
+	}
+	if scaleQualificationGate < 0 || scaleQualificationGate > composeUp {
+		t.Fatal("Scale qualification material is not required before deployment startup")
 	}
 	if qualificationExport < 0 || runnerDispatch < 0 || qualificationExport > runnerDispatch {
-		t.Fatal("Scale/Artifact/ProvSQL qualification material is not exported before experiment runner dispatch")
+		t.Fatal("Artifact/ProvSQL qualification material is not exported before experiment runner dispatch")
+	}
+	if scaleQualificationExport < 0 || scaleQualificationExport > runnerDispatch {
+		t.Fatal("Scale qualification material is not exported before experiment runner dispatch")
+	}
+	if materialUnset < 0 || materialUnset > qualificationExport || materialUnset > scaleQualificationExport {
+		t.Fatal("experiment dispatch can inherit finalizer material from a preceding experiment")
 	}
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")
