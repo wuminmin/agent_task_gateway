@@ -19,6 +19,7 @@ const (
 	scaleEvidenceVersion             = "taskgate-final-v5-scale-verification-v1"
 	scaleDependencyEvidenceVersionV2 = "taskgate-final-v5-scale-verification-v2"
 	scaleDependencyEvidenceVersionV3 = "taskgate-final-v5-scale-verification-v3"
+	scaleDependencyEvidenceVersionV4 = "taskgate-final-v5-scale-verification-v4"
 	artifactEvidenceVersionV1        = "taskgate-final-v5-artifact-verification-v1"
 	artifactEvidenceVersionV2        = "taskgate-final-v5-artifact-verification-v2"
 	outcomeProductionPath            = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
@@ -39,6 +40,8 @@ func validateScaleVerification(sample Sample) error {
 			return validateDependencyScaleVerificationV2(sample, evidence)
 		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV3:
 			return validateDependencyScaleVerificationV3(sample, evidence)
+		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV4:
+			return validateDependencyScaleVerificationV4(sample, evidence)
 		default:
 			return errors.New("dependency scale sample/evidence versions are incompatible")
 		}
@@ -62,7 +65,29 @@ func validateScaleVerification(sample Sample) error {
 // member-level Outcome comparison. The two ordinary-set digests are deliberately
 // separate from the production radix digest retained on Sample and the receipt.
 func validateDependencyScaleVerificationV3(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.HistoryDependencyLink != nil ||
+		evidence.CandidateDependencyLink != nil || evidence.RootBeforeDependencyLink != nil ||
+		evidence.RootAfterDependencyLink != nil {
+		return errors.New("dependency Scale evidence-v3 cannot carry evidence-v4 semantic-to-ordinal links")
+	}
 	if err := validateDependencyScaleVerificationDecision18(sample, evidence); err != nil {
+		return err
+	}
+	return validateOutcomeCandidateScaleEvidenceV3(sample, evidence)
+}
+
+// validateDependencyScaleVerificationV4 keeps the evidence-v3 Outcome member
+// proof and replaces only the invalid semantic/native digest equality with the
+// explicit semantic-to-ordinal links. Earlier evidence versions remain frozen.
+func validateDependencyScaleVerificationV4(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if err := validateDependencyScaleVerificationDecision18V4(sample, evidence); err != nil {
+		return err
+	}
+	spec, err := ParseDependencyScale(sample.Scale)
+	if err != nil {
+		return err
+	}
+	if err := validateDependencyScaleLinksV1(sample, evidence, spec); err != nil {
 		return err
 	}
 	return validateOutcomeCandidateScaleEvidenceV3(sample, evidence)
@@ -122,6 +147,11 @@ func ValidateScaleEvidence(sample Sample) error {
 // absent at zero overlap), and it conflated Dataset identity with the SQL
 // sanity-probe result. New runtime output must never enter this branch.
 func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.HistoryDependencyLink != nil ||
+		evidence.CandidateDependencyLink != nil || evidence.RootBeforeDependencyLink != nil ||
+		evidence.RootAfterDependencyLink != nil {
+		return errors.New("dependency Scale evidence-v1 cannot carry semantic-to-ordinal link evidence")
+	}
 	spec, err := ParseDependencyScale(sample.Scale)
 	if err != nil || evidence.Boundary != "dependency_e2e" || sample.KernelOnly || sample.System != "taskgate" ||
 		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {
@@ -230,13 +260,31 @@ func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerific
 // identity and live SQL sanity probe are separate domains.
 func validateDependencyScaleVerificationV2(sample Sample, evidence *ScaleVerificationEvidence) error {
 	if evidence.hasOutcomeCandidateEvidenceV3() ||
-		(sample.TaskGateAcceptanceV3 != nil && sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil) {
+		(sample.TaskGateAcceptanceV3 != nil && sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil) ||
+		evidence.HistoryDependencyLink != nil ||
+		evidence.CandidateDependencyLink != nil || evidence.RootBeforeDependencyLink != nil ||
+		evidence.RootAfterDependencyLink != nil {
 		return errors.New("dependency Scale evidence-v2 cannot carry Outcome candidate evidence-v3 members")
 	}
 	return validateDependencyScaleVerificationDecision18(sample, evidence)
 }
 
 func validateDependencyScaleVerificationDecision18(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.CandidateDependencySHA256 != sample.DependencySetSHA256 {
+		return errors.New("historical dependency E2E semantic/native digest equality differs from the retained sample")
+	}
+	if sample.Mode == "novel" {
+		if evidence.RootBefore.DependencySetSHA256 != evidence.ExistingDependencySHA256 ||
+			evidence.RootAfter.DependencySetSHA256 != evidence.UnionDependencySHA256 {
+			return errors.New("historical dependency root digest differs from its retained oracle")
+		}
+	} else if evidence.RootBefore.DependencySetSHA256 != evidence.UnionDependencySHA256 {
+		return errors.New("historical semantic replay root digest differs from its retained oracle")
+	}
+	return validateDependencyScaleVerificationDecision18V4(sample, evidence)
+}
+
+func validateDependencyScaleVerificationDecision18V4(sample Sample, evidence *ScaleVerificationEvidence) error {
 	spec, err := ParseDependencyScale(sample.Scale)
 	if err != nil || evidence.Boundary != "dependency_e2e" || sample.KernelOnly || sample.System != "taskgate" ||
 		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {
@@ -258,8 +306,7 @@ func validateDependencyScaleVerificationDecision18(sample Sample, evidence *Scal
 		evidence.ObservedCandidateFacts != sample.ActualDependencyFacts ||
 		evidence.ObservedOverlapFacts != spec.OverlapFacts ||
 		evidence.ExpectedRows != sample.RowCount || evidence.ExpectedColumns != sample.ColumnCount ||
-		evidence.ExpectedResultSHA256 != sample.ResultSHA256 ||
-		evidence.CandidateDependencySHA256 != sample.DependencySetSHA256 {
+		evidence.ExpectedResultSHA256 != sample.ResultSHA256 {
 		return errors.New("dependency E2E label/result/oracle binding differs from the observed sample")
 	}
 	if err := validateDependencyScaleAccountingV3(sample, evidence, spec); err != nil {
@@ -325,12 +372,10 @@ func validateDependencyScaleAccountingV3(sample Sample, evidence *ScaleVerificat
 		return errors.New("dependency root transition differs from its independent snapshots")
 	}
 	if sample.Mode == "novel" {
-		if evidence.RootBefore.DependencyCardinality != spec.ExistingFacts ||
-			evidence.RootBefore.DependencySetSHA256 != evidence.ExistingDependencySHA256 {
+		if evidence.RootBefore.DependencyCardinality != spec.ExistingFacts {
 			return errors.New("novel dependency root does not begin at the complete existing set")
 		}
-		if evidence.RootAfter.DependencyCardinality != spec.UnionFacts ||
-			evidence.RootAfter.DependencySetSHA256 != evidence.UnionDependencySHA256 {
+		if evidence.RootAfter.DependencyCardinality != spec.UnionFacts {
 			return errors.New("novel dependency root does not end at the independent union")
 		}
 		if sample.SemanticReplay || sample.IdempotentReplay ||
@@ -341,7 +386,6 @@ func validateDependencyScaleAccountingV3(sample Sample, evidence *ScaleVerificat
 		return nil
 	}
 	if evidence.RootBefore.DependencyCardinality != spec.UnionFacts ||
-		evidence.RootBefore.DependencySetSHA256 != evidence.UnionDependencySHA256 ||
 		evidence.RootAfter != evidence.RootBefore {
 		return errors.New("semantic replay did not preserve the complete union root")
 	}
@@ -350,6 +394,58 @@ func validateDependencyScaleAccountingV3(sample Sample, evidence *ScaleVerificat
 		return errors.New("semantic replay charged or changed the complete root")
 	}
 	return nil
+}
+
+func validateDependencyScaleLinksV1(sample Sample, evidence *ScaleVerificationEvidence,
+	spec DependencyScaleSpec) error {
+	if evidence.CandidateDependencyLink == nil ||
+		evidence.RootBeforeDependencyLink == nil || evidence.RootAfterDependencyLink == nil {
+		return errors.New("passing dependency Scale evidence omits a semantic-to-ordinal link")
+	}
+	require := func(name string, link *ScaleDependencySetVerificationV1,
+		role DependencyScaleSummaryRole, expectedFacts int64, expectedSemantic, production string) error {
+		if link == nil {
+			return fmt.Errorf("%s dependency link is absent", name)
+		}
+		if err := link.Validate(); err != nil {
+			return fmt.Errorf("%s dependency link: %w", name, err)
+		}
+		if link.Role != role || link.ExpectedCardinality != expectedFacts ||
+			link.ExpectedSemanticSetSHA256 != expectedSemantic ||
+			link.ProductionSetSHA256 != production {
+			return fmt.Errorf("%s dependency link differs from its semantic/native identities", name)
+		}
+		return nil
+	}
+	if err := require("candidate", evidence.CandidateDependencyLink,
+		DependencyScaleCandidateSummaryRole, spec.CandidateFacts,
+		evidence.CandidateDependencySHA256, sample.DependencySetSHA256); err != nil {
+		return err
+	}
+	if sample.Mode == "novel" {
+		if err := require("history", evidence.HistoryDependencyLink,
+			DependencyScaleExistingSummaryRole, spec.ExistingFacts,
+			evidence.ExistingDependencySHA256, evidence.RootBefore.DependencySetSHA256); err != nil {
+			return err
+		}
+		if err := require("root-before", evidence.RootBeforeDependencyLink,
+			DependencyScaleExistingSummaryRole, spec.ExistingFacts,
+			evidence.ExistingDependencySHA256, evidence.RootBefore.DependencySetSHA256); err != nil {
+			return err
+		}
+	} else {
+		if evidence.HistoryDependencyLink != nil {
+			return errors.New("semantic replay unexpectedly carries a history-query dependency link")
+		}
+		if err := require("root-before", evidence.RootBeforeDependencyLink,
+			DependencyScaleUnionSummaryRole, spec.UnionFacts,
+			evidence.UnionDependencySHA256, evidence.RootBefore.DependencySetSHA256); err != nil {
+			return err
+		}
+	}
+	return require("root-after", evidence.RootAfterDependencyLink,
+		DependencyScaleUnionSummaryRole, spec.UnionFacts,
+		evidence.UnionDependencySHA256, evidence.RootAfter.DependencySetSHA256)
 }
 
 func validateOutcomeMerkleVerification(sample Sample, evidence *ScaleVerificationEvidence) error {

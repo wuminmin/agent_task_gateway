@@ -147,7 +147,7 @@ func OpenDeploymentFinalizerV3(ctx context.Context) (*RuntimeFinalizerV3, error)
 	return openRuntimeFinalizerV3(verifier, contracts, profiles,
 		retainedQualificationV3{documentPath: qualification},
 		retainedPostgreSQLIdentityV3{documentPath: identity},
-		controlStoreEvidenceV3{dsn: controlDSN})
+		controlStoreEvidenceV3{dsn: controlDSN}, newDeploymentScaleDependencySetVerifierV1(controlDSN))
 }
 
 func requiredDeploymentValue(name string) (string, error) {
@@ -800,6 +800,15 @@ func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts
 			Cardinality:       cellBinding.OutcomeCandidate.Cardinality,
 			Members:           append([]string(nil), cellBinding.OutcomeCandidate.Members...),
 			OrdinarySetSHA256: cellBinding.OutcomeCandidate.OrdinarySetSHA256,
+		},
+		ScaleDependency: &ScaleDependencySetExpectationV1{
+			Scale: cell.Identity.Scale,
+			Candidate: ScaleDependencySemanticSetV1{Cardinality: cellBinding.Candidate.DependencyFacts,
+				SetSHA256: cellBinding.Candidate.DependencySetSHA256},
+			Existing: ScaleDependencySemanticSetV1{Cardinality: cellBinding.History.DependencyFacts,
+				SetSHA256: cellBinding.History.DependencySetSHA256},
+			Union: ScaleDependencySemanticSetV1{Cardinality: cellBinding.Union.DependencyFacts,
+				SetSHA256: cellBinding.Union.DependencySetSHA256},
 		},
 	}, nil
 }

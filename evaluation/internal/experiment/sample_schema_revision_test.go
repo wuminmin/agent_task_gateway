@@ -101,7 +101,8 @@ func TestSampleV3IsAnExplicitPostAcceptanceRevision(t *testing.T) {
 	versions := stringArray(t, objectMap(t, scaleProperties["version"], "sample-v3 scale version")["enum"],
 		"sample-v3 scale versions")
 	sort.Strings(versions)
-	if !reflect.DeepEqual(versions, []string{scaleDependencyEvidenceVersionV2, scaleDependencyEvidenceVersionV3}) ||
+	if !reflect.DeepEqual(versions, []string{scaleDependencyEvidenceVersionV2,
+		scaleDependencyEvidenceVersionV3, scaleDependencyEvidenceVersionV4}) ||
 		objectMap(t, scaleProperties["boundary"], "sample-v3 scale boundary")["const"] != "dependency_e2e" {
 		t.Fatal("sample-v3 does not keep historical Scale evidence-v2 separate from current evidence-v3")
 	}
@@ -226,7 +227,7 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 	sample.Scale = "10k-overlap-0"
 	sample.Mode = "novel"
 	sample.ScaleVerification = &ScaleVerificationEvidence{
-		Version: scaleDependencyEvidenceVersionV3, Boundary: "dependency_e2e",
+		Version: scaleDependencyEvidenceVersionV4, Boundary: "dependency_e2e",
 		BindingFileSHA256: digest, BindingSHA256: digest, DatasetSHA256: digest,
 		DatasetProbeSHA256: strings.Repeat("b", 64), CatalogSHA256: digest, QuerySHA256: digest,
 		ExpectedRows: 1, ExpectedColumns: 1, ExpectedResultSHA256: digest,
@@ -236,7 +237,11 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 		ExpectedOutcomeCandidateSetSHA256: outcome.OrdinarySetSHA256,
 		ObservedOutcomeCandidateSetSHA256: outcome.OrdinarySetSHA256,
 		ExistingDependencySHA256:          digest, CandidateDependencySHA256: digest, UnionDependencySHA256: digest,
-		ObserverWindow: &ObserverWindowV2{},
+		HistoryDependencyLink:    sampleSchemaScaleLink(DependencyScaleExistingSummaryRole, 10_000, digest),
+		CandidateDependencyLink:  sampleSchemaScaleLink(DependencyScaleCandidateSummaryRole, 10_000, digest),
+		RootBeforeDependencyLink: sampleSchemaScaleLink(DependencyScaleExistingSummaryRole, 10_000, digest),
+		RootAfterDependencyLink:  sampleSchemaScaleLink(DependencyScaleUnionSummaryRole, 20_000, digest),
+		ObserverWindow:           &ObserverWindowV2{},
 	}
 	instance := sampleJSONInstance(t, sample)
 	validate := sampleV3SchemaValidator(t)
@@ -251,6 +256,7 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 		"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256",
 		"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
 		"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+		"candidate_dependency_link", "root_before_dependency_link", "root_after_dependency_link",
 	} {
 		t.Run("missing "+field, func(t *testing.T) {
 			mutated := sampleJSONInstance(t, sample)
@@ -285,6 +291,8 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 	for _, field := range []string{
 		"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
 		"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+		"history_dependency_link", "candidate_dependency_link",
+		"root_before_dependency_link", "root_after_dependency_link",
 	} {
 		delete(historicalScale, field)
 	}
@@ -301,6 +309,10 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 	historicalEvidence.ObservedOutcomeMemberCardinality = 0
 	historicalEvidence.ExpectedOutcomeCandidateSetSHA256 = ""
 	historicalEvidence.ObservedOutcomeCandidateSetSHA256 = ""
+	historicalEvidence.HistoryDependencyLink = nil
+	historicalEvidence.CandidateDependencyLink = nil
+	historicalEvidence.RootBeforeDependencyLink = nil
+	historicalEvidence.RootAfterDependencyLink = nil
 	historicalSample.ScaleVerification = &historicalEvidence
 	if err := historicalSample.Validate(); err != nil {
 		t.Fatalf("sample-v3 Go reader rejected historical Scale evidence-v2: %v", err)
@@ -319,6 +331,27 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 	var decodedV2WithFinalizerMembers Sample
 	if err := StrictJSON(encodedV2WithFinalizerMembers, &decodedV2WithFinalizerMembers); err == nil {
 		t.Fatal("sample-v3 strict reader silently added Outcome member verification to historical evidence-v2")
+	}
+	historicalV3 := sampleJSONInstance(t, sample)
+	historicalV3Scale := objectMap(t, historicalV3["scale_verification"], "historical v3 scale verification")
+	historicalV3Scale["version"] = scaleDependencyEvidenceVersionV3
+	for _, field := range []string{"history_dependency_link", "candidate_dependency_link",
+		"root_before_dependency_link", "root_after_dependency_link"} {
+		delete(historicalV3Scale, field)
+	}
+	if err := validate(historicalV3); err != nil {
+		t.Fatalf("sample-v3 schema rejected frozen Scale evidence-v3 without v4 links: %v", err)
+	}
+	historicalV3Sample := sample
+	historicalV3Evidence := *sample.ScaleVerification
+	historicalV3Evidence.Version = scaleDependencyEvidenceVersionV3
+	historicalV3Evidence.HistoryDependencyLink = nil
+	historicalV3Evidence.CandidateDependencyLink = nil
+	historicalV3Evidence.RootBeforeDependencyLink = nil
+	historicalV3Evidence.RootAfterDependencyLink = nil
+	historicalV3Sample.ScaleVerification = &historicalV3Evidence
+	if err := historicalV3Sample.Validate(); err != nil {
+		t.Fatalf("Go reader rejected frozen Scale evidence-v3 without v4 links: %v", err)
 	}
 	historicalSample.TaskGateAcceptanceV3 = sample.TaskGateAcceptanceV3
 	if err := historicalSample.Validate(); err == nil {
@@ -367,6 +400,17 @@ func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) 
 	legacySample.SchemaVersion = SampleSchemaVersion
 	if err := legacySample.Validate(); err == nil {
 		t.Fatal("sample-v1 Go reader accepted sample-v3 Decision-18 Scale members")
+	}
+}
+
+func sampleSchemaScaleLink(role DependencyScaleSummaryRole, cardinality int64,
+	digest string) *ScaleDependencySetVerificationV1 {
+	return &ScaleDependencySetVerificationV1{
+		Version: ScaleDependencySetVerificationV1Version, Role: role, Match: true,
+		ExpectedCardinality: cardinality, ExpectedSemanticSetSHA256: digest,
+		ObservedCardinality: cardinality, ObservedSemanticSetSHA256: digest,
+		ProductionSetSHA256: digest, ProductionDictionarySHA256: digest,
+		ObservedOrdinalSetSHA256: digest,
 	}
 }
 

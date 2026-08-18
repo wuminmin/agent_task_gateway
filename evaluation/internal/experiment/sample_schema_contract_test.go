@@ -60,7 +60,9 @@ func TestStageBVerificationSchemaMatchesEvidenceStructs(t *testing.T) {
 					"expected_existing_facts", "expected_union_facts",
 					"existing_dependency_sha256", "union_dependency_sha256",
 					"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
-					"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256")
+					"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+					"history_dependency_link", "candidate_dependency_link",
+					"root_before_dependency_link", "root_after_dependency_link")
 			}
 			gotProperties := sortedKeys(objectMap(t, strictSchema["properties"], propertyName+" properties"))
 			gotRequired := stringArray(t, strictSchema["required"], propertyName+" required")

@@ -1149,7 +1149,7 @@ func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
 		// The Control Store is the one collaborator this test cannot run: it needs
 		// a settled request in a running deployment. Pre-registration reaches none
 		// of it -- it happens before the request exists.
-		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}})
+		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}}, stubScaleSets{})
 	if err != nil {
 		t.Fatalf("open the finalizer: %v", err)
 	}

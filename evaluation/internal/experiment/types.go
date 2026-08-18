@@ -581,12 +581,16 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 			"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
 			"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
 		}
+		linkNames := []string{"history_dependency_link", "candidate_dependency_link",
+			"root_before_dependency_link", "root_after_dependency_link"}
 		if schemaVersion == SampleSchemaVersion || schemaVersion == TaskGateRejectionSampleSchemaVersion {
-			for _, name := range []string{
+			versionedNames := []string{
 				"expected_existing_facts", "expected_union_facts",
 				"existing_dependency_sha256", "union_dependency_sha256",
 				outcomeNames[0], outcomeNames[1], outcomeNames[2], outcomeNames[3],
-			} {
+			}
+			versionedNames = append(versionedNames, linkNames...)
+			for _, name := range versionedNames {
 				if _, present := evidenceMembers[name]; present {
 					return fmt.Errorf("sample-v1/v2 cannot carry sample-v3 Scale member %q", name)
 				}
@@ -599,23 +603,36 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 		}
 		switch scaleVerificationVersion {
 		case scaleEvidenceVersion, scaleDependencyEvidenceVersionV2:
-			for _, name := range outcomeNames {
+			for _, name := range append(append([]string(nil), outcomeNames...), linkNames...) {
 				if _, present := evidenceMembers[name]; present {
-					return fmt.Errorf("Scale evidence version %q cannot carry evidence-v3 member %q", scaleVerificationVersion, name)
+					return fmt.Errorf("Scale evidence version %q cannot carry later-version member %q", scaleVerificationVersion, name)
 				}
 			}
 		case scaleDependencyEvidenceVersionV3:
+			for _, name := range linkNames {
+				if _, present := evidenceMembers[name]; present {
+					return fmt.Errorf("Scale evidence-v3 cannot carry evidence-v4 member %q", name)
+				}
+			}
 			for _, name := range outcomeNames {
 				if _, present := evidenceMembers[name]; !present {
-					return fmt.Errorf("Scale evidence-v3 omits required member %q", name)
+					return fmt.Errorf("Scale evidence version %q omits required member %q", scaleVerificationVersion, name)
+				}
+			}
+		case scaleDependencyEvidenceVersionV4:
+			for _, name := range append(append([]string(nil), outcomeNames...),
+				"candidate_dependency_link", "root_before_dependency_link", "root_after_dependency_link") {
+				if _, present := evidenceMembers[name]; !present {
+					return fmt.Errorf("Scale evidence version %q omits required member %q", scaleVerificationVersion, name)
 				}
 			}
 		}
 	}
 	if outcomeVerificationPresent &&
 		(schemaVersion != FinalizedSampleSchemaVersion || experimentID != "scale" ||
-			scaleVerificationVersion != scaleDependencyEvidenceVersionV3) {
-		return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3")
+			(scaleVerificationVersion != scaleDependencyEvidenceVersionV3 &&
+				scaleVerificationVersion != scaleDependencyEvidenceVersionV4)) {
+		return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3/v4")
 	}
 	type sampleWire Sample
 	var decoded sampleWire
@@ -671,20 +688,24 @@ type ScaleVerificationEvidence struct {
 	// their signed composite Fact identity. These digests use the independent
 	// ordinary-set oracle domain, not the production radix-set domain carried by
 	// Sample.OutcomeSetSHA256 and the signed receipt.
-	ExpectedOutcomeMemberCardinality  int64               `json:"expected_outcome_member_cardinality,omitempty"`
-	ObservedOutcomeMemberCardinality  int64               `json:"observed_outcome_member_cardinality,omitempty"`
-	ExpectedOutcomeCandidateSetSHA256 string              `json:"expected_outcome_candidate_set_sha256,omitempty"`
-	ObservedOutcomeCandidateSetSHA256 string              `json:"observed_outcome_candidate_set_sha256,omitempty"`
-	HistoryDependencySHA256           string              `json:"history_dependency_sha256,omitempty"`
-	ExistingDependencySHA256          string              `json:"existing_dependency_sha256,omitempty"`
-	CandidateDependencySHA256         string              `json:"candidate_dependency_sha256,omitempty"`
-	UnionDependencySHA256             string              `json:"union_dependency_sha256,omitempty"`
-	BusinessBefore                    BusinessSQLSnapshot `json:"business_before,omitempty"`
-	BusinessAfter                     BusinessSQLSnapshot `json:"business_after,omitempty"`
-	RootBefore                        RootLedgerSnapshot  `json:"root_before,omitempty"`
-	RootAfter                         RootLedgerSnapshot  `json:"root_after,omitempty"`
-	SourceObservationSHA256           string              `json:"source_observation_sha256,omitempty"`
-	ReplayObservationSHA256           string              `json:"replay_observation_sha256,omitempty"`
+	ExpectedOutcomeMemberCardinality  int64                             `json:"expected_outcome_member_cardinality,omitempty"`
+	ObservedOutcomeMemberCardinality  int64                             `json:"observed_outcome_member_cardinality,omitempty"`
+	ExpectedOutcomeCandidateSetSHA256 string                            `json:"expected_outcome_candidate_set_sha256,omitempty"`
+	ObservedOutcomeCandidateSetSHA256 string                            `json:"observed_outcome_candidate_set_sha256,omitempty"`
+	HistoryDependencySHA256           string                            `json:"history_dependency_sha256,omitempty"`
+	ExistingDependencySHA256          string                            `json:"existing_dependency_sha256,omitempty"`
+	CandidateDependencySHA256         string                            `json:"candidate_dependency_sha256,omitempty"`
+	UnionDependencySHA256             string                            `json:"union_dependency_sha256,omitempty"`
+	HistoryDependencyLink             *ScaleDependencySetVerificationV1 `json:"history_dependency_link,omitempty"`
+	CandidateDependencyLink           *ScaleDependencySetVerificationV1 `json:"candidate_dependency_link,omitempty"`
+	RootBeforeDependencyLink          *ScaleDependencySetVerificationV1 `json:"root_before_dependency_link,omitempty"`
+	RootAfterDependencyLink           *ScaleDependencySetVerificationV1 `json:"root_after_dependency_link,omitempty"`
+	BusinessBefore                    BusinessSQLSnapshot               `json:"business_before,omitempty"`
+	BusinessAfter                     BusinessSQLSnapshot               `json:"business_after,omitempty"`
+	RootBefore                        RootLedgerSnapshot                `json:"root_before,omitempty"`
+	RootAfter                         RootLedgerSnapshot                `json:"root_after,omitempty"`
+	SourceObservationSHA256           string                            `json:"source_observation_sha256,omitempty"`
+	ReplayObservationSHA256           string                            `json:"replay_observation_sha256,omitempty"`
 	// ObserverWindow retains the v3 finalizer interval for dependency-e2e
 	// TaskGate cells. It is absent on the Outcome-Merkle and kernel-storage
 	// controls, which do not execute a fresh governed Task operation.
@@ -1751,12 +1772,14 @@ func (sample Sample) Validate() error {
 		}
 		if sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil &&
 			(sample.ExperimentID != "scale" || sample.ScaleVerification == nil ||
-				sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV3) {
-			return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3")
+				(sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV3 &&
+					sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV4)) {
+			return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3/v4")
 		}
 		if evidence := sample.ScaleVerification; evidence != nil {
 			if (evidence.Version != scaleDependencyEvidenceVersionV2 &&
-				evidence.Version != scaleDependencyEvidenceVersionV3) ||
+				evidence.Version != scaleDependencyEvidenceVersionV3 &&
+				evidence.Version != scaleDependencyEvidenceVersionV4) ||
 				evidence.HistoryDependencySHA256 != "" {
 				return errors.New("sample-v3 Scale evidence must use Decision-18 evidence-v2/v3 without legacy history")
 			}
@@ -1765,13 +1788,14 @@ func (sample Sample) Validate() error {
 					sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil) {
 				return errors.New("sample-v3 Scale evidence-v2 cannot carry Outcome candidate evidence-v3 members")
 			}
-			if evidence.Version == scaleDependencyEvidenceVersionV3 &&
+			if (evidence.Version == scaleDependencyEvidenceVersionV3 ||
+				evidence.Version == scaleDependencyEvidenceVersionV4) &&
 				(sample.TaskGateAcceptanceV3.OutcomeCandidateVerification == nil ||
 					evidence.ExpectedOutcomeMemberCardinality == 0 ||
 					evidence.ObservedOutcomeMemberCardinality == 0 ||
 					evidence.ExpectedOutcomeCandidateSetSHA256 == "" ||
 					evidence.ObservedOutcomeCandidateSetSHA256 == "") {
-				return errors.New("sample-v3 Scale evidence-v3 requires complete finalizer Outcome candidate verification")
+				return errors.New("sample-v3 Scale evidence-v3/v4 requires complete finalizer Outcome candidate verification")
 			}
 		}
 		if sample.ArtifactVerification != nil && sample.ArtifactVerification.Version != artifactEvidenceVersionV2 {

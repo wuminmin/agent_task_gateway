@@ -49,7 +49,10 @@
             "type": "object",
             "properties": {
               "version": {
-                "const": "taskgate-final-v5-scale-verification-v3"
+                "enum": [
+                  "taskgate-final-v5-scale-verification-v3",
+                  "taskgate-final-v5-scale-verification-v4"
+                ]
               }
             },
             "required": [
@@ -108,7 +111,10 @@
             "type": "object",
             "properties": {
               "version": {
-                "const": "taskgate-final-v5-scale-verification-v3"
+                "enum": [
+                  "taskgate-final-v5-scale-verification-v3",
+                  "taskgate-final-v5-scale-verification-v4"
+                ]
               }
             },
             "required": [
@@ -765,6 +771,35 @@
                   "observed_outcome_member_cardinality",
                   "expected_outcome_candidate_set_sha256",
                   "observed_outcome_candidate_set_sha256"
+                ],
+                "not": {
+                  "anyOf": [
+                    {"required": ["history_dependency_link"]},
+                    {"required": ["candidate_dependency_link"]},
+                    {"required": ["root_before_dependency_link"]},
+                    {"required": ["root_after_dependency_link"]}
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "version": {
+                    "const": "taskgate-final-v5-scale-verification-v4"
+                  }
+                },
+                "required": ["version"]
+              },
+              "then": {
+                "required": [
+                  "expected_outcome_member_cardinality",
+                  "observed_outcome_member_cardinality",
+                  "expected_outcome_candidate_set_sha256",
+                  "observed_outcome_candidate_set_sha256",
+                  "candidate_dependency_link",
+                  "root_before_dependency_link",
+                  "root_after_dependency_link"
                 ]
               }
             },
@@ -801,6 +836,26 @@
                       "required": [
                         "observed_outcome_candidate_set_sha256"
                       ]
+                    },
+                    {
+                      "required": [
+                        "history_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "candidate_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "root_before_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "root_after_dependency_link"
+                      ]
                     }
                   ]
                 }
@@ -811,7 +866,8 @@
             "version": {
               "enum": [
                 "taskgate-final-v5-scale-verification-v2",
-                "taskgate-final-v5-scale-verification-v3"
+                "taskgate-final-v5-scale-verification-v3",
+                "taskgate-final-v5-scale-verification-v4"
               ]
             },
             "boundary": {
@@ -907,6 +963,18 @@
             "union_dependency_sha256": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
+            },
+            "history_dependency_link": {
+              "$ref": "#/$defs/scaleDependencySetVerificationV1"
+            },
+            "candidate_dependency_link": {
+              "$ref": "#/$defs/scaleDependencySetVerificationV1"
+            },
+            "root_before_dependency_link": {
+              "$ref": "#/$defs/scaleDependencySetVerificationV1"
+            },
+            "root_after_dependency_link": {
+              "$ref": "#/$defs/scaleDependencySetVerificationV1"
             },
             "business_before": {
               "type": "object"
@@ -2140,6 +2208,66 @@
         }
       }
     },
+    "scaleDependencySetVerificationV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "role",
+        "match",
+        "expected_cardinality",
+        "expected_semantic_set_sha256",
+        "observed_cardinality",
+        "observed_semantic_set_sha256",
+        "production_set_sha256",
+        "production_dictionary_set_sha256",
+        "observed_ordinal_set_sha256",
+        "expected_ordinals_missing",
+        "unexpected_actual_ordinals"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-scale-dependency-set-verification-v1"
+        },
+        "role": {
+          "enum": ["candidate", "existing", "union"]
+        },
+        "match": {
+          "type": "boolean"
+        },
+        "expected_cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expected_semantic_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_semantic_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "production_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "production_dictionary_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_ordinal_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_ordinals_missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unexpected_actual_ordinals": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "partialScaleVerification": {
       "type": "object",
       "propertyNames": {
@@ -2149,6 +2277,7 @@
           "boundary",
           "business_after",
           "business_before",
+          "candidate_dependency_link",
           "candidate_dependency_sha256",
           "catalog_sha256",
           "dataset_probe_sha256",
@@ -2163,6 +2292,7 @@
           "expected_result_sha256",
           "expected_rows",
           "expected_union_facts",
+          "history_dependency_link",
           "history_dependency_sha256",
           "kernel_storage",
           "observed_candidate_facts",
@@ -2174,7 +2304,9 @@
           "query_sha256",
           "replay_observation_sha256",
           "root_after",
+          "root_after_dependency_link",
           "root_before",
+          "root_before_dependency_link",
           "source_observation_sha256",
           "union_dependency_sha256",
           "version"

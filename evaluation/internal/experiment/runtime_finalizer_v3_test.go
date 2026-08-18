@@ -21,6 +21,7 @@ type (
 	stubFootprint struct{ footprint AttestationFootprintV2 }
 	stubRuntime   struct{ identity PostgreSQLRuntimeIdentity }
 	stubControl   struct{ state requestSettlementStateV3 }
+	stubScaleSets struct{}
 )
 
 func (s stubContracts) ResolveCandidates(FrozenContractSelectorV3) ([]frozenOperationCandidateV3, error) {
@@ -35,6 +36,10 @@ func (s stubRuntime) ReadPostgreSQLIdentity(context.Context) (PostgreSQLRuntimeI
 }
 func (s stubControl) ReadRequestState(context.Context, string, string) (requestSettlementStateV3, error) {
 	return s.state, nil
+}
+func (stubScaleSets) Verify(context.Context, profileMaterialV3, ScaleDependencySetExpectationV1,
+	DependencyScaleSummaryRole, string) (ScaleDependencySetVerificationV1, error) {
+	return ScaleDependencySetVerificationV1{}, errors.New("stub Scale set verifier was not configured")
 }
 
 // runtimeFinalizerFor builds a finalizer whose contract registry offers the
@@ -55,7 +60,7 @@ func runtimeFinalizerFor(t *testing.T, candidates ...frozenOperationCandidateV3)
 		}},
 		stubFootprint{footprint: footprint},
 		stubRuntime{identity: testRuntimeIdentity()},
-		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}})
+		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}}, stubScaleSets{})
 	if err != nil {
 		t.Fatalf("open runtime finalizer: %v", err)
 	}
@@ -110,11 +115,11 @@ func TestOpenRuntimeFinalizerRefusesAMissingCollaborator(t *testing.T) {
 		t.Fatalf("verifier: %v", err)
 	}
 	if _, err := openRuntimeFinalizerV3(verifier, nil, stubProfiles{}, stubFootprint{},
-		stubRuntime{}, stubControl{}); err == nil {
+		stubRuntime{}, stubControl{}, stubScaleSets{}); err == nil {
 		t.Fatal("a finalizer with no contract resolver was opened")
 	}
 	if _, err := openRuntimeFinalizerV3(nil, stubContracts{}, stubProfiles{}, stubFootprint{},
-		stubRuntime{}, stubControl{}); err == nil {
+		stubRuntime{}, stubControl{}, stubScaleSets{}); err == nil {
 		t.Fatal("a finalizer with no receipt verifier was opened")
 	}
 }

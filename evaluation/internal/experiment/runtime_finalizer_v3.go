@@ -103,6 +103,9 @@ type frozenOperationCandidateV3 struct {
 	// cannot supply it and the Gateway's production radix set cannot derive it.
 	// Nil means this frozen operation is outside the strict Scale binding.
 	OutcomeCandidate *OutcomeCandidateExpectationV1
+	// ScaleDependency is the independent role-bound semantic oracle for the
+	// exact dependency Scale cell. It never contains a production set digest.
+	ScaleDependency *ScaleDependencySetExpectationV1
 	// BindingKey is empty for one-operation public cells. A non-empty key names
 	// one independently validated private variant beneath a public cell and is
 	// compared only as a selector hint.
@@ -181,6 +184,7 @@ type RuntimeFinalizerV3 struct {
 	footprints footprintResolverV3
 	runtime    runtimeIdentityReaderV3
 	control    controlEvidenceReaderV3
+	scaleSets  scaleDependencySetVerifierV1
 	// observerWindows owns the ephemeral signing key and the one-use attempt
 	// registry. Keeping both behind the already-opened finalizer is what prevents
 	// the Adapter from minting or resetting its own preregistration tickets.
@@ -199,7 +203,8 @@ type RuntimeFinalizerV3 struct {
 // see the file comment.
 func openRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts contractResolverV3,
 	profiles profileMaterialResolverV3, footprints footprintResolverV3,
-	runtime runtimeIdentityReaderV3, control controlEvidenceReaderV3) (*RuntimeFinalizerV3, error) {
+	runtime runtimeIdentityReaderV3, control controlEvidenceReaderV3,
+	scaleSets scaleDependencySetVerifierV1) (*RuntimeFinalizerV3, error) {
 	for name, present := range map[string]bool{
 		"a receipt verifier":          verifier != nil,
 		"a frozen contract resolver":  contracts != nil,
@@ -207,6 +212,7 @@ func openRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts contractResolv
 		"a footprint resolver":        footprints != nil,
 		"a runtime identity reader":   runtime != nil,
 		"a control evidence reader":   control != nil,
+		"a Scale set verifier":        scaleSets != nil,
 	} {
 		if !present {
 			return nil, fmt.Errorf("a runtime finalizer needs %s; without one its trusted material "+
@@ -218,7 +224,41 @@ func openRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts contractResolv
 		return nil, err
 	}
 	return &RuntimeFinalizerV3{verifier: verifier, contracts: contracts, profiles: profiles,
-		footprints: footprints, runtime: runtime, control: control, observerWindows: observerWindows}, nil
+		footprints: footprints, runtime: runtime, control: control, scaleSets: scaleSets,
+		observerWindows: observerWindows}, nil
+}
+
+// VerifyScaleDependencySetV1 resolves the semantic oracle and activated
+// publication finalizer-side, then links one immutable production set named by
+// the caller. A wrong selector, role or production digest can only reject.
+func (finalizer *RuntimeFinalizerV3) VerifyScaleDependencySetV1(ctx context.Context,
+	request ScaleDependencySetVerificationRequestV1) (ScaleDependencySetVerificationV1, error) {
+	var verification ScaleDependencySetVerificationV1
+	if finalizer == nil || finalizer.scaleSets == nil {
+		return verification, errors.New("Scale dependency verification requires an opened runtime finalizer")
+	}
+	if !validSHA256(request.ProductionSetSHA256) {
+		return verification, errors.New("Scale dependency verification requires a production set digest")
+	}
+	candidates, err := finalizer.contracts.ResolveCandidates(request.ContractSelector)
+	if err != nil {
+		return verification, fmt.Errorf("resolve frozen Scale dependency candidate: %w", err)
+	}
+	if len(candidates) != 1 || candidates[0].ScaleDependency == nil {
+		return verification, fmt.Errorf("Scale dependency verification selector names %d eligible candidates", len(candidates))
+	}
+	expectation := *candidates[0].ScaleDependency
+	if err := expectation.Validate(); err != nil {
+		return verification, fmt.Errorf("validate frozen Scale dependency expectation: %w", err)
+	}
+	if _, err := expectation.forRole(request.Role); err != nil {
+		return verification, err
+	}
+	profile, err := finalizer.profiles.Resolve(candidates[0].ProfileID)
+	if err != nil {
+		return verification, fmt.Errorf("resolve Scale dependency deployment profile: %w", err)
+	}
+	return finalizer.scaleSets.Verify(ctx, profile, expectation, request.Role, request.ProductionSetSHA256)
 }
 
 // FinalizationRequestV3 is everything an Adapter may submit.

@@ -25,7 +25,7 @@ import (
 const (
 	scaleVerificationVersion           = "taskgate-final-v5-scale-verification-v1"
 	scaleDependencyVerificationVersion = "taskgate-final-v5-scale-verification-v2"
-	scaleDependencyVerificationV3      = "taskgate-final-v5-scale-verification-v3"
+	scaleDependencyVerificationV4      = "taskgate-final-v5-scale-verification-v4"
 )
 
 type scaleAdapter struct {
@@ -147,8 +147,12 @@ func retainedScaleFailure(operation experiment.AdapterOperation, sample experime
 		sample = failedSample(operation, code)
 	} else {
 		sample.Status = "fail"
-		sample.ErrorCode = code
-		sample.Reason = "a real scale backend operation was attempted and failed; safely collected evidence is retained"
+		if sample.ErrorCode == "" {
+			sample.ErrorCode = code
+		}
+		if sample.Reason == "" {
+			sample.Reason = "a real scale backend operation was attempted and failed; safely collected evidence is retained"
+		}
 	}
 	return sample
 }
@@ -230,9 +234,16 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	// anything. Task provisioning is the sole allowed predecessor because the
 	// finalizer-issued ticket must bind a real task/request pair.
 	if operation.Mode == "novel" {
-		if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, cell.History); err != nil {
-			return experiment.Sample{}, err
+		prefillSample, historyLink, prefillErr := adapter.prefillDependencyHistory(
+			ctx, finalizer, selector, operation, state, cell.Task, cell.History)
+		if prefillErr != nil {
+			if prefillSample.SchemaVersion != 0 {
+				prefillSample.ErrorCode = "dependency_history_prefill_failed"
+				prefillSample.Reason = "the retained rows/columns/result/dependency observation is from the history prefill"
+			}
+			return prefillSample, prefillErr
 		}
+		state.historyDependencyLink = historyLink
 	}
 
 	beforeRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
@@ -319,9 +330,41 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
 	sample.BusinessSQLDelta = visibleDelta + companionDelta
-	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {
+	if err := validateBoundScaleSampleResult(sample, cell.Candidate); err != nil {
 		return sample, err
 	}
+	candidateLink, err := verifyScaleDependencySet(ctx, finalizer, selector,
+		experiment.DependencyScaleCandidateSummaryRole, sample.DependencySetSHA256)
+	if err != nil {
+		return sample, err
+	}
+	var rootBeforeLink, rootAfterLink *experiment.ScaleDependencySetVerificationV1
+	if operation.Mode == "novel" {
+		rootBeforeLink = state.historyDependencyLink
+		if rootBeforeLink == nil || rootBeforeLink.ProductionSetSHA256 != beforeRoot.DependencySetSHA256 {
+			return sample, errors.New("history query and RootBefore do not name the same production dependency set")
+		}
+		rootAfterLink, err = verifyScaleDependencySet(ctx, finalizer, selector,
+			experiment.DependencyScaleUnionSummaryRole, afterRoot.DependencySetSHA256)
+	} else {
+		rootBeforeLink, err = verifyScaleDependencySet(ctx, finalizer, selector,
+			experiment.DependencyScaleUnionSummaryRole, beforeRoot.DependencySetSHA256)
+		if err == nil {
+			if beforeRoot.DependencySetSHA256 != afterRoot.DependencySetSHA256 {
+				return sample, errors.New("semantic replay changed the production dependency root")
+			}
+			rootAfterLink = rootBeforeLink
+		}
+	}
+	if err != nil {
+		return sample, err
+	}
+	if operation.Mode == "novel" {
+		evidence.HistoryDependencyLink = state.historyDependencyLink
+	}
+	evidence.CandidateDependencyLink = candidateLink
+	evidence.RootBeforeDependencyLink = rootBeforeLink
+	evidence.RootAfterDependencyLink = rootAfterLink
 	if sample.BaselineVerification == nil {
 		return sample, errors.New("verified Scale sample omitted its receipt evidence")
 	}
@@ -367,7 +410,7 @@ func retainScaleOutcomeCandidateVerification(evidence *experiment.ScaleVerificat
 	if err := verification.Validate(); err != nil {
 		return fmt.Errorf("validate the accepted Scale Outcome candidate member verification: %w", err)
 	}
-	evidence.Version = scaleDependencyVerificationV3
+	evidence.Version = scaleDependencyVerificationV4
 	evidence.ExpectedOutcomeMemberCardinality = verification.Expected.Cardinality
 	evidence.ObservedOutcomeMemberCardinality = verification.Observed.Cardinality
 	evidence.ExpectedOutcomeCandidateSetSHA256 = verification.Expected.OrdinarySetSHA256
@@ -431,18 +474,20 @@ func carriedScaleEvidence(mode string, registered experiment.PreRegisteredObserv
 	}
 }
 
-func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context, operation experiment.AdapterOperation,
-	state *pairState, task boundTaskRequest, history boundQueryExpectation) error {
+func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context,
+	finalizer *experiment.RuntimeFinalizerV3, selector experiment.FrozenContractSelectorV3,
+	operation experiment.AdapterOperation, state *pairState, task boundTaskRequest,
+	history boundQueryExpectation) (experiment.Sample, *experiment.ScaleDependencySetVerificationV1, error) {
 	before, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
 	if err != nil {
-		return err
+		return experiment.Sample{}, nil, err
 	}
 	if before.Epoch != 0 || before.DependencyCardinality != 0 {
-		return errors.New("dependency prefill did not start from a fresh root")
+		return experiment.Sample{}, nil, errors.New("dependency prefill did not start from a fresh root")
 	}
 	businessBefore, err := adapter.real.businessSQLSnapshotFor(ctx, task)
 	if err != nil {
-		return err
+		return experiment.Sample{}, nil, err
 	}
 	requestID := "final-v5-history-" + sha(operation.SampleID)[:24]
 	started := time.Now()
@@ -450,16 +495,16 @@ func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context, opera
 	if err := adapter.real.alice.call(ctx, "query_sql", map[string]any{
 		"task_id": state.taskID, "request_id": requestID, "sql": history.SQL,
 	}, &response); err != nil {
-		return err
+		return experiment.Sample{}, nil, err
 	}
 	availableMS := durationMS(time.Since(started))
 	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, task)
 	if err != nil {
-		return err
+		return experiment.Sample{}, nil, err
 	}
 	after, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
 	if err != nil {
-		return err
+		return experiment.Sample{}, nil, err
 	}
 	prefillOperation := operation
 	prefillOperation.CellID += "/history-prefill"
@@ -468,26 +513,56 @@ func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context, opera
 	sample, err := adapter.real.completeTaskgateSample(ctx, prefillOperation, state, before, after,
 		started, availableMS, history.SQL, response)
 	if err != nil {
-		return err
+		return sample, nil, err
 	}
-	if err := validateBoundSampleResult(sample, history); err != nil {
-		return err
-	}
-	if after.DependencyCardinality != history.DependencyFacts || after.DependencySetSHA256 != history.DependencySetSHA256 ||
+	// Retain the parent cell identity while keeping the actually observed history
+	// result fields. The caller marks this pre-candidate setup failure with its
+	// dedicated error code; it is not sample-v3 acceptance evidence.
+	sample.ExperimentID, sample.WorkloadID, sample.CellID, sample.SampleID, sample.Mode =
+		operation.ExperimentID, operation.WorkloadID, operation.CellID, operation.SampleID, operation.Mode
+	link, linkErr := verifyScaleDependencySet(ctx, finalizer, selector,
+		experiment.DependencyScaleExistingSummaryRole, sample.DependencySetSHA256)
+	resultErr := validateBoundScaleSampleResult(sample, history)
+	rootErr := error(nil)
+	if after.DependencyCardinality != history.DependencyFacts || after.DependencySetSHA256 != sample.DependencySetSHA256 ||
 		businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1 ||
 		businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1 {
-		return errors.New("public TaskGate history prefill differs from its exact oracle")
+		rootErr = errors.New("public TaskGate history prefill differs from its result/root transition")
+	}
+	if err := errors.Join(resultErr, rootErr, linkErr); err != nil {
+		return sample, link, err
+	}
+	return sample, link, nil
+}
+
+func validateBoundScaleSampleResult(sample experiment.Sample, expected boundQueryExpectation) error {
+	if sample.Status != "pass" || sample.RowCount != expected.ExpectedRows || sample.ColumnCount != expected.ExpectedColumns ||
+		sample.ResultSHA256 != expected.ExpectedResultSHA256 || sample.ActualDependencyFacts != expected.DependencyFacts {
+		return errors.New("verified TaskGate result differs from its bound rows/columns/result/dependency-cardinality oracle")
 	}
 	return nil
 }
 
+// validateBoundSampleResult retains ProvSQL's exact native-set contract. Scale
+// uses validateBoundScaleSampleResult plus the semantic-to-ordinal linker.
 func validateBoundSampleResult(sample experiment.Sample, expected boundQueryExpectation) error {
-	if sample.Status != "pass" || sample.RowCount != expected.ExpectedRows || sample.ColumnCount != expected.ExpectedColumns ||
-		sample.ResultSHA256 != expected.ExpectedResultSHA256 || sample.ActualDependencyFacts != expected.DependencyFacts ||
+	if err := validateBoundScaleSampleResult(sample, expected); err != nil ||
 		sample.DependencySetSHA256 != expected.DependencySetSHA256 {
 		return errors.New("verified TaskGate result differs from its bound rows/columns/result/Dependency oracle")
 	}
 	return nil
+}
+
+func verifyScaleDependencySet(ctx context.Context, finalizer *experiment.RuntimeFinalizerV3,
+	selector experiment.FrozenContractSelectorV3, role experiment.DependencyScaleSummaryRole,
+	productionSetSHA256 string) (*experiment.ScaleDependencySetVerificationV1, error) {
+	verification, err := finalizer.VerifyScaleDependencySetV1(ctx,
+		experiment.ScaleDependencySetVerificationRequestV1{ContractSelector: selector,
+			Role: role, ProductionSetSHA256: productionSetSHA256})
+	if verification.Version == "" {
+		return nil, err
+	}
+	return &verification, err
 }
 
 type outcomeOperands struct {

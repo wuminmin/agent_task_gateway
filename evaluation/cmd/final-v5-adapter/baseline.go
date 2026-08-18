@@ -65,6 +65,7 @@ type pairState struct {
 	novelResultID          string
 	novelObservationSHA256 string
 	novelGrantSHA256       string
+	historyDependencyLink  *experiment.ScaleDependencySetVerificationV1
 }
 
 type queryResponse struct {
