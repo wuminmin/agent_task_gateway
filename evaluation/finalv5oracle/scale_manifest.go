@@ -133,8 +133,19 @@ func ExposureScaleHistoryResultSummary(scale string) (ResultSummary, error) {
 		}
 		total.Add(total, value)
 	}
-	return CanonicalResult([]ResultColumn{{Name: "history_total", Type: SQLNumeric}},
-		[][]any{{total.FloatString(2)}})
+	return CanonicalResult(ExposureScaleHistoryResultColumns(), [][]any{{total.FloatString(2)}})
+}
+
+// ExposureScaleCandidateResultColumns and ExposureScaleHistoryResultColumns
+// are the sole typed logical-result schemas for the two fixed Scale queries.
+// The runtime harness consumes defensive copies through the shared result
+// normalizer; it does not infer a schema from SQL or define a second encoding.
+func ExposureScaleCandidateResultColumns() []ResultColumn {
+	return []ResultColumn{{Name: "member_count", Type: SQLBigInt}}
+}
+
+func ExposureScaleHistoryResultColumns() []ResultColumn {
+	return []ResultColumn{{Name: "history_total", Type: SQLNumeric}}
 }
 
 func ParseExposureScaleDependencyCell(scale string) (ExposureScaleDependencyCell, error) {
@@ -292,7 +303,7 @@ func buildExposureScaleCandidateSemantics(candidateFacts int64, witness string,
 		return exposureScaleCandidateSemantics{}, errors.New("candidate semantics require a formal Scale and exact witness")
 	}
 	rows := candidateFacts / ExposureScaleFactsPerRow
-	result, err := CanonicalResult([]ResultColumn{{Name: "member_count", Type: SQLBigInt}}, [][]any{{rows}})
+	result, err := CanonicalResult(ExposureScaleCandidateResultColumns(), [][]any{{rows}})
 	if err != nil {
 		return exposureScaleCandidateSemantics{}, err
 	}

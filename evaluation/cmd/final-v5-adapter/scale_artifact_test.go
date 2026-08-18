@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,50 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
+
+func TestNormalizeScaleTaskGateResultUsesTypedCanonicalPreimage(t *testing.T) {
+	tests := []struct {
+		name       string
+		columns    []finalv5oracle.ResultColumn
+		parquetOID uint32
+		rows       [][]any
+		want       string
+	}{
+		{name: "history numeric", columns: finalv5oracle.ExposureScaleHistoryResultColumns(), parquetOID: 1700,
+			rows: [][]any{{json.Number("782130.00")}},
+			want: "00e4f5977565ab625bd37beb541c855edd4f70e9f0f950dfbaf9d24f8b5d54ea"},
+		{name: "candidate bigint", columns: finalv5oracle.ExposureScaleCandidateResultColumns(), parquetOID: 20,
+			rows: [][]any{{int64(2000)}},
+			want: "9528745fee7030eb82173d2ba6fa7ad5750da1dee0396a372eac08049ea2ee46"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var parquetBytes bytes.Buffer
+			if _, err := resultartifact.WriteParquet(&parquetBytes, "res_p52",
+				[]resultartifact.Column{{Name: test.columns[0].Name, DataTypeOID: test.parquetOID}}, test.rows); err != nil {
+				t.Fatal(err)
+			}
+			legacy, err := experiment.CanonicalResultHash(test.rows)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sample := experiment.Sample{RowCount: 1, ColumnCount: 1,
+				ResultSHA256: legacy, BaselineVerification: &experiment.BaselineVerificationEvidence{ParsedResultSHA256: legacy}}
+			if err := normalizeScaleTaskGateResult(&sample, parquetBytes.Bytes(), test.columns); err != nil {
+				t.Fatal(err)
+			}
+			if sample.ResultSHA256 != test.want || sample.BaselineVerification.ParsedResultSHA256 != test.want {
+				t.Fatalf("typed Scale digest = %s/%s, want %s", sample.ResultSHA256,
+					sample.BaselineVerification.ParsedResultSHA256, test.want)
+			}
+			if legacy == test.want {
+				t.Fatal("legacy JSON-shaped digest unexpectedly equals the typed logical-result identity")
+			}
+		})
+	}
+}
 
 func testBoundTask(columns int) boundTaskRequest {
 	values := make([]string, columns)

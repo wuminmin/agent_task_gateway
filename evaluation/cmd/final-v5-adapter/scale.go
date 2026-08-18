@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/internal/control"
@@ -281,10 +284,14 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	}
 	partial = observedTaskgateQueryPrefix(operation, state.taskID, cell.Candidate.SQL, started, availableMS,
 		response, beforeRoot, afterRoot)
-	sample, err := adapter.real.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot,
+	sample, parquetBytes, err := adapter.real.completeTaskgateSampleWithParquet(ctx, operation, state, beforeRoot, afterRoot,
 		started, availableMS, cell.Candidate.SQL, response)
 	if err != nil {
 		return partial, err
+	}
+	if err := normalizeScaleTaskGateResult(&sample, parquetBytes,
+		finalv5oracle.ExposureScaleCandidateResultColumns()); err != nil {
+		return sample, err
 	}
 	window := experiment.ObserverWindowV2{Before: observerBefore}
 	evidence := &experiment.ScaleVerificationEvidence{
@@ -510,9 +517,13 @@ func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context,
 	prefillOperation.CellID += "/history-prefill"
 	prefillOperation.SampleID += "-history-prefill"
 	prefillOperation.Mode = "novel"
-	sample, err := adapter.real.completeTaskgateSample(ctx, prefillOperation, state, before, after,
+	sample, parquetBytes, err := adapter.real.completeTaskgateSampleWithParquet(ctx, prefillOperation, state, before, after,
 		started, availableMS, history.SQL, response)
 	if err != nil {
+		return sample, nil, err
+	}
+	if err := normalizeScaleTaskGateResult(&sample, parquetBytes,
+		finalv5oracle.ExposureScaleHistoryResultColumns()); err != nil {
 		return sample, nil, err
 	}
 	// Retain the parent cell identity while keeping the actually observed history
@@ -533,6 +544,28 @@ func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context,
 		return sample, link, err
 	}
 	return sample, link, nil
+}
+
+// normalizeScaleTaskGateResult replaces the legacy JSON-shaped sample digest
+// with the frozen typed logical-result identity. This is the same normalizer
+// used by Direct/BDG/Parquet agreement; only the query-specific schema comes
+// from the independent Scale contract, and no expected value is consumed.
+func normalizeScaleTaskGateResult(sample *experiment.Sample, parquetBytes []byte,
+	columns []finalv5oracle.ResultColumn) error {
+	if sample == nil || sample.BaselineVerification == nil {
+		return errors.New("Scale result normalization lacks verified sample evidence")
+	}
+	observed, err := finalv5contracts.NormalizeBDG(columns,
+		finalv5contracts.ParquetInput(bytes.NewReader(parquetBytes), int64(len(parquetBytes))))
+	if err != nil {
+		return fmt.Errorf("normalize Scale released result: %w", err)
+	}
+	if observed.Summary.RowCount != sample.RowCount || observed.Summary.ColumnCount != sample.ColumnCount {
+		return errors.New("typed Scale result shape differs from the verified artifact intent")
+	}
+	sample.ResultSHA256 = observed.Summary.CanonicalResultSHA256
+	sample.BaselineVerification.ParsedResultSHA256 = observed.Summary.CanonicalResultSHA256
+	return nil
 }
 
 func validateBoundScaleSampleResult(sample experiment.Sample, expected boundQueryExpectation) error {
