@@ -485,3 +485,26 @@ oracles, campaigns, or the paper are complete.
     candidate preparation only. It does not approve a candidate byte, live
     run, measurement, capability flip, release, campaign, publication
     evidence, tag, or tag movement.
+
+31. **Repair the evaluation probe gauge handoff and preserve exact-miss
+    aggregation.** (Taken 2026-08-18 by author wuminmin, answered "A" in the
+    agent conversation to the stop options reported by ledger row
+    `P57-PEAK-AUDIT-1`.) The selected probe repair changes only
+    `internal/gateway`'s evaluation `ConcurrencyProbe`: after the wrapped
+    handler returns, the probe records `active--` and `completed++` while
+    holding its probe mutex before it releases the buffered-channel admission
+    slot. A migration-pressure regression must prove that handoff cannot make
+    the recorded peak active gauge exceed the configured window. Production
+    handler and validator semantics are unchanged; option B's evaluation-only
+    `peak_active <= 11` interpretation is rejected.
+
+    The same zero-deployment implementation task also closes the independent
+    preregistered exact-miss launcher gap identified by P57. A width-50 natural
+    round that exactly matches the frozen miss definition must still write its
+    sample and reach the per-round gate without adapter diagnostics causing the
+    runner to exit first. The launcher continues all preregistered rounds after
+    an exact miss, and the aggregate remains the only acceptance outlet. Any
+    failure outside the exact-miss definition must still stop the round. This
+    authorises the scoped probe/evaluation changes and tests only; it does not
+    authorise a deployment, live round, campaign, measurement, capability
+    flip, frozen-byte change, release, tag, or tag movement.
