@@ -69,6 +69,7 @@ func artifactTargetedQualificationDirectory(t *testing.T) string {
 
 	type qualificationCandidate struct {
 		directory      string
+		profileAlias   string
 		release        string
 		registrySHA256 string
 	}
@@ -89,6 +90,7 @@ func artifactTargetedQualificationDirectory(t *testing.T) string {
 		}
 		var document struct {
 			Profile struct {
+				Alias          string `json:"profile_alias"`
 				Release        string `json:"profile_registry_release"`
 				RegistrySHA256 string `json:"profile_registry_sha256"`
 			} `json:"profile_binding"`
@@ -97,17 +99,17 @@ func artifactTargetedQualificationDirectory(t *testing.T) string {
 			t.Fatalf("decode retained qualification %s: %v", entry.Name(), err)
 		}
 		candidate := qualificationCandidate{
-			directory: directory, release: document.Profile.Release,
+			directory: directory, profileAlias: document.Profile.Alias, release: document.Profile.Release,
 			registrySHA256: document.Profile.RegistrySHA256,
 		}
 		candidates = append(candidates, candidate)
-		if candidate.release == runtime.ContractRelease() {
+		if candidate.release == runtime.ContractRelease() && candidate.profileAlias == artifactDeploymentProfileAlias {
 			matches = append(matches, candidate)
 		}
 	}
 	if len(matches) != 1 {
-		t.Fatalf("retained qualifications matching release %q = %d, want exactly 1; candidates: %+v",
-			runtime.ContractRelease(), len(matches), candidates)
+		t.Fatalf("retained qualifications matching release %q and profile %q = %d, want exactly 1; candidates: %+v",
+			runtime.ContractRelease(), artifactDeploymentProfileAlias, len(matches), candidates)
 	}
 	match := matches[0]
 	registrySHA256, err := FileSHA256(sourceControlledRegistryPath(t))
