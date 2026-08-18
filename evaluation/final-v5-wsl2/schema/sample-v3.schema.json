@@ -51,7 +51,8 @@
               "version": {
                 "enum": [
                   "taskgate-final-v5-scale-verification-v3",
-                  "taskgate-final-v5-scale-verification-v4"
+                  "taskgate-final-v5-scale-verification-v4",
+                  "taskgate-final-v5-scale-verification-v5"
                 ]
               }
             },
@@ -113,7 +114,8 @@
               "version": {
                 "enum": [
                   "taskgate-final-v5-scale-verification-v3",
-                  "taskgate-final-v5-scale-verification-v4"
+                  "taskgate-final-v5-scale-verification-v4",
+                  "taskgate-final-v5-scale-verification-v5"
                 ]
               }
             },
@@ -786,7 +788,10 @@
               "if": {
                 "properties": {
                   "version": {
-                    "const": "taskgate-final-v5-scale-verification-v4"
+                    "enum": [
+                      "taskgate-final-v5-scale-verification-v4",
+                      "taskgate-final-v5-scale-verification-v5"
+                    ]
                   }
                 },
                 "required": ["version"]
@@ -867,7 +872,8 @@
               "enum": [
                 "taskgate-final-v5-scale-verification-v2",
                 "taskgate-final-v5-scale-verification-v3",
-                "taskgate-final-v5-scale-verification-v4"
+                "taskgate-final-v5-scale-verification-v4",
+                "taskgate-final-v5-scale-verification-v5"
               ]
             },
             "boundary": {
@@ -1452,7 +1458,10 @@
           ],
           "properties": {
             "version": {
-              "const": "taskgate-final-v5-provsql-verification-v1"
+              "enum": [
+                "taskgate-final-v5-provsql-verification-v1",
+                "taskgate-final-v5-provsql-verification-v2"
+              ]
             },
             "boundary": {
               "enum": [
@@ -1536,6 +1545,9 @@
             },
             "expected_dependency_sha256": {
               "$ref": "#/$defs/sha256"
+            },
+            "dependency_link": {
+              "$ref": "#/$defs/provSQLDependencySetVerificationV1"
             },
             "typed_drain_fields": {
               "type": "integer",
@@ -2198,14 +2210,65 @@
       ],
       "properties": {
         "version": {
-          "const": "taskgate-outcome-candidate-verification-v1"
+          "enum": [
+            "taskgate-outcome-candidate-verification-v1",
+            "taskgate-outcome-candidate-verification-v2"
+          ]
         },
         "expected": {
           "$ref": "#/$defs/outcomeCandidateExpectationV1"
         },
         "observed": {
           "$ref": "#/$defs/outcomeCandidateExpectationV1"
+        },
+        "domain_link": {
+          "$ref": "#/$defs/outcomeCandidateDomainLinkV1"
         }
+      }
+    },
+    "outcomeCandidateDomainLinkV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "generator_version",
+        "frozen_catalog_sha256",
+        "activated_catalog_sha256",
+        "candidate_facts",
+        "frozen_expected",
+        "linked_expected"
+      ],
+      "properties": {
+        "version": {"const": "taskgate-outcome-candidate-domain-link-v1"},
+        "generator_version": {"const": "taskgate-final-v5-exposure-scale-outcome-candidate-v1"},
+        "frozen_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "activated_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_facts": {"enum": [10000, 100000, 1035000]},
+        "frozen_expected": {"$ref": "#/$defs/outcomeCandidateExpectationV1"},
+        "linked_expected": {"$ref": "#/$defs/outcomeCandidateExpectationV1"}
+      }
+    },
+    "provSQLDependencySetVerificationV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version", "match", "expected_cardinality", "expected_semantic_set_sha256",
+        "observed_cardinality", "observed_semantic_set_sha256", "production_set_sha256",
+        "production_dictionary_set_sha256", "observed_ordinal_set_sha256",
+        "expected_ordinals_missing", "unexpected_actual_ordinals"
+      ],
+      "properties": {
+        "version": {"const": "taskgate-provsql-dependency-set-verification-v1"},
+        "match": {"type": "boolean"},
+        "expected_cardinality": {"type": "integer", "minimum": 1},
+        "expected_semantic_set_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_cardinality": {"type": "integer", "minimum": 1},
+        "observed_semantic_set_sha256": {"$ref": "#/$defs/sha256"},
+        "production_set_sha256": {"$ref": "#/$defs/sha256"},
+        "production_dictionary_set_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_ordinal_set_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_ordinals_missing": {"type": "integer", "minimum": 0},
+        "unexpected_actual_ordinals": {"type": "integer", "minimum": 0}
       }
     },
     "scaleDependencySetVerificationV1": {

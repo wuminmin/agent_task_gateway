@@ -25,7 +25,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-const provSQLVerificationVersion = "taskgate-final-v5-provsql-verification-v1"
+const provSQLVerificationVersion = "taskgate-final-v5-provsql-verification-v2"
 
 var canonicalUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
@@ -292,6 +292,10 @@ func copyProvSQLTaskGateSnapshots(target, source *experiment.ProvSQLVerification
 	target.BusinessBefore, target.BusinessAfter = source.BusinessBefore, source.BusinessAfter
 	target.RootBefore, target.RootAfter = source.RootBefore, source.RootAfter
 	target.ObserverWindow = source.ObserverWindow
+	target.DependencyLink = source.DependencyLink
+	if source.DependencyLink != nil {
+		target.Version = source.Version
+	}
 }
 
 func retainedProvSQLInvariantFailure(sample experiment.Sample, cause error) experiment.Sample {
@@ -314,7 +318,7 @@ func (adapter *provSQLAdapter) provSQLVerification(operation experiment.AdapterO
 		physicalSHA = sha(logical)
 	}
 	return &experiment.ProvSQLVerificationEvidence{
-		Version: provSQLVerificationVersion, Boundary: boundary,
+		Version: "taskgate-final-v5-provsql-verification-v1", Boundary: boundary,
 		BindingFileSHA256: adapter.binding.FileSHA256, BindingSHA256: adapter.binding.SectionSHA256,
 		FixtureVersion: provsqlfixture.Version, FixtureSQLSHA256: provsqlfixture.FixtureSQLSHA256(),
 		EnableSQLSHA256: provsqlfixture.EnableSQLSHA256(), DatasetSHA256: adapter.datasetSHA256,
@@ -506,9 +510,18 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
 	}
 	partial = sample
-	if err := validateBoundSampleResult(sample, expected); err != nil {
+	if err := validateBoundScaleSampleResult(sample, expected); err != nil {
 		return partial, err
 	}
+	dependencyLink, err := finalizer.VerifyProvSQLDependencySetV1(ctx,
+		experiment.ProvSQLDependencySetVerificationRequestV1{
+			ContractSelector: selector, ProductionSetSHA256: sample.DependencySetSHA256,
+		})
+	if err != nil {
+		return partial, err
+	}
+	evidence.DependencyLink = &dependencyLink
+	evidence.Version = provSQLVerificationVersion
 	partial = sample
 	generation := sample.PipelineMS["prepare"] + sample.PipelineMS["execute_and_derive"]
 	if generation <= 0 || sample.ClientFullDrainMS <= 0 {

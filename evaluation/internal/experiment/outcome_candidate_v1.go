@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
@@ -14,6 +16,8 @@ const (
 	// comparison between the frozen ordinary-set oracle and the members the
 	// finalizer recovered from this execution.
 	OutcomeCandidateVerificationV1Version = "taskgate-outcome-candidate-verification-v1"
+	OutcomeCandidateVerificationV2Version = "taskgate-outcome-candidate-verification-v2"
+	OutcomeCandidateDomainLinkV1Version   = "taskgate-outcome-candidate-domain-link-v1"
 	outcomeCandidateMemberCardinalityV1   = int64(5)
 )
 
@@ -66,14 +70,104 @@ func (expectation OutcomeCandidateExpectationV1) Validate() error {
 // makes the accepted sample auditable without treating the production radix
 // OutcomeSetSHA256 as an ordinary semantic-set digest.
 type OutcomeCandidateVerificationV1 struct {
-	Version  string                        `json:"version"`
-	Expected OutcomeCandidateExpectationV1 `json:"expected"`
-	Observed OutcomeCandidateExpectationV1 `json:"observed"`
+	Version    string                        `json:"version"`
+	Expected   OutcomeCandidateExpectationV1 `json:"expected"`
+	Observed   OutcomeCandidateExpectationV1 `json:"observed"`
+	DomainLink *OutcomeCandidateDomainLinkV1 `json:"domain_link,omitempty"`
+}
+
+// OutcomeCandidateDomainLinkV1 records the evaluation-only normalization from
+// the complete Catalog identity used by the frozen oracle to the activated
+// profile Catalog identity used by production preparation. LinkedExpected is
+// regenerated from the fixed oracle model, never from production output.
+type OutcomeCandidateDomainLinkV1 struct {
+	Version                string                        `json:"version"`
+	GeneratorVersion       string                        `json:"generator_version"`
+	FrozenCatalogSHA256    string                        `json:"frozen_catalog_sha256"`
+	ActivatedCatalogSHA256 string                        `json:"activated_catalog_sha256"`
+	CandidateFacts         int64                         `json:"candidate_facts"`
+	FrozenExpected         OutcomeCandidateExpectationV1 `json:"frozen_expected"`
+	LinkedExpected         OutcomeCandidateExpectationV1 `json:"linked_expected"`
+}
+
+func (link OutcomeCandidateDomainLinkV1) Validate() error {
+	if link.Version != OutcomeCandidateDomainLinkV1Version ||
+		link.GeneratorVersion != finalv5oracle.ExposureScaleOutcomeGeneratorVersion ||
+		!validSHA256(link.FrozenCatalogSHA256) || !validSHA256(link.ActivatedCatalogSHA256) {
+		return errors.New("Outcome candidate domain link identity is invalid")
+	}
+	switch link.CandidateFacts {
+	case finalv5oracle.DependencyScale10K, finalv5oracle.DependencyScale100K, finalv5oracle.DependencyScale1035000:
+	default:
+		return errors.New("Outcome candidate domain link scale is not frozen")
+	}
+	if err := link.FrozenExpected.Validate(); err != nil {
+		return fmt.Errorf("Outcome candidate domain link frozen endpoint: %w", err)
+	}
+	return link.LinkedExpected.Validate()
+}
+
+// verifyOutcomeCandidateV1 permanently retains the same-domain historical
+// comparison for existing evidence and its compatibility tests. New runtime
+// output uses verifyOutcomeCandidateV2.
+func verifyOutcomeCandidateV1(expected OutcomeCandidateExpectationV1,
+	reproduced ReproducedExecutionV3, exposure *queryreceipt.ExposureEvidenceV1) (OutcomeCandidateVerificationV1, error) {
+	verification, observed, err := reconstructOutcomeCandidateV1(expected, reproduced, exposure)
+	if err != nil {
+		return verification, err
+	}
+	if !equalOutcomeCandidateExpectations(expected, observed) {
+		return verification, rejectTaskGateAt(errors.New("observed Outcome candidate members differ from the frozen ordinary-set oracle"),
+			rejectionGateFrozenMaterial, rejectionFailureMismatch,
+			rejectionSourceFrozenContract, rejectionSourceFinalizerDerivation)
+	}
+	verification = OutcomeCandidateVerificationV1{Version: OutcomeCandidateVerificationV1Version,
+		Expected: expected, Observed: observed}
+	verification.Expected.Members = append([]string(nil), expected.Members...)
+	return verification, nil
+}
+
+func reconstructOutcomeCandidateV1(expected OutcomeCandidateExpectationV1,
+	reproduced ReproducedExecutionV3, exposure *queryreceipt.ExposureEvidenceV1) (OutcomeCandidateVerificationV1,
+	OutcomeCandidateExpectationV1, error) {
+	var verification OutcomeCandidateVerificationV1
+	if err := expected.Validate(); err != nil {
+		return verification, OutcomeCandidateExpectationV1{}, rejectTaskGateAt(fmt.Errorf("frozen Outcome candidate is invalid: %w", err),
+			rejectionGateFrozenMaterial, rejectionFailureInvalidValue,
+			rejectionSourceFrozenContract, rejectionSourceFrozenContract)
+	}
+	if exposure == nil {
+		return verification, OutcomeCandidateExpectationV1{}, rejectTaskGateAt(errors.New("verified receipt carries no exposure evidence"),
+			rejectionGateFrozenMaterial, rejectionFailureMissing,
+			rejectionSourceFrozenContract, rejectionSourceGatewayReceipt)
+	}
+	atoms := reproduced.PreparedPredicateAtomSHA256
+	if int64(len(atoms)) != exposure.ActualPredicateAtomCount ||
+		reproduced.PreparedPredicateContextSHA256 != exposure.PredicateContextSHA256 ||
+		reproduced.PreparedPredicateSetSHA256 != exposure.PredicateSetSHA256 {
+		return verification, OutcomeCandidateExpectationV1{}, rejectTaskGateAt(errors.New("the finalizer's prepared predicate footprint differs from the verified receipt"),
+			rejectionGateFrozenMaterial, rejectionFailureMismatch,
+			rejectionSourceFrozenContract, rejectionSourceFinalizerDerivation)
+	}
+	members := append(append([]string(nil), atoms...), exposure.CompositeOutcomeSHA256)
+	observed, err := summarizeOutcomeCandidateMembers(members)
+	if err != nil {
+		return verification, OutcomeCandidateExpectationV1{}, rejectTaskGateAt(fmt.Errorf("reconstruct observed ordinary Outcome candidate: %w", err),
+			rejectionGateFrozenMaterial, rejectionFailureInvalidValue,
+			rejectionSourceFrozenContract, rejectionSourceFinalizerDerivation)
+	}
+	if exposure.ActualOutcomeFacts != observed.Cardinality {
+		return verification, OutcomeCandidateExpectationV1{}, rejectTaskGateAt(errors.New("the reconstructed ordinary Outcome candidate cardinality differs from the verified receipt"),
+			rejectionGateFrozenMaterial, rejectionFailureMismatch,
+			rejectionSourceFrozenContract, rejectionSourceFinalizerDerivation)
+	}
+	return verification, observed, nil
 }
 
 // Validate rejects a partial or merely aggregate agreement record.
 func (verification OutcomeCandidateVerificationV1) Validate() error {
-	if verification.Version != OutcomeCandidateVerificationV1Version {
+	if verification.Version != OutcomeCandidateVerificationV1Version &&
+		verification.Version != OutcomeCandidateVerificationV2Version {
 		return fmt.Errorf("Outcome candidate verification version is %q", verification.Version)
 	}
 	if err := verification.Expected.Validate(); err != nil {
@@ -82,12 +176,75 @@ func (verification OutcomeCandidateVerificationV1) Validate() error {
 	if err := verification.Observed.Validate(); err != nil {
 		return fmt.Errorf("observed Outcome candidate: %w", err)
 	}
-	if verification.Expected.Cardinality != verification.Observed.Cardinality ||
-		verification.Expected.OrdinarySetSHA256 != verification.Observed.OrdinarySetSHA256 ||
-		!equalStringsV3(verification.Expected.Members, verification.Observed.Members) {
-		return errors.New("expected and observed Outcome candidate members differ")
+	if verification.Version == OutcomeCandidateVerificationV1Version {
+		if verification.DomainLink != nil {
+			return errors.New("Outcome candidate verification-v1 cannot carry a domain link")
+		}
+		if !equalOutcomeCandidateExpectations(verification.Expected, verification.Observed) {
+			return errors.New("expected and observed Outcome candidate members differ")
+		}
+		return nil
+	}
+	if verification.DomainLink == nil {
+		return errors.New("Outcome candidate verification-v2 omits its domain link")
+	}
+	if err := verification.DomainLink.Validate(); err != nil {
+		return err
+	}
+	if !equalOutcomeCandidateExpectations(verification.Expected, verification.DomainLink.FrozenExpected) ||
+		verification.Expected.Cardinality != verification.Observed.Cardinality ||
+		!equalOutcomeCandidateExpectations(verification.DomainLink.LinkedExpected, verification.Observed) {
+		return errors.New("linked and observed Outcome candidate members differ")
 	}
 	return nil
+}
+
+func equalOutcomeCandidateExpectations(left, right OutcomeCandidateExpectationV1) bool {
+	return left.Cardinality == right.Cardinality &&
+		left.OrdinarySetSHA256 == right.OrdinarySetSHA256 && equalStringsV3(left.Members, right.Members)
+}
+
+type outcomeCandidateDomainLinkerV1 struct {
+	mu      sync.Mutex
+	byInput map[string]OutcomeCandidateExpectationV1
+}
+
+func newOutcomeCandidateDomainLinkerV1() *outcomeCandidateDomainLinkerV1 {
+	return &outcomeCandidateDomainLinkerV1{byInput: make(map[string]OutcomeCandidateExpectationV1)}
+}
+
+func (linker *outcomeCandidateDomainLinkerV1) linkedExpectation(catalogPath string,
+	candidateFacts int64) (OutcomeCandidateExpectationV1, string, error) {
+	logical, err := catalog.Load(catalogPath)
+	if err != nil {
+		return OutcomeCandidateExpectationV1{}, "", fmt.Errorf("load activated Scale profile Catalog: %w", err)
+	}
+	linked, err := linker.generatedExpectation(logical.SHA256, candidateFacts)
+	return linked, logical.SHA256, err
+}
+
+func (linker *outcomeCandidateDomainLinkerV1) generatedExpectation(catalogSHA256 string,
+	candidateFacts int64) (OutcomeCandidateExpectationV1, error) {
+	key := catalogSHA256 + "\x00" + fmt.Sprint(candidateFacts)
+	linker.mu.Lock()
+	defer linker.mu.Unlock()
+	if cached, ok := linker.byInput[key]; ok {
+		return cached, nil
+	}
+	generated, err := finalv5oracle.GenerateExposureScaleOutcomeCandidate(finalv5oracle.ExposureScaleOutcomeRequest{
+		CatalogSHA256: catalogSHA256, CandidateFacts: candidateFacts,
+		SetOptions: finalv5oracle.StreamSetOptions{MaxInMemoryMembers: 65_536},
+	})
+	if err != nil {
+		return OutcomeCandidateExpectationV1{}, fmt.Errorf("regenerate Catalog-domain Outcome candidate: %w", err)
+	}
+	linked := OutcomeCandidateExpectationV1{Cardinality: generated.CandidateCardinality,
+		Members: append([]string(nil), generated.Members...), OrdinarySetSHA256: generated.CandidateSetSHA256}
+	if err := linked.Validate(); err != nil {
+		return OutcomeCandidateExpectationV1{}, err
+	}
+	linker.byInput[key] = linked
+	return linked, nil
 }
 
 func cloneOutcomeCandidateExpectationV1(expectation *OutcomeCandidateExpectationV1) *OutcomeCandidateExpectationV1 {
@@ -104,12 +261,26 @@ func cloneOutcomeCandidateExpectationV1(expectation *OutcomeCandidateExpectation
 // composite operand is the already-verified Gateway-signed receipt member. The
 // production OutcomeSetSHA256 is a radix-set identity and is intentionally not
 // read here.
-func verifyOutcomeCandidateV1(expected OutcomeCandidateExpectationV1,
+func verifyOutcomeCandidateV2(linker *outcomeCandidateDomainLinkerV1, expected OutcomeCandidateExpectationV1,
+	frozenCatalogSHA256 string, candidateFacts int64, activatedCatalogPath string,
 	reproduced ReproducedExecutionV3, exposure *queryreceipt.ExposureEvidenceV1) (OutcomeCandidateVerificationV1, error) {
 	var verification OutcomeCandidateVerificationV1
 	if err := expected.Validate(); err != nil {
 		return verification, rejectTaskGateAt(fmt.Errorf("frozen Outcome candidate is invalid: %w", err),
 			rejectionGateFrozenMaterial, rejectionFailureInvalidValue,
+			rejectionSourceFrozenContract, rejectionSourceFrozenContract)
+	}
+	if linker == nil || !validSHA256(frozenCatalogSHA256) || activatedCatalogPath == "" {
+		return verification, rejectTaskGateAt(errors.New("Outcome candidate domain linker input is incomplete"),
+			rejectionGateFrozenMaterial, rejectionFailureMissing,
+			rejectionSourceFrozenContract, rejectionSourceActivatedProfile)
+	}
+	frozenGenerated, err := linker.generatedExpectation(frozenCatalogSHA256, candidateFacts)
+	if err != nil || !equalOutcomeCandidateExpectations(expected, frozenGenerated) {
+		if err == nil {
+			err = errors.New("frozen Outcome candidate differs from its complete-Catalog oracle regeneration")
+		}
+		return verification, rejectTaskGateAt(err, rejectionGateFrozenMaterial, rejectionFailureMismatch,
 			rejectionSourceFrozenContract, rejectionSourceFrozenContract)
 	}
 	if exposure == nil {
@@ -148,26 +319,42 @@ func verifyOutcomeCandidateV1(expected OutcomeCandidateExpectationV1,
 			rejectionCountDifference(rejectionDifferenceExpectedCount, exposure.ActualOutcomeFacts),
 			rejectionCountDifference(rejectionDifferenceActualCount, observed.Cardinality))
 	}
-	if expected.Cardinality != observed.Cardinality ||
-		expected.OrdinarySetSHA256 != observed.OrdinarySetSHA256 ||
-		!equalStringsV3(expected.Members, observed.Members) {
+	linked, activatedCatalogSHA256, err := linker.linkedExpectation(activatedCatalogPath, candidateFacts)
+	if err != nil {
+		return verification, rejectTaskGateAt(err, rejectionGateFrozenMaterial, rejectionFailureInvalidValue,
+			rejectionSourceFrozenContract, rejectionSourceActivatedProfile)
+	}
+	if linked.Cardinality != observed.Cardinality ||
+		linked.OrdinarySetSHA256 != observed.OrdinarySetSHA256 ||
+		!equalStringsV3(linked.Members, observed.Members) {
 		differences := []rejectionDifferenceV1{
-			rejectionCountDifference(rejectionDifferenceExpectedCount, expected.Cardinality),
+			rejectionCountDifference(rejectionDifferenceExpectedCount, linked.Cardinality),
 			rejectionCountDifference(rejectionDifferenceActualCount, observed.Cardinality),
 		}
 		differences = append(differences,
-			rejectionSHA256Pair(expected.OrdinarySetSHA256, observed.OrdinarySetSHA256)...)
-		return verification, rejectTaskGateAt(fmt.Errorf("observed Outcome candidate members differ from the frozen ordinary-set oracle"),
+			rejectionSHA256Pair(linked.OrdinarySetSHA256, observed.OrdinarySetSHA256)...)
+		return verification, rejectTaskGateAt(fmt.Errorf("observed Outcome candidate members differ from the linked profile-domain ordinary-set oracle"),
 			rejectionGateFrozenMaterial, rejectionFailureMismatch,
 			rejectionSourceFrozenContract, rejectionSourceFinalizerDerivation, differences...)
 	}
 	verification = OutcomeCandidateVerificationV1{
-		Version: OutcomeCandidateVerificationV1Version,
+		Version: OutcomeCandidateVerificationV2Version,
 		Expected: OutcomeCandidateExpectationV1{
 			Cardinality: expected.Cardinality, Members: append([]string(nil), expected.Members...),
 			OrdinarySetSHA256: expected.OrdinarySetSHA256,
 		},
 		Observed: observed,
+		DomainLink: &OutcomeCandidateDomainLinkV1{
+			Version:             OutcomeCandidateDomainLinkV1Version,
+			GeneratorVersion:    finalv5oracle.ExposureScaleOutcomeGeneratorVersion,
+			FrozenCatalogSHA256: frozenCatalogSHA256, ActivatedCatalogSHA256: activatedCatalogSHA256,
+			CandidateFacts: candidateFacts,
+			FrozenExpected: OutcomeCandidateExpectationV1{
+				Cardinality: expected.Cardinality, Members: append([]string(nil), expected.Members...),
+				OrdinarySetSHA256: expected.OrdinarySetSHA256,
+			},
+			LinkedExpected: linked,
+		},
 	}
 	return verification, nil
 }

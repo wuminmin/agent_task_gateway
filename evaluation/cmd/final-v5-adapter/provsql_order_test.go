@@ -142,9 +142,13 @@ func TestProvSQLTaskGatePreregistersAndMeasuresInOrder(t *testing.T) {
 	query := require("call", 1)[0]
 	complete := require("completeTaskgateSample", 1)[0]
 	resource := require("ResourceDelta", 1)[0]
-	validateResult := require("validateBoundSampleResult", 1)[0]
+	validateResult := require("validateBoundScaleSampleResult", 1)[0]
+	linkDependency := require("VerifyProvSQLDependencySetV1", 1)[0]
 	carried := require("carriedProvSQLEvidence", 1)[0]
 	finalize := require("FinalizeTaskGateObservationV3", 1)[0]
+	if !(validateResult < linkDependency && linkDependency < finalize) {
+		t.Fatal("ProvSQL dependency linker must run after result normalization and before finalization")
+	}
 
 	var requestID token.Pos
 	ast.Inspect(function.Body, func(node ast.Node) bool {

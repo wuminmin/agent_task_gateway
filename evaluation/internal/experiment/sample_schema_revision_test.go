@@ -102,7 +102,8 @@ func TestSampleV3IsAnExplicitPostAcceptanceRevision(t *testing.T) {
 		"sample-v3 scale versions")
 	sort.Strings(versions)
 	if !reflect.DeepEqual(versions, []string{scaleDependencyEvidenceVersionV2,
-		scaleDependencyEvidenceVersionV3, scaleDependencyEvidenceVersionV4}) ||
+		scaleDependencyEvidenceVersionV3, scaleDependencyEvidenceVersionV4,
+		scaleDependencyEvidenceVersionV5}) ||
 		objectMap(t, scaleProperties["boundary"], "sample-v3 scale boundary")["const"] != "dependency_e2e" {
 		t.Fatal("sample-v3 does not keep historical Scale evidence-v2 separate from current evidence-v3")
 	}

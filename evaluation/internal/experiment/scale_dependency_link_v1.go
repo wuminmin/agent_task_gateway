@@ -115,3 +115,8 @@ type scaleDependencySetVerifierV1 interface {
 	Verify(context.Context, profileMaterialV3, ScaleDependencySetExpectationV1,
 		DependencyScaleSummaryRole, string) (ScaleDependencySetVerificationV1, error)
 }
+
+type dependencySetVerifierV1 interface {
+	scaleDependencySetVerifierV1
+	provSQLDependencySetVerifierV1
+}

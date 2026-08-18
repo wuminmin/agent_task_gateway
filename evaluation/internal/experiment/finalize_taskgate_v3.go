@@ -50,7 +50,10 @@ type TrustedInputsV3 struct {
 	// OutcomeCandidate is the frozen ordinary-set oracle for a strict Scale
 	// operation. It is resolved with the operation and never accepted from the
 	// Adapter. Nil means this operation has no strict Outcome binding.
-	OutcomeCandidate *OutcomeCandidateExpectationV1
+	OutcomeCandidate              *OutcomeCandidateExpectationV1
+	OutcomeCandidateCatalogSHA256 string
+	OutcomeCandidateFacts         int64
+	OutcomeCandidateLinker        *outcomeCandidateDomainLinkerV1
 	// Material is the frozen contract material the finalizer prepares the
 	// operation from. Required on every executing path and forbidden on an
 	// idempotent replay, which prepared nothing.
@@ -292,7 +295,9 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	}
 	var outcomeVerification *OutcomeCandidateVerificationV1
 	if trusted.OutcomeCandidate != nil {
-		verified, verifyErr := verifyOutcomeCandidateV1(*trusted.OutcomeCandidate, reproduced, receipt.Exposure)
+		verified, verifyErr := verifyOutcomeCandidateV2(trusted.OutcomeCandidateLinker,
+			*trusted.OutcomeCandidate, trusted.OutcomeCandidateCatalogSHA256,
+			trusted.OutcomeCandidateFacts, trusted.CatalogPath, reproduced, receipt.Exposure)
 		if verifyErr != nil {
 			return result, verifyErr
 		}

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
@@ -801,6 +802,8 @@ func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts
 			Members:           append([]string(nil), cellBinding.OutcomeCandidate.Members...),
 			OrdinarySetSHA256: cellBinding.OutcomeCandidate.OrdinarySetSHA256,
 		},
+		OutcomeCandidateCatalogSHA256: deploymentBinding.CatalogSHA256,
+		OutcomeCandidateFacts:         cellBinding.Candidate.DependencyFacts,
 		ScaleDependency: &ScaleDependencySetExpectationV1{
 			Scale: cell.Identity.Scale,
 			Candidate: ScaleDependencySemanticSetV1{Cardinality: cellBinding.Candidate.DependencyFacts,
@@ -840,10 +843,19 @@ func (contracts deploymentContractsV3) provSQLCandidateForV3(cell finalv5contrac
 	if err != nil {
 		return candidate, err
 	}
+	oracleCell, err := finalv5oracle.ParseProvSQLBindingKey(bindingKey)
+	if err != nil || oracleCell.Scale != cell.Scale {
+		return candidate, errors.New("the ProvSQL dependency expectation differs from its frozen nonce cell")
+	}
 	return frozenOperationCandidateV3{
 		OperationID: operationID, ContractIdentity: contractIdentity, BindingKey: bindingKey,
 		ProfileID: provSQLDeploymentProfileAlias, PathKind: PathPairedNovel,
 		Plan: plan, Grant: grant,
+		ProvSQLDependency: &ProvSQLDependencySetExpectationV1{
+			Scale: cell.Scale, Limit: oracleCell.Limit,
+			Nonce: oracleCell.Nonce, Cardinality: expected.DependencyFacts,
+			SetSHA256: expected.DependencySetSHA256,
+		},
 	}, nil
 }
 

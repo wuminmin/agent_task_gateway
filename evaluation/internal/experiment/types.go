@@ -619,7 +619,7 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 					return fmt.Errorf("Scale evidence version %q omits required member %q", scaleVerificationVersion, name)
 				}
 			}
-		case scaleDependencyEvidenceVersionV4:
+		case scaleDependencyEvidenceVersionV4, scaleDependencyEvidenceVersionV5:
 			for _, name := range append(append([]string(nil), outcomeNames...),
 				"candidate_dependency_link", "root_before_dependency_link", "root_after_dependency_link") {
 				if _, present := evidenceMembers[name]; !present {
@@ -631,7 +631,8 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 	if outcomeVerificationPresent &&
 		(schemaVersion != FinalizedSampleSchemaVersion || experimentID != "scale" ||
 			(scaleVerificationVersion != scaleDependencyEvidenceVersionV3 &&
-				scaleVerificationVersion != scaleDependencyEvidenceVersionV4)) {
+				scaleVerificationVersion != scaleDependencyEvidenceVersionV4 &&
+				scaleVerificationVersion != scaleDependencyEvidenceVersionV5)) {
 		return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3/v4")
 	}
 	type sampleWire Sample
@@ -1314,56 +1315,57 @@ type AttackRejectedQueryEvidence struct {
 }
 
 type ProvSQLVerificationEvidence struct {
-	Version                       string   `json:"version"`
-	Boundary                      string   `json:"boundary"`
-	BindingFileSHA256             string   `json:"binding_file_sha256"`
-	BindingSHA256                 string   `json:"binding_sha256"`
-	FixtureVersion                string   `json:"fixture_version"`
-	FixtureSQLSHA256              string   `json:"fixture_sql_sha256"`
-	EnableSQLSHA256               string   `json:"enable_sql_sha256"`
-	DatasetSHA256                 string   `json:"dataset_sha256"`
-	DatasetProbeSQLSHA256         string   `json:"dataset_probe_sql_sha256"`
-	BusinessDatasetProbeSQLSHA256 string   `json:"business_dataset_probe_sql_sha256"`
-	DatasetRows                   int64    `json:"dataset_rows"`
-	ScaleLimit                    int64    `json:"scale_limit"`
-	Nonce                         int64    `json:"nonce"`
-	Warmup                        bool     `json:"warmup"`
-	NonceBindingSHA256            string   `json:"nonce_binding_sha256"`
-	PhysicalSQLSHA256             string   `json:"physical_sql_sha256"`
-	LogicalSQLSHA256              string   `json:"logical_sql_sha256"`
-	CacheConditionSHA256          string   `json:"cache_condition_sha256"`
-	ExecutionOrderSHA256          string   `json:"execution_order_sha256"`
-	ExpectedRows                  int64    `json:"expected_rows"`
-	ExpectedColumns               int      `json:"expected_columns"`
-	ExpectedResultSHA256          string   `json:"expected_result_sha256"`
-	ObservedResultSHA256          string   `json:"observed_result_sha256"`
-	ExpectedDependencyFacts       int64    `json:"expected_dependency_facts"`
-	ExpectedDependencySHA256      string   `json:"expected_dependency_sha256"`
-	TypedDrainFields              int64    `json:"typed_drain_fields"`
-	TypedDrainSHA256              string   `json:"typed_drain_sha256"`
-	FieldOIDs                     []uint32 `json:"field_oids"`
-	PostgreSQLVersion             string   `json:"postgresql_version"`
-	PostgreSQLVersionNum          string   `json:"postgresql_version_num"`
-	StatementTimeoutMS            int64    `json:"statement_timeout_ms"`
-	MaxParallelWorkers            int64    `json:"max_parallel_workers_per_gather"`
-	ClientMinMessages             string   `json:"client_min_messages"`
-	LogMinMessages                string   `json:"log_min_messages"`
-	ProvSQLVersion                string   `json:"provsql_version,omitempty"`
-	ProvSQLCommit                 string   `json:"provsql_commit,omitempty"`
-	SharedPreload                 bool     `json:"shared_preload,omitempty"`
-	AggTokenTextAsUUID            bool     `json:"agg_token_text_as_uuid,omitempty"`
-	AggTokenOID                   uint32   `json:"agg_token_oid,omitempty"`
-	UUIDOID                       uint32   `json:"uuid_oid,omitempty"`
-	CarrierGateType               string   `json:"carrier_gate_type,omitempty"`
-	RowGateType                   string   `json:"row_gate_type,omitempty"`
-	RootTypesVerified             bool     `json:"root_types_verified,omitempty"`
-	AggregateTokens               int64    `json:"aggregate_tokens,omitempty"`
-	RowTokens                     int64    `json:"row_tokens,omitempty"`
-	GatesBefore                   int64    `json:"gates_before,omitempty"`
-	GatesAfter                    int64    `json:"gates_after,omitempty"`
-	ArtifactBytesBefore           int64    `json:"artifact_bytes_before,omitempty"`
-	ArtifactBytesAfter            int64    `json:"artifact_bytes_after,omitempty"`
-	RepresentationSHA256          string   `json:"representation_sha256,omitempty"`
+	Version                       string                              `json:"version"`
+	Boundary                      string                              `json:"boundary"`
+	BindingFileSHA256             string                              `json:"binding_file_sha256"`
+	BindingSHA256                 string                              `json:"binding_sha256"`
+	FixtureVersion                string                              `json:"fixture_version"`
+	FixtureSQLSHA256              string                              `json:"fixture_sql_sha256"`
+	EnableSQLSHA256               string                              `json:"enable_sql_sha256"`
+	DatasetSHA256                 string                              `json:"dataset_sha256"`
+	DatasetProbeSQLSHA256         string                              `json:"dataset_probe_sql_sha256"`
+	BusinessDatasetProbeSQLSHA256 string                              `json:"business_dataset_probe_sql_sha256"`
+	DatasetRows                   int64                               `json:"dataset_rows"`
+	ScaleLimit                    int64                               `json:"scale_limit"`
+	Nonce                         int64                               `json:"nonce"`
+	Warmup                        bool                                `json:"warmup"`
+	NonceBindingSHA256            string                              `json:"nonce_binding_sha256"`
+	PhysicalSQLSHA256             string                              `json:"physical_sql_sha256"`
+	LogicalSQLSHA256              string                              `json:"logical_sql_sha256"`
+	CacheConditionSHA256          string                              `json:"cache_condition_sha256"`
+	ExecutionOrderSHA256          string                              `json:"execution_order_sha256"`
+	ExpectedRows                  int64                               `json:"expected_rows"`
+	ExpectedColumns               int                                 `json:"expected_columns"`
+	ExpectedResultSHA256          string                              `json:"expected_result_sha256"`
+	ObservedResultSHA256          string                              `json:"observed_result_sha256"`
+	ExpectedDependencyFacts       int64                               `json:"expected_dependency_facts"`
+	ExpectedDependencySHA256      string                              `json:"expected_dependency_sha256"`
+	DependencyLink                *ProvSQLDependencySetVerificationV1 `json:"dependency_link,omitempty"`
+	TypedDrainFields              int64                               `json:"typed_drain_fields"`
+	TypedDrainSHA256              string                              `json:"typed_drain_sha256"`
+	FieldOIDs                     []uint32                            `json:"field_oids"`
+	PostgreSQLVersion             string                              `json:"postgresql_version"`
+	PostgreSQLVersionNum          string                              `json:"postgresql_version_num"`
+	StatementTimeoutMS            int64                               `json:"statement_timeout_ms"`
+	MaxParallelWorkers            int64                               `json:"max_parallel_workers_per_gather"`
+	ClientMinMessages             string                              `json:"client_min_messages"`
+	LogMinMessages                string                              `json:"log_min_messages"`
+	ProvSQLVersion                string                              `json:"provsql_version,omitempty"`
+	ProvSQLCommit                 string                              `json:"provsql_commit,omitempty"`
+	SharedPreload                 bool                                `json:"shared_preload,omitempty"`
+	AggTokenTextAsUUID            bool                                `json:"agg_token_text_as_uuid,omitempty"`
+	AggTokenOID                   uint32                              `json:"agg_token_oid,omitempty"`
+	UUIDOID                       uint32                              `json:"uuid_oid,omitempty"`
+	CarrierGateType               string                              `json:"carrier_gate_type,omitempty"`
+	RowGateType                   string                              `json:"row_gate_type,omitempty"`
+	RootTypesVerified             bool                                `json:"root_types_verified,omitempty"`
+	AggregateTokens               int64                               `json:"aggregate_tokens,omitempty"`
+	RowTokens                     int64                               `json:"row_tokens,omitempty"`
+	GatesBefore                   int64                               `json:"gates_before,omitempty"`
+	GatesAfter                    int64                               `json:"gates_after,omitempty"`
+	ArtifactBytesBefore           int64                               `json:"artifact_bytes_before,omitempty"`
+	ArtifactBytesAfter            int64                               `json:"artifact_bytes_after,omitempty"`
+	RepresentationSHA256          string                              `json:"representation_sha256,omitempty"`
 	// Only the TaskGate arm carries these independent runtime boundaries. The
 	// direct PostgreSQL and ProvSQL arms must leave every pointer nil.
 	BusinessBefore *BusinessSQLSnapshot `json:"business_before,omitempty"`
@@ -1773,13 +1775,15 @@ func (sample Sample) Validate() error {
 		if sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil &&
 			(sample.ExperimentID != "scale" || sample.ScaleVerification == nil ||
 				(sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV3 &&
-					sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV4)) {
+					sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV4 &&
+					sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV5)) {
 			return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3/v4")
 		}
 		if evidence := sample.ScaleVerification; evidence != nil {
 			if (evidence.Version != scaleDependencyEvidenceVersionV2 &&
 				evidence.Version != scaleDependencyEvidenceVersionV3 &&
-				evidence.Version != scaleDependencyEvidenceVersionV4) ||
+				evidence.Version != scaleDependencyEvidenceVersionV4 &&
+				evidence.Version != scaleDependencyEvidenceVersionV5) ||
 				evidence.HistoryDependencySHA256 != "" {
 				return errors.New("sample-v3 Scale evidence must use Decision-18 evidence-v2/v3 without legacy history")
 			}
@@ -1789,7 +1793,8 @@ func (sample Sample) Validate() error {
 				return errors.New("sample-v3 Scale evidence-v2 cannot carry Outcome candidate evidence-v3 members")
 			}
 			if (evidence.Version == scaleDependencyEvidenceVersionV3 ||
-				evidence.Version == scaleDependencyEvidenceVersionV4) &&
+				evidence.Version == scaleDependencyEvidenceVersionV4 ||
+				evidence.Version == scaleDependencyEvidenceVersionV5) &&
 				(sample.TaskGateAcceptanceV3.OutcomeCandidateVerification == nil ||
 					evidence.ExpectedOutcomeMemberCardinality == 0 ||
 					evidence.ObservedOutcomeMemberCardinality == 0 ||

@@ -42,6 +42,11 @@ func (stubScaleSets) Verify(context.Context, profileMaterialV3, ScaleDependencyS
 	return ScaleDependencySetVerificationV1{}, errors.New("stub Scale set verifier was not configured")
 }
 
+func (stubScaleSets) VerifyProvSQL(context.Context, profileMaterialV3,
+	ProvSQLDependencySetExpectationV1, string) (ProvSQLDependencySetVerificationV1, error) {
+	return ProvSQLDependencySetVerificationV1{}, errors.New("stub ProvSQL set verifier was not configured")
+}
+
 // runtimeFinalizerFor builds a finalizer whose contract registry offers the
 // given candidates.
 func runtimeFinalizerFor(t *testing.T, candidates ...frozenOperationCandidateV3) *RuntimeFinalizerV3 {

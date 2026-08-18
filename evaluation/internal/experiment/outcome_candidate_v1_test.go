@@ -282,6 +282,70 @@ func TestReproductionRetainsPreparedPredicateAtomMembers(t *testing.T) {
 	}
 }
 
+func TestOutcomeCandidateDomainLinkAcceptsCatalogEncodingOnlyAndRejectsRealMemberDifference(t *testing.T) {
+	material := outcomeCandidateScaleMaterial(t)
+	frozenCatalogSHA256 := outcomeCandidateTestDigest(777)
+	oracle, err := finalv5oracle.GenerateExposureScaleOutcomeCandidate(
+		finalv5oracle.ExposureScaleOutcomeRequest{
+			CatalogSHA256: frozenCatalogSHA256, CandidateFacts: finalv5oracle.DependencyScale10K,
+			SetOptions: finalv5oracle.StreamSetOptions{MaxInMemoryMembers: 2_048, CaptureMembers: 5},
+		})
+	if err != nil {
+		t.Fatalf("generate complete-Catalog oracle: %v", err)
+	}
+	expected := OutcomeCandidateExpectationV1{Cardinality: oracle.CandidateCardinality,
+		Members: oracle.Members, OrdinarySetSHA256: oracle.CandidateSetSHA256}
+	linker := newOutcomeCandidateDomainLinkerV1()
+
+	receipt := gatewayReceiptFor(t, material)
+	reproduced, err := ReproduceExecutionV3(receipt, material)
+	if err != nil {
+		t.Fatalf("reproduce activated-profile execution: %v", err)
+	}
+	logicalCatalog, err := catalog.Load(material.CatalogPath)
+	if err != nil {
+		t.Fatalf("load activated profile Catalog: %v", err)
+	}
+	profileOracle, err := finalv5oracle.GenerateExposureScaleOutcomeCandidate(
+		finalv5oracle.ExposureScaleOutcomeRequest{
+			CatalogSHA256: logicalCatalog.SHA256, CandidateFacts: finalv5oracle.DependencyScale10K,
+			SetOptions: finalv5oracle.StreamSetOptions{MaxInMemoryMembers: 2_048, CaptureMembers: 5},
+		})
+	if err != nil {
+		t.Fatalf("generate profile-Catalog oracle: %v", err)
+	}
+	receipt.Exposure.ActualPredicateAtomCount = 4
+	receipt.Exposure.ActualCompositeCount = 1
+	receipt.Exposure.ActualOutcomeFacts = 5
+	receipt.Exposure.PredicateContextSHA256 = reproduced.PreparedPredicateContextSHA256
+	receipt.Exposure.PredicateSetSHA256 = reproduced.PreparedPredicateSetSHA256
+	receipt.Exposure.CompositeOutcomeSHA256 = profileOracle.Composite.SHA256
+	verification, err := verifyOutcomeCandidateV2(linker, expected, frozenCatalogSHA256,
+		finalv5oracle.DependencyScale10K, material.CatalogPath, reproduced, receipt.Exposure)
+	if err != nil {
+		t.Fatalf("Catalog-only encoding difference was rejected: %v", err)
+	}
+	if verification.DomainLink == nil ||
+		verification.Expected.OrdinarySetSHA256 == verification.Observed.OrdinarySetSHA256 ||
+		verification.DomainLink.LinkedExpected.OrdinarySetSHA256 != verification.Observed.OrdinarySetSHA256 {
+		t.Fatalf("domain link did not retain distinct frozen/profile encodings: %+v", verification)
+	}
+	if err := verification.Validate(); err != nil {
+		t.Fatalf("linked verification does not validate: %v", err)
+	}
+
+	wrong := verification
+	wrong.Observed.Members = append([]string(nil), verification.Observed.Members...)
+	wrong.Observed.Members[0] = outcomeCandidateTestDigest(999)
+	wrong.Observed, err = summarizeOutcomeCandidateMembers(wrong.Observed.Members)
+	if err != nil {
+		t.Fatalf("summarize wrong member set: %v", err)
+	}
+	if err := wrong.Validate(); err == nil {
+		t.Fatal("a real predicate-member difference passed the Catalog-domain linker")
+	}
+}
+
 // The formerly-undetected failure is not a malformed receipt. This test makes
 // the production-side story coherent end to end -- a real preparation with
 // four atoms, a production composite, a production radix set, synchronized

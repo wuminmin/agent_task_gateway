@@ -20,6 +20,7 @@ const (
 	scaleDependencyEvidenceVersionV2 = "taskgate-final-v5-scale-verification-v2"
 	scaleDependencyEvidenceVersionV3 = "taskgate-final-v5-scale-verification-v3"
 	scaleDependencyEvidenceVersionV4 = "taskgate-final-v5-scale-verification-v4"
+	scaleDependencyEvidenceVersionV5 = "taskgate-final-v5-scale-verification-v5"
 	artifactEvidenceVersionV1        = "taskgate-final-v5-artifact-verification-v1"
 	artifactEvidenceVersionV2        = "taskgate-final-v5-artifact-verification-v2"
 	outcomeProductionPath            = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
@@ -42,6 +43,8 @@ func validateScaleVerification(sample Sample) error {
 			return validateDependencyScaleVerificationV3(sample, evidence)
 		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV4:
 			return validateDependencyScaleVerificationV4(sample, evidence)
+		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV5:
+			return validateDependencyScaleVerificationV5(sample, evidence)
 		default:
 			return errors.New("dependency scale sample/evidence versions are incompatible")
 		}
@@ -93,6 +96,30 @@ func validateDependencyScaleVerificationV4(sample Sample, evidence *ScaleVerific
 	return validateOutcomeCandidateScaleEvidenceV3(sample, evidence)
 }
 
+// validateDependencyScaleVerificationV5 retains the P51 dependency links and
+// requires the P54 complete-Catalog/profile-Catalog Outcome domain link.
+func validateDependencyScaleVerificationV5(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if err := validateDependencyScaleVerificationDecision18V4(sample, evidence); err != nil {
+		return err
+	}
+	spec, err := ParseDependencyScale(sample.Scale)
+	if err != nil {
+		return err
+	}
+	if err := validateDependencyScaleLinksV1(sample, evidence, spec); err != nil {
+		return err
+	}
+	if err := validateOutcomeCandidateScaleEvidenceV3(sample, evidence); err != nil {
+		return err
+	}
+	verification := sample.TaskGateAcceptanceV3.OutcomeCandidateVerification
+	if verification.Version != OutcomeCandidateVerificationV2Version || verification.DomainLink == nil ||
+		verification.DomainLink.LinkedExpected.OrdinarySetSHA256 != verification.Observed.OrdinarySetSHA256 {
+		return errors.New("dependency Scale evidence-v5 lacks the P54 Outcome domain link")
+	}
+	return nil
+}
+
 func validateOutcomeCandidateScaleEvidenceV3(sample Sample, evidence *ScaleVerificationEvidence) error {
 	if evidence == nil || sample.TaskGateAcceptanceV3 == nil {
 		return errors.New("dependency Scale retains no accepted Outcome candidate evidence")
@@ -127,8 +154,12 @@ func validateOutcomeCandidateScaleEvidenceV3(sample Sample, evidence *ScaleVerif
 		sample.ActualOutcomeFacts != evidence.ObservedOutcomeMemberCardinality ||
 		sample.PredicateAtomCount != outcomeCandidateMemberCardinalityV1-1 || sample.CompositeCount != 1 ||
 		!validSHA256(evidence.ExpectedOutcomeCandidateSetSHA256) ||
-		evidence.ObservedOutcomeCandidateSetSHA256 != evidence.ExpectedOutcomeCandidateSetSHA256 {
+		!validSHA256(evidence.ObservedOutcomeCandidateSetSHA256) {
 		return errors.New("dependency Scale Outcome candidate cardinality or ordinary-set identity is inconsistent")
+	}
+	if evidence.Version != scaleDependencyEvidenceVersionV5 &&
+		evidence.ObservedOutcomeCandidateSetSHA256 != evidence.ExpectedOutcomeCandidateSetSHA256 {
+		return errors.New("historical dependency Scale Outcome candidate domains differ")
 	}
 	return nil
 }

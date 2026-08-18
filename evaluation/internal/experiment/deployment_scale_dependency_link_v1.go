@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,7 +43,7 @@ func (verifier *deploymentScaleDependencySetVerifierV1) Verify(ctx context.Conte
 	if err != nil {
 		return result, err
 	}
-	universe, err := verifier.reviewedUniverse(profile)
+	universe, err := verifier.reviewedUniverse(profile, []string{exposureScalePublicationV1})
 	if err != nil {
 		return result, err
 	}
@@ -80,6 +82,50 @@ func (verifier *deploymentScaleDependencySetVerifierV1) Verify(ctx context.Conte
 	return result, nil
 }
 
+func (verifier *deploymentScaleDependencySetVerifierV1) VerifyProvSQL(ctx context.Context,
+	profile profileMaterialV3, expectation ProvSQLDependencySetExpectationV1,
+	productionSetSHA256 string) (ProvSQLDependencySetVerificationV1, error) {
+	var result ProvSQLDependencySetVerificationV1
+	if err := expectation.Validate(); err != nil {
+		return result, err
+	}
+	universe, err := verifier.reviewedUniverse(profile,
+		[]string{"provsql-lineitem-v1", "provsql-nonce-v1", "provsql-orders-v1"})
+	if err != nil {
+		return result, err
+	}
+	actual, dictionarySet, err := verifier.readProductionSet(ctx, productionSetSHA256)
+	if err != nil {
+		return result, fmt.Errorf("read production ProvSQL dependency set: %w", err)
+	}
+	report, linkErr := universe.Link(finalv5linker.SetRequest{
+		Role: "candidate", OracleFacts: func(yield func(finalv5oracle.CanonicalFact) error) error {
+			return finalv5oracle.StreamProvSQLNonceJoinFacts(expectation.Limit, expectation.Nonce, yield)
+		},
+		Expected: finalv5linker.SemanticExpectation{Cardinality: expectation.Cardinality, SetSHA256: expectation.SetSHA256},
+		Actual:   actual, ActualSource: finalv5linker.ActualSetSourceProductionFactSet,
+	})
+	result = ProvSQLDependencySetVerificationV1{
+		Version: ProvSQLDependencySetVerificationV1Version, Match: report.Match,
+		ExpectedCardinality: expectation.Cardinality, ExpectedSemanticSetSHA256: expectation.SetSHA256,
+		ObservedCardinality: report.ActualSemantic.Cardinality, ObservedSemanticSetSHA256: report.ActualSemantic.SetSHA256,
+		ProductionSetSHA256: productionSetSHA256, ProductionDictionarySHA256: dictionarySet,
+		ObservedOrdinalSetSHA256: report.ActualOrdinalSetSHA256,
+		ExpectedOrdinalsMissing:  report.Mismatches.ExpectedOrdinalsMissingInActual,
+		UnexpectedActualOrdinals: report.Mismatches.UnexpectedActualOrdinals,
+	}
+	if report.DictionarySetSHA256 != dictionarySet {
+		return result, errors.New("production ProvSQL set dictionary closure differs from the activated publications")
+	}
+	if linkErr != nil {
+		return result, fmt.Errorf("link production ProvSQL dependency set to semantic oracle: %w", linkErr)
+	}
+	if err := result.Validate(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func scaleDependencyFactStream(scale string,
 	role DependencyScaleSummaryRole) (finalv5linker.CanonicalFactStream, error) {
 	spec, err := ParseDependencyScale(scale)
@@ -106,8 +152,10 @@ func scaleDependencyFactStream(scale string,
 }
 
 func (verifier *deploymentScaleDependencySetVerifierV1) reviewedUniverse(
-	profile profileMaterialV3) (*finalv5linker.ReviewedUniverse, error) {
-	key := profile.CatalogPath + "\x00" + profile.SnapshotArtifactDir
+	profile profileMaterialV3, requiredPublications []string) (*finalv5linker.ReviewedUniverse, error) {
+	requiredPublications = append([]string(nil), requiredPublications...)
+	sort.Strings(requiredPublications)
+	key := profile.CatalogPath + "\x00" + profile.SnapshotArtifactDir + "\x00" + strings.Join(requiredPublications, "\x00")
 	verifier.mu.Lock()
 	defer verifier.mu.Unlock()
 	if universe := verifier.byProfile[key]; universe != nil {
@@ -115,59 +163,73 @@ func (verifier *deploymentScaleDependencySetVerifierV1) reviewedUniverse(
 	}
 	logical, err := catalog.Load(profile.CatalogPath)
 	if err != nil {
-		return nil, fmt.Errorf("load Scale profile Catalog: %w", err)
+		return nil, fmt.Errorf("load activated profile Catalog: %w", err)
 	}
-	if len(logical.SnapshotPublications) != 1 ||
-		logical.SnapshotPublications[0].Name != exposureScalePublicationV1 {
-		return nil, errors.New("Scale profile must activate exactly the exposure-scale publication")
+	actualPublications := make([]string, 0, len(logical.SnapshotPublications))
+	for _, publication := range logical.SnapshotPublications {
+		actualPublications = append(actualPublications, publication.Name)
+	}
+	sort.Strings(actualPublications)
+	if !equalStringsV3(actualPublications, requiredPublications) {
+		return nil, fmt.Errorf("profile publications %v differ from required linker closure %v",
+			actualPublications, requiredPublications)
 	}
 	if _, err := snapshotBindingsFromArtifactsV3(*logical, profile.SnapshotArtifactDir); err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(profile.SnapshotArtifactDir, exposureScalePublicationV1)
-	manifestFile, err := os.Open(filepath.Join(directory, exposureScalePublicationV1+".bundle.json"))
+	publications := make([]finalv5linker.Publication, 0, len(requiredPublications))
+	for _, name := range requiredPublications {
+		publication, publicationErr := readLinkPublication(profile.SnapshotArtifactDir, name)
+		if publicationErr != nil {
+			return nil, publicationErr
+		}
+		publications = append(publications, publication)
+	}
+	universe, err := finalv5linker.ReviewPublications(logical.SHA256, publications...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("review activated publication closure: %w", err)
+	}
+	verifier.byProfile[key] = universe
+	return universe, nil
+}
+
+func readLinkPublication(artifactDir, name string) (finalv5linker.Publication, error) {
+	directory := filepath.Join(artifactDir, name)
+	manifestFile, err := os.Open(filepath.Join(directory, name+".bundle.json"))
+	if err != nil {
+		return finalv5linker.Publication{}, err
 	}
 	manifest, decodeErr := snapshotbundle.DecodeBundleManifest(manifestFile)
 	closeErr := manifestFile.Close()
 	if decodeErr != nil || closeErr != nil {
-		return nil, errors.Join(decodeErr, closeErr)
+		return finalv5linker.Publication{}, errors.Join(decodeErr, closeErr)
 	}
 	hotBytes, err := readScaleDescriptor(directory, manifest.Hot)
 	if err != nil {
-		return nil, err
+		return finalv5linker.Publication{}, err
 	}
 	hot, err := ordinal.ParseHotDictionary(hotBytes, manifest.ManifestDigest)
 	if err != nil {
-		return nil, fmt.Errorf("parse Scale HOT dictionary: %w", err)
+		return finalv5linker.Publication{}, fmt.Errorf("parse %s HOT dictionary: %w", name, err)
 	}
-	coldPath := filepath.Join(directory, manifest.Cold.Name)
-	cold, err := os.Open(coldPath)
+	cold, err := os.Open(filepath.Join(directory, manifest.Cold.Name))
 	if err != nil {
-		return nil, err
+		return finalv5linker.Publication{}, err
 	}
 	info, statErr := cold.Stat()
 	if statErr != nil || !info.Mode().IsRegular() || info.Size() != manifest.Cold.Bytes {
 		cold.Close()
-		return nil, errors.Join(statErr, errors.New("Scale COLD artifact differs from its descriptor"))
+		return finalv5linker.Publication{}, errors.Join(statErr, errors.New("COLD artifact differs from its descriptor"))
 	}
 	closure, verifyErr := finalv5linker.VerifyColdClosure(cold, info.Size(), hot)
 	closeErr = cold.Close()
 	if verifyErr != nil || closeErr != nil {
-		return nil, errors.Join(verifyErr, closeErr)
+		return finalv5linker.Publication{}, errors.Join(verifyErr, closeErr)
 	}
 	if closure.ArtifactSHA256 != manifest.Cold.SHA256 || closure.ArtifactBytes != manifest.Cold.Bytes {
-		return nil, errors.New("Scale COLD transport identity differs from its descriptor")
+		return finalv5linker.Publication{}, errors.New("COLD transport identity differs from its descriptor")
 	}
-	universe, err := finalv5linker.ReviewPublications(logical.SHA256, finalv5linker.Publication{
-		Name: exposureScalePublicationV1, Index: hot, ColdClosure: &closure,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("review activated Scale publication: %w", err)
-	}
-	verifier.byProfile[key] = universe
-	return universe, nil
+	return finalv5linker.Publication{Name: name, Index: hot, ColdClosure: &closure}, nil
 }
 
 func readScaleDescriptor(directory string, descriptor snapshotbundle.FileDescriptor) ([]byte, error) {
@@ -209,7 +271,7 @@ FROM v4_bitmap_sets WHERE set_sha256=$1`, setSHA256).
 		return empty, "", err
 	}
 	if dynamicCardinality != 0 {
-		return empty, "", errors.New("Scale dependency set unexpectedly contains dynamic Facts")
+		return empty, "", errors.New("linked dependency set unexpectedly contains dynamic Facts")
 	}
 	rows, err := tx.Query(ctx, `SELECT mapping.dictionary_digest,mapping.segment_id,mapping.high16,mapping.cardinality,
  container.container_sha256,container.dictionary_digest,container.segment_id,container.high16,
@@ -235,7 +297,7 @@ ORDER BY mapping.dictionary_digest,mapping.segment_id,mapping.high16`, setSHA256
 		if mapDictionary != blobDictionary || mapSegment != blobSegment || mapHigh != blobHigh ||
 			mapCardinality != blobCardinality || mapHigh < 0 || mapHigh > 65535 || mapCardinality <= 0 {
 			rows.Close()
-			return empty, "", errors.New("Scale dependency bitmap container mapping is corrupt")
+			return empty, "", errors.New("dependency bitmap container mapping is corrupt")
 		}
 		containers = append(containers, ordinal.PortableContainer{Key: ordinal.ContainerKey{
 			DictionaryDigest: mapDictionary, SegmentID: mapSegment, High16: uint16(mapHigh)},
@@ -251,7 +313,7 @@ ORDER BY mapping.dictionary_digest,mapping.segment_id,mapping.high16`, setSHA256
 		return empty, "", err
 	}
 	if actual.Cardinality() != uint64(staticCardinality) {
-		return empty, "", errors.New("Scale dependency bitmap cardinality differs from Control metadata")
+		return empty, "", errors.New("dependency bitmap cardinality differs from Control metadata")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return empty, "", err

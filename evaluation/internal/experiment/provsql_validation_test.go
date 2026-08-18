@@ -388,6 +388,28 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 	}
 }
 
+func TestProvSQLTaskGateVerificationV2RequiresDependencyLink(t *testing.T) {
+	sample := validProvSQLValidationSample(t, "taskgate")
+	evidence := sample.ProvSQLVerification
+	evidence.Version = "taskgate-final-v5-provsql-verification-v2"
+	link := validProvSQLDependencyLinkForTest()
+	link.ExpectedCardinality = evidence.ExpectedDependencyFacts
+	link.ObservedCardinality = evidence.ExpectedDependencyFacts
+	link.ExpectedSemanticSetSHA256 = evidence.ExpectedDependencySHA256
+	link.ObservedSemanticSetSHA256 = evidence.ExpectedDependencySHA256
+	link.ProductionSetSHA256 = sample.DependencySetSHA256
+	evidence.DependencyLink = &link
+	if err := ValidateProvSQLEvidence(sample); err != nil {
+		t.Fatalf("linked ProvSQL TaskGate evidence-v2: %v", err)
+	}
+
+	changed := cloneProvSQLValidationSample(sample)
+	changed.ProvSQLVerification.DependencyLink.UnexpectedActualOrdinals = 1
+	if err := ValidateProvSQLEvidence(changed); err == nil {
+		t.Fatal("ProvSQL evidence-v2 accepted a real extra production member")
+	}
+}
+
 func TestProvSQLAcceptanceClosesExactPrivateNonceContractIdentity(t *testing.T) {
 	base := validProvSQLValidationSample(t, "taskgate")
 	original := base.TaskGateAcceptanceV3.Operation.ContractIdentity

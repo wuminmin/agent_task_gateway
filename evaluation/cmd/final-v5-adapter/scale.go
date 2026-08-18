@@ -29,6 +29,7 @@ const (
 	scaleVerificationVersion           = "taskgate-final-v5-scale-verification-v1"
 	scaleDependencyVerificationVersion = "taskgate-final-v5-scale-verification-v2"
 	scaleDependencyVerificationV4      = "taskgate-final-v5-scale-verification-v4"
+	scaleDependencyVerificationV5      = "taskgate-final-v5-scale-verification-v5"
 )
 
 type scaleAdapter struct {
@@ -417,7 +418,7 @@ func retainScaleOutcomeCandidateVerification(evidence *experiment.ScaleVerificat
 	if err := verification.Validate(); err != nil {
 		return fmt.Errorf("validate the accepted Scale Outcome candidate member verification: %w", err)
 	}
-	evidence.Version = scaleDependencyVerificationV4
+	evidence.Version = scaleDependencyVerificationV5
 	evidence.ExpectedOutcomeMemberCardinality = verification.Expected.Cardinality
 	evidence.ObservedOutcomeMemberCardinality = verification.Observed.Cardinality
 	evidence.ExpectedOutcomeCandidateSetSHA256 = verification.Expected.OrdinarySetSHA256
@@ -572,16 +573,6 @@ func validateBoundScaleSampleResult(sample experiment.Sample, expected boundQuer
 	if sample.Status != "pass" || sample.RowCount != expected.ExpectedRows || sample.ColumnCount != expected.ExpectedColumns ||
 		sample.ResultSHA256 != expected.ExpectedResultSHA256 || sample.ActualDependencyFacts != expected.DependencyFacts {
 		return errors.New("verified TaskGate result differs from its bound rows/columns/result/dependency-cardinality oracle")
-	}
-	return nil
-}
-
-// validateBoundSampleResult retains ProvSQL's exact native-set contract. Scale
-// uses validateBoundScaleSampleResult plus the semantic-to-ordinal linker.
-func validateBoundSampleResult(sample experiment.Sample, expected boundQueryExpectation) error {
-	if err := validateBoundScaleSampleResult(sample, expected); err != nil ||
-		sample.DependencySetSHA256 != expected.DependencySetSHA256 {
-		return errors.New("verified TaskGate result differs from its bound rows/columns/result/Dependency oracle")
 	}
 	return nil
 }

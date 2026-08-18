@@ -918,7 +918,8 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 	if sample.Mode == "taskgate" {
 		physical = sha256Hex([]byte(logical))
 	}
-	if evidence.Version != "taskgate-final-v5-provsql-verification-v1" ||
+	if (evidence.Version != "taskgate-final-v5-provsql-verification-v1" &&
+		evidence.Version != "taskgate-final-v5-provsql-verification-v2") ||
 		evidence.FixtureVersion != provsqlfixture.Version || evidence.FixtureSQLSHA256 != provsqlfixture.FixtureSQLSHA256() ||
 		evidence.EnableSQLSHA256 != provsqlfixture.EnableSQLSHA256() || evidence.DatasetSHA256 != provsqlfixture.ExpectedDatasetSHA256() ||
 		evidence.DatasetProbeSQLSHA256 != provsqlfixture.DatasetProbeSQLSHA256() ||
@@ -955,7 +956,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.RootTypesVerified || evidence.AggregateTokens != 0 ||
 			evidence.RowTokens != 0 || evidence.GatesBefore != 0 || evidence.GatesAfter != 0 ||
 			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
-			sample.TaskGateAcceptanceV3 != nil || !emptyProvSQLTaskGateRuntimeEvidence(evidence) {
+			sample.TaskGateAcceptanceV3 != nil || evidence.DependencyLink != nil || !emptyProvSQLTaskGateRuntimeEvidence(evidence) {
 			return errors.New("direct PostgreSQL arm contains invalid ProvSQL/system evidence")
 		}
 	case "provsql":
@@ -969,7 +970,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.AggregateTokens != provsqlfixture.ExpectedRows*provsqlfixture.CarrierColumns ||
 			evidence.RowTokens != provsqlfixture.ExpectedRows || evidence.GatesAfter <= evidence.GatesBefore ||
 			evidence.ArtifactBytesBefore <= 0 || evidence.ArtifactBytesAfter < evidence.ArtifactBytesBefore ||
-			!validSHA256(evidence.RepresentationSHA256) || sample.TaskGateAcceptanceV3 != nil ||
+			!validSHA256(evidence.RepresentationSHA256) || sample.TaskGateAcceptanceV3 != nil || evidence.DependencyLink != nil ||
 			!emptyProvSQLTaskGateRuntimeEvidence(evidence) {
 			return errors.New("ProvSQL arm lacks pinned agg_token/gate/representation evidence")
 		}
@@ -983,11 +984,23 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.AggregateTokens != 0 || evidence.RowTokens != 0 ||
 			evidence.GatesBefore != 0 || evidence.GatesAfter != 0 || evidence.ArtifactBytesBefore != 0 ||
 			evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
-			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 ||
+			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts ||
 			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS ||
 			evidence.BusinessBefore == nil || evidence.BusinessAfter == nil || evidence.RootBefore == nil ||
 			evidence.RootAfter == nil || evidence.ObserverWindow == nil || sample.TaskGateAcceptanceV3 == nil {
 			return errors.New("TaskGate arm lacks exact V8/Parquet/FactSet boundary evidence")
+		}
+		if evidence.Version == "taskgate-final-v5-provsql-verification-v1" {
+			if evidence.DependencyLink != nil || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 {
+				return errors.New("historical TaskGate ProvSQL dependency digest differs from its frozen oracle")
+			}
+		} else {
+			if evidence.DependencyLink == nil || evidence.DependencyLink.Validate() != nil ||
+				evidence.DependencyLink.ExpectedCardinality != evidence.ExpectedDependencyFacts ||
+				evidence.DependencyLink.ExpectedSemanticSetSHA256 != evidence.ExpectedDependencySHA256 ||
+				evidence.DependencyLink.ProductionSetSHA256 != sample.DependencySetSHA256 {
+				return errors.New("TaskGate ProvSQL dependency linker evidence is absent or inconsistent")
+			}
 		}
 		if err := validateBusinessSQLTransition(*evidence.BusinessBefore, *evidence.BusinessAfter, 1, 1); err != nil {
 			return err

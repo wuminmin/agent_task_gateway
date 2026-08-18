@@ -97,7 +97,7 @@ func TestRetainScaleOutcomeCandidateVerificationCopiesOnlyFinalizerOutput(t *tes
 	if err := retainScaleOutcomeCandidateVerification(evidence, finalized); err != nil {
 		t.Fatalf("retain finalizer verification: %v", err)
 	}
-	if evidence.Version != scaleDependencyVerificationV4 ||
+	if evidence.Version != scaleDependencyVerificationV5 ||
 		evidence.ExpectedOutcomeMemberCardinality != 5 || evidence.ObservedOutcomeMemberCardinality != 5 ||
 		evidence.ExpectedOutcomeCandidateSetSHA256 != summary.SetSHA256 ||
 		evidence.ObservedOutcomeCandidateSetSHA256 != summary.SetSHA256 {
