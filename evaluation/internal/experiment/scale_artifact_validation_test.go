@@ -294,6 +294,56 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 	}
 }
 
+func TestDependencyScaleReceiptCatalogUsesActivatedProfileForCurrentEvidence(t *testing.T) {
+	masterCatalog := strings.Repeat("a", 64)
+	profile := testBinding()
+	sample := Sample{
+		ProfileBinding:       &profile,
+		BaselineVerification: &BaselineVerificationEvidence{Receipt: queryreceipt.QueryReceiptV1{CatalogDigest: profile.CatalogSHA256}},
+	}
+	evidence := &ScaleVerificationEvidence{
+		Version:       scaleDependencyEvidenceVersionV5,
+		CatalogSHA256: masterCatalog,
+	}
+	if err := validateDependencyScaleReceiptCatalog(sample, evidence); err != nil {
+		t.Fatalf("profile Catalog matching Receipt was rejected because master Catalog differs: %v", err)
+	}
+
+	wrong := sample
+	verification := *sample.BaselineVerification
+	wrong.BaselineVerification = &verification
+	wrong.BaselineVerification.Receipt.CatalogDigest = strings.Repeat("f", 64)
+	if err := validateDependencyScaleReceiptCatalog(wrong, evidence); err == nil {
+		t.Fatal("Receipt signed by a different Catalog was accepted for the activated profile")
+	}
+
+	withoutProfile := sample
+	withoutProfile.ProfileBinding = nil
+	if err := validateDependencyScaleReceiptCatalog(withoutProfile, evidence); err == nil {
+		t.Fatal("current Scale evidence without an activated ProfileBinding was accepted")
+	}
+}
+
+func TestDependencyScaleHistoricalReceiptCatalogRuleIsNotReinterpreted(t *testing.T) {
+	masterCatalog := strings.Repeat("a", 64)
+	profile := testBinding()
+	sample := Sample{
+		ProfileBinding:       &profile,
+		BaselineVerification: &BaselineVerificationEvidence{Receipt: queryreceipt.QueryReceiptV1{CatalogDigest: masterCatalog}},
+	}
+	evidence := &ScaleVerificationEvidence{
+		Version:       scaleDependencyEvidenceVersionV4,
+		CatalogSHA256: masterCatalog,
+	}
+	if err := validateDependencyScaleReceiptCatalog(sample, evidence); err != nil {
+		t.Fatalf("historical Scale Catalog equality changed meaning: %v", err)
+	}
+	sample.BaselineVerification.Receipt.CatalogDigest = profile.CatalogSHA256
+	if err := validateDependencyScaleReceiptCatalog(sample, evidence); err == nil {
+		t.Fatal("historical Scale evidence silently acquired the profile-Catalog rule")
+	}
+}
+
 func TestArtifactDatasetIdentityAndProbeHaveVersionedSemantics(t *testing.T) {
 	dataset := strings.Repeat("a", 64)
 	probe := strings.Repeat("b", 64)

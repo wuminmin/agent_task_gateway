@@ -248,8 +248,8 @@ func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerific
 	if err := validateRedactedVerifierManifest(sample); err != nil {
 		return err
 	}
-	if sample.BaselineVerification.Receipt.CatalogDigest != evidence.CatalogSHA256 {
-		return errors.New("signed Catalog digest differs from the deployment binding")
+	if err := validateDependencyScaleReceiptCatalog(sample, evidence); err != nil {
+		return err
 	}
 	if err := validateScaleObservationV3(sample, evidence); err != nil {
 		return err
@@ -281,6 +281,32 @@ func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerific
 		evidence.BusinessAfter.CompanionCalls - evidence.BusinessBefore.CompanionCalls
 	if observedBusiness != sample.BusinessSQLDelta {
 		return errors.New("dependency Business SQL delta differs from independent counters")
+	}
+	return nil
+}
+
+// validateDependencyScaleReceiptCatalog keeps the two Catalog identities in
+// their respective domains. Evidence-v5 is produced by a profile deployment:
+// the Receipt therefore names the activated profile Catalog carried by the
+// independently resolved ProfileBinding. ScaleVerificationEvidence.CatalogSHA256
+// continues to name the master Catalog against which LoadPublicationFile
+// validates the private binding's provenance; it is not a deployment identity.
+//
+// Earlier evidence versions permanently retain their historical equality rule
+// so old samples are never silently reinterpreted under the split deployment
+// identity model.
+func validateDependencyScaleReceiptCatalog(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.Version != scaleDependencyEvidenceVersionV5 {
+		if sample.BaselineVerification.Receipt.CatalogDigest != evidence.CatalogSHA256 {
+			return errors.New("signed Catalog digest differs from the deployment binding")
+		}
+		return nil
+	}
+	if err := RequireProfileBinding(sample); err != nil {
+		return fmt.Errorf("dependency Scale deployment Catalog identity: %w", err)
+	}
+	if sample.BaselineVerification.Receipt.CatalogDigest != sample.ProfileBinding.CatalogSHA256 {
+		return errors.New("signed Catalog digest differs from the activated profile Catalog")
 	}
 	return nil
 }
@@ -349,8 +375,8 @@ func validateDependencyScaleVerificationDecision18V4(sample Sample, evidence *Sc
 	if err := validateRedactedVerifierManifest(sample); err != nil {
 		return err
 	}
-	if sample.BaselineVerification.Receipt.CatalogDigest != evidence.CatalogSHA256 {
-		return errors.New("signed Catalog digest differs from the deployment binding")
+	if err := validateDependencyScaleReceiptCatalog(sample, evidence); err != nil {
+		return err
 	}
 	if err := validateScaleObservationV3(sample, evidence); err != nil {
 		return err

@@ -670,9 +670,12 @@ type ScaleVerificationEvidence struct {
 	// BindingSHA256 remains the canonical versioned final_v5_adapter section identity so
 	// harmless top-level formatting and executable section material cannot be
 	// conflated.
-	BindingFileSHA256      string `json:"binding_file_sha256,omitempty"`
-	BindingSHA256          string `json:"binding_sha256,omitempty"`
-	DatasetSHA256          string `json:"dataset_sha256,omitempty"`
+	BindingFileSHA256 string `json:"binding_file_sha256,omitempty"`
+	BindingSHA256     string `json:"binding_sha256,omitempty"`
+	DatasetSHA256     string `json:"dataset_sha256,omitempty"`
+	// CatalogSHA256 is the master Catalog identity covered by the private
+	// binding's LoadPublicationFile provenance check. For current profile
+	// deployments, the signed live Catalog identity is ProfileBinding.CatalogSHA256.
 	CatalogSHA256          string `json:"catalog_sha256,omitempty"`
 	DatasetProbeSHA256     string `json:"dataset_probe_sha256,omitempty"`
 	QuerySHA256            string `json:"query_sha256,omitempty"`

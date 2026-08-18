@@ -296,6 +296,61 @@ func TestNoExportedWayToChooseTheFinalizersSources(t *testing.T) {
 	}
 }
 
+// TestPrivateDeploymentBindingRemainsPinnedToTheMasterCatalog protects the
+// provenance half of the split Catalog identity. Receipt validation may use an
+// activated profile Catalog, but the private binding must still be loaded by
+// LoadPublicationFile against the source-controlled master Catalog path.
+func TestPrivateDeploymentBindingRemainsPinnedToTheMasterCatalog(t *testing.T) {
+	root := repositoryRoot(t)
+	path := filepath.Join(root, "evaluation", "internal", "experiment", "deployment_finalizer_v3.go")
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse deployment finalizer: %v", err)
+	}
+
+	var loadMethod *ast.FuncDecl
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Recv != nil && function.Name.Name == "load" {
+			loadMethod = function
+			break
+		}
+	}
+	if loadMethod == nil {
+		t.Fatal("deploymentBindingSourceV3.load is absent")
+	}
+
+	found := false
+	ast.Inspect(loadMethod.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) != 2 {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "LoadPublicationFile" {
+			return true
+		}
+		pkg, ok := selector.X.(*ast.Ident)
+		catalogSelector, catalogOK := call.Args[1].(*ast.SelectorExpr)
+		catalogPkg, catalogPkgOK := func() (*ast.Ident, bool) {
+			if !catalogOK {
+				return nil, false
+			}
+			identifier, ok := catalogSelector.X.(*ast.Ident)
+			return identifier, ok
+		}()
+		if ok && pkg.Name == "finalv5binding" && catalogPkgOK && catalogPkg.Name == "finalv5binding" &&
+			catalogSelector.Sel.Name == "CatalogPath" {
+			found = true
+		}
+		return true
+	})
+	if !found {
+		t.Fatal("private deployment binding no longer loads against finalv5binding.CatalogPath")
+	}
+}
+
 // TestTheDeploymentConstructorSelectsNoContent is the guard the deployment
 // resolvers make necessary.
 //

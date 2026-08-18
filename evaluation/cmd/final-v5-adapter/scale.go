@@ -136,6 +136,20 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 
 func validateScalePass(sample experiment.Sample) experiment.Sample {
 	if sample.Status == "pass" {
+		// Current Scale evidence compares the signed Receipt Catalog with the
+		// independently resolved activated profile, so attach that registry-backed
+		// identity before the adapter-side invariant runs. main binds the returned
+		// sample again as a uniform output gate; BindSample is intentionally
+		// idempotent over the same process-scoped identity.
+		if adapterSampleProfileBinder != nil && adapterSampleProfileBinder.Active() {
+			if err := adapterSampleProfileBinder.BindSample(&sample); err != nil {
+				writeAdapterSampleFailureDiagnostic("scale", sample, err)
+				sample.Status = "fail"
+				sample.ErrorCode = "profile_binding_catalog_mismatch"
+				sample.Reason = "an observed Gateway Receipt Catalog differs from the independently resolved deployment profile"
+				return sample
+			}
+		}
 		if err := experiment.ValidateScaleEvidence(sample); err != nil {
 			writeAdapterSampleFailureDiagnostic("scale", sample, err)
 			sample.Status = "fail"
