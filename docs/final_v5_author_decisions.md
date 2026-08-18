@@ -552,3 +552,36 @@ oracles, campaigns, or the paper are complete.
     as publication evidence. This decision does not approve a deployment,
     formal campaign, measurement reuse, frozen-byte replacement, release,
     publication evidence, tag, or tag movement.
+
+34. **Run every formal publication cell under the frozen v1.10 three-deployment
+    model.** (Taken 2026-08-19 by author wuminmin, answered exactly "1" in the
+    agent conversation to the options reported by P61.) The formal publication
+    campaign uses the original frozen v1.10 protocol model without amendment:
+    every cell, including every concurrency cell and
+    `concurrency/shared-root/50/natural_contention`, is measured in exactly
+    three independent fresh profile deployments at one fixed submission
+    commit. Concurrency therefore uses the same standard per-deployment
+    warmup/sample contract as the other cells; there is no formal width-50
+    repetition exception.
+
+    This decision supersedes Decision 32 only where that decision promoted the
+    Decision 30/P43 eleven-round preregistered width-50 mechanism into the
+    formal publication repetition model. The eleven-round mechanism remains
+    source-controlled and enforced for pilot-class runs, and the retained P57
+    and P58 eleven-of-eleven observations remain pilot/mechanism evidence. They
+    replace P43's preregistration as evidence that the mechanism works after the
+    probe and exact-miss fixes; they are not relabelled as publication evidence.
+    The causal record is explicit: P43 registered the pilot mechanism, P57
+    exposed the probe-gauge and exact-miss launcher defects, P58 repaired them
+    and retained an 11/11 observation, and P61 then showed that promoting the
+    exception into a new frozen release would require regenerating release-bound
+    live evidence rather than mechanically relabelling v1.10 bytes. The author
+    therefore withdrew the formal exception while preserving the original
+    three-independent-deployment intent of option A.
+
+    The v1.11 candidate/sign/install chain and signing session #3 are cancelled;
+    the existing frozen v1.10 bytes and tag remain unchanged. This authorises
+    documentation and zero-deployment implementation of a publication-class
+    per-profile launcher/finalizer path under v1.10 only. It does not authorise
+    a deployment, campaign, measurement, capability flip, frozen-byte change,
+    publication evidence, tag, or tag movement.
