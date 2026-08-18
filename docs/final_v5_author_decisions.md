@@ -508,3 +508,25 @@ oracles, campaigns, or the paper are complete.
     authorises the scoped probe/evaluation changes and tests only; it does not
     authorise a deployment, live round, campaign, measurement, capability
     flip, frozen-byte change, release, tag, or tag movement.
+
+32. **Use three independent deployments per formal campaign cell and eleven
+    preregistered concurrency rounds.** (Taken 2026-08-19 by author wuminmin,
+    answered exactly "A" in the agent conversation.) Every non-concurrency
+    cell in the formal publication campaign is measured in three independent
+    fresh profile deployments at one fixed submission commit. The
+    `concurrency/shared-root/50/natural_contention` aggregate instead retains
+    all eleven preregistered fresh-deployment rounds required by Decision 30;
+    it does not stop early or substitute three repetitions for those eleven.
+    The publication launcher must reject any other repetition count before a
+    deployment, and the formal campaign manifest must state the publication
+    class, publication eligibility, formal-campaign status, fixed submission
+    commit, formal Gateway build identity, and the repetition/round model.
+
+    This decision closes and supersedes the 2026-08-19 interim option D to
+    defer the formal repetition policy. It authorises documentation and
+    zero-deployment implementation of the publication path only. It does not
+    authorise a formal campaign run, live deployment, measurement, capability
+    flip, frozen-byte replacement, release, publication evidence, tag, or tag
+    movement. Capability and publication-coverage denominators remain governed
+    by their existing gates and may change only in the separately authorised
+    capability-flip work.
