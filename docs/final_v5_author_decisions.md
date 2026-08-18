@@ -530,3 +530,25 @@ oracles, campaigns, or the paper are complete.
     movement. Capability and publication-coverage denominators remain governed
     by their existing gates and may change only in the separately authorised
     capability-flip work.
+
+33. **Flip scaleRealSystemValidated on two retained 24-cell runs.** (Taken
+    2026-08-19 by author wuminmin, approved verbatim in the agent conversation:
+    「批准 scale capability 翻 true，依据 p55/p56 两轮保留证据」.) The Scale
+    evidence gate in `evaluation/cmd/final-v5-adapter/capability.go` may be
+    flipped from false to true on the strength of two consecutive retained
+    real-system executions of the complete 24-cell dependency-e2e matrix.
+    Campaign `p55-mech-full-16` records Scale `24/24` with every cell reaching
+    `taskgate_acceptance_v3` before that broader campaign later failed in the
+    ProvSQL deployment. Campaign `p56-mech-full-17` independently records the
+    same Scale `24/24` inside its complete `120/120 pass` pilot campaign. The
+    retained-file inventory and ledger rows preserve both evidence chains.
+
+    The flip completes Scale's closed 62-cell capability profile: the 24
+    dependency-e2e cells join the 36 Outcome-Merkle and two extreme
+    kernel-storage cells. Source-controlled parsing and exact dispatch-mode
+    matching remain necessary and never sufficient; the retained-run bit is
+    an additional gate and cannot substitute for a resolvable frozen cell.
+    Both cited campaigns remain pilot/mechanism evidence and are not relabelled
+    as publication evidence. This decision does not approve a deployment,
+    formal campaign, measurement reuse, frozen-byte replacement, release,
+    publication evidence, tag, or tag movement.

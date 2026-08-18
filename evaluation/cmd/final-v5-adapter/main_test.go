@@ -30,11 +30,11 @@ func TestCapabilitiesRequireRealFactoriesAndCompletePublicationProfiles(t *testi
 		t.Fatalf("capability count = %d, want %d", len(capabilities), len(experimentIDs))
 	}
 	// Artifact and Baseline turned true on 2026-08-16 when their required
-	// retained real-system runs completed. Scale stays false because its
-	// publication matrix remains incomplete.
+	// retained real-system runs completed. Scale turned true after the author
+	// approved its two retained 24-cell dependency-e2e runs on 2026-08-19.
 	want := map[string]bool{
 		"baseline": true,
-		"scale":    false, "artifact": true, "rls": true, "attack": true,
+		"scale":    true, "artifact": true, "rls": true, "attack": true,
 		"provsql": true, "compiler": true, "concurrency": true, "rq5": true,
 	}
 	for _, experimentID := range experimentIDs {

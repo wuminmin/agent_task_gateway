@@ -95,19 +95,10 @@ var baselineImplementedPublicationCells = baselineImplementedPublicationCellsFro
 // cross_binding_verification with visible delta 0 plus companion delta 1 = 1.
 const baselineRealSystemValidated = true
 
-// Scale has real handler code for its microbenchmark arms, but the frozen
-// Catalog cannot currently grant a task that carries the complete
-// dependency-e2e pair at the 1,035,000-Fact scale.
-//
-// The route ceiling that used to block this is no longer the reason. 7e705a9
-// added the final_v5_exposure_scale route and the final-v5-exposure-scale-v1
-// budget profile to the master Catalog, where max_queries is 8 and
-// max_influence_facts is 2,500,000 -- enough to carry novel plus semantic
-// replay on one task at that scale. That commit did not update this comment,
-// which kept describing a gate that had already been opened. Whether the pair
-// actually executes is untested, so the cells stay unimplemented on evidence,
-// not on a ceiling.
-// Do not register a partial scale matrix as a publication capability.
+// Scale coverage is derived from the same source-controlled parsers and modes
+// Execute dispatches on. dependency-e2e additionally requires retained
+// real-system evidence; source parseability remains necessary and never
+// sufficient to advertise those governed TaskGate cells.
 var scalePublicationRequirements = append(
 	expandPublicationWorkloads([]publicationWorkload{
 		{ID: "dependency-e2e", Scales: []string{
@@ -132,16 +123,17 @@ var scalePublicationRequirements = append(
 	})...,
 )
 
-// Scale coverage is derived from the same predicates Execute dispatches on,
-// so a registered cell is one the Adapter can really run. The two kernel
-// workloads qualify: Outcome-Merkle and the extreme storage arm resolve from
-// frozen scale specifications alone, provision no Task and bind no Product, so
-// nothing about the Catalog can make or break them.
+// scaleRealSystemValidated records whether retained, non-publication
+// real-system runs have executed every frozen dependency-e2e cell end to end.
+// It mirrors baselineRealSystemValidated: parsing a frozen scale proves only
+// that the Adapter would attempt it, not that the governed pair really runs.
 //
-// dependency-e2e is deliberately withheld even though its handler exists. It
-// is the one Scale arm that needs an approved Task over final_v5_exposure_scale
-// and it has never executed, so it stays unimplemented on evidence. Scale
-// therefore reports 38 of 62 and its capability stays false.
+// Retained campaigns p55-mech-full-16 and p56-mech-full-17 independently ran
+// all 24 dependency-e2e cells through v3 acceptance. The former records Scale
+// 24/24 before a later ProvSQL failure; the latter records a complete 120/120
+// pilot campaign including Scale 24/24. Neither run is publication evidence.
+const scaleRealSystemValidated = true
+
 var scaleImplementedPublicationCells = implementedPublicationCells("scale", scalePublicationRequirements)
 
 // artifactRealSystemValidated records whether a targeted, non-publication
@@ -283,8 +275,16 @@ func realPublicationCellImplemented(experimentID string, cell publicationCell) b
 		return artifactContractRuntime.VerifyProjectionPrefix() == nil
 	case "scale":
 		// Mirror scale.go's dispatch exactly: same parser, same mode. A cell the
-		// Adapter would refuse must never be advertised as implemented.
+		// Adapter would refuse must never be advertised as implemented. The
+		// governed dependency arm also requires independently retained evidence;
+		// parseability alone cannot turn it on.
 		switch cell.WorkloadID {
+		case "dependency-e2e":
+			if !scaleRealSystemValidated {
+				return false
+			}
+			_, err := experiment.ParseDependencyScale(cell.Scale)
+			return err == nil && (cell.Mode == "novel" || cell.Mode == "semantic_replay")
 		case "outcome-merkle":
 			_, err := experiment.ParseOutcomeMerkleScale(cell.Scale)
 			return err == nil && cell.Mode == "merkle_control"

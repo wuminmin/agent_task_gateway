@@ -90,7 +90,7 @@ func TestEveryExperimentHasFailClosedPublicationCoverageGate(t *testing.T) {
 }
 
 func TestTrueCapabilitiesDeriveEveryCellFromRealAcceptedDefinitions(t *testing.T) {
-	for _, experimentID := range []string{"rls", "attack", "provsql", "compiler", "concurrency", "rq5"} {
+	for _, experimentID := range []string{"scale", "rls", "attack", "provsql", "compiler", "concurrency", "rq5"} {
 		t.Run(experimentID, func(t *testing.T) {
 			coverage := publicationCoverageGates[experimentID]
 			if !coverage.complete() {
@@ -171,40 +171,41 @@ func TestEveryValidatedBaselineCellResolves(t *testing.T) {
 	}
 }
 
-// Artifact and Baseline left this guard on 2026-08-16 by completing their
-// profiles, so the guard now covers Scale alone.
-func TestIncompleteScaleProfileCannotEnableCapabilities(t *testing.T) {
-	for _, experimentID := range []string{"scale"} {
-		coverage := publicationCoverageGates[experimentID]
-		if coverage.complete() {
-			t.Fatalf("%s partial formal profile was reported complete", experimentID)
+func TestScaleRetainedRunsEnableCompleteCapability(t *testing.T) {
+	coverage := publicationCoverageGates["scale"]
+	if !scaleRealSystemValidated {
+		t.Fatal("scaleRealSystemValidated is false after author approval of two retained 24-cell runs")
+	}
+	if !coverage.complete() {
+		t.Fatalf("Scale profile is incomplete after retained-run approval: %d implemented of %d required",
+			len(coverage.implemented), len(coverage.required))
+	}
+	assertSamePublicationCells(t, coverage.implemented, scalePublicationRequirements)
+
+	dependencyCells := 0
+	for _, cell := range coverage.implemented {
+		if cell.WorkloadID == "dependency-e2e" {
+			dependencyCells++
 		}
-		if implementedCapabilities()[experimentID] {
-			t.Fatalf("%s capability was advertised without a routable full matrix", experimentID)
+		if !realPublicationCellImplemented("scale", cell) {
+			t.Fatalf("validated Scale cell no longer resolves through the real dispatch predicate: %+v", cell)
 		}
-		// Scale registers its two kernel workloads, which resolve from frozen
-		// scale specifications alone and bind no Product. dependency-e2e is the
-		// one arm needing an approved Task, and it has never executed, so it
-		// must stay out until it does -- that is what keeps Scale incomplete.
-		for _, cell := range coverage.implemented {
-			if cell.WorkloadID == "dependency-e2e" {
-				t.Fatalf("%s registered dependency-e2e cell %s/%s before it ever executed",
-					experimentID, cell.Scale, cell.Mode)
-			}
-			if cell.WorkloadID != "outcome-merkle" && cell.WorkloadID != "taskgate_scale_extreme" {
-				t.Fatalf("%s registered unknown workload %q", experimentID, cell.WorkloadID)
-			}
-		}
-		if len(coverage.implemented) != 38 {
-			t.Fatalf("%s registry contains %d cells, want the 38 kernel-only cells", experimentID, len(coverage.implemented))
-		}
+	}
+	if dependencyCells != 24 {
+		t.Fatalf("Scale registry contains %d dependency-e2e cells, want 24", dependencyCells)
+	}
+	if len(coverage.implemented) != 62 {
+		t.Fatalf("Scale registry contains %d cells, want the complete 62-cell profile", len(coverage.implemented))
+	}
+	if !implementedCapabilities()["scale"] {
+		t.Fatal("Scale capability stayed false after source resolution and retained-run evidence both completed")
 	}
 }
 
-// TestScaleKernelCellsMatchTheDispatchTheyClaim pins the registration to the
+// TestScaleCellsMatchTheDispatchTheyClaim pins the registration to the
 // same predicate scale.go dispatches on. A cell advertised here that Execute
 // would refuse is worse than one left unadvertised.
-func TestScaleKernelCellsMatchTheDispatchTheyClaim(t *testing.T) {
+func TestScaleCellsMatchTheDispatchTheyClaim(t *testing.T) {
 	adapter := &scaleAdapter{}
 	for _, cell := range publicationCoverageGates["scale"].implemented {
 		sample := adapter.Execute(t.Context(), experiment.AdapterOperation{
@@ -248,7 +249,7 @@ func TestArtifactCapabilityRequiresItsCompleteProfile(t *testing.T) {
 // legally resolve to a task policy. It prevents an adapter constructor or a
 // syntactically valid private binding from hiding the absence of an executable
 // formal task route.
-func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.T) {
+func TestFrozenCatalogBacksTheReviewedScaleRouteAndCapability(t *testing.T) {
 	frozen, err := catalog.Load("../../../config/catalog.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -317,16 +318,22 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 	if !scaleProductPublished {
 		t.Fatal("Catalog does not publish the reviewed final_v5_exposure_scale Product")
 	}
-	if implementedCapabilities()["scale"] {
-		t.Fatal("Scale capability was advertised when only its reviewed Catalog route is available")
+	if !scaleRealSystemValidated {
+		t.Fatal("Scale retained-run evidence gate is false after author approval")
 	}
-	// Scale's registered cells are all kernel-only, so none of them depends on
-	// this route. The route exists and stays unadvertised until dependency-e2e
-	// actually runs through it.
+	if !implementedCapabilities()["scale"] {
+		t.Fatal("Scale capability stayed false despite its reviewed route and retained-run evidence")
+	}
+	// The route is necessary but not sufficient: the 24 governed cells enter
+	// the registry only because the independent retained-run gate is also true.
+	dependencyCells := 0
 	for _, cell := range publicationCoverageGates["scale"].implemented {
 		if cell.WorkloadID == "dependency-e2e" {
-			t.Fatalf("Scale advertises dependency-e2e cell %s/%s against an unexercised route", cell.Scale, cell.Mode)
+			dependencyCells++
 		}
+	}
+	if dependencyCells != 24 {
+		t.Fatalf("Scale advertises %d dependency-e2e cells, want the complete retained 24-cell set", dependencyCells)
 	}
 
 	// The reviewed benchmark route deliberately reaches the frozen 100,000-row,
