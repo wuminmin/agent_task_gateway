@@ -220,7 +220,8 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 		}
 	}()
 	writeRetained := writer.Write
-	if config.PilotKind == "real_system" {
+	if config.PilotKind == "real_system" ||
+		(config.CampaignClass == "publication" && profile != nil && selectedCells != nil) {
 		writeRetained = func(sample Sample) error {
 			return writer.WriteProfileCampaignSample(config.CampaignClass, sample)
 		}

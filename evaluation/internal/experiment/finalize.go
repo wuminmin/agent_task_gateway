@@ -162,9 +162,30 @@ func appendUniqueReason(reasons []string, reason string) []string {
 }
 
 func FinalizeRun(runDir string) (Summary, error) {
+	return finalizeRun(runDir, nil, false)
+}
+
+// FinalizeNonProfileRun validates one deployment-free publication subcampaign.
+// It deliberately reuses the experiment evidence validators and statistics
+// implementation, but replaces deployment/ProfileBinding checks with the
+// exact source-controlled non-profile selection contract.
+func FinalizeNonProfileRun(runDir string, selectedCells []string) (Summary, error) {
+	return finalizeRun(runDir, selectedCells, true)
+}
+
+func finalizeRun(runDir string, selectedCells []string, deploymentFree bool) (Summary, error) {
 	config, _, err := LoadConfig(filepath.Join(runDir, "config.json"), "")
 	if err != nil {
 		return Summary{}, err
+	}
+	expectedCells := map[string]bool{}
+	if deploymentFree {
+		if err := validateNonProfileSelection(config, selectedCells); err != nil {
+			return Summary{}, err
+		}
+		for _, identity := range selectedCells {
+			expectedCells[strings.TrimPrefix(identity, config.ExperimentID+"/")] = true
+		}
 	}
 	paths, err := filepath.Glob(filepath.Join(runDir, "raw", "*.jsonl"))
 	if err != nil || len(paths) == 0 {
@@ -187,7 +208,7 @@ func FinalizeRun(runDir string) (Summary, error) {
 	// mixes deployment profiles inside one cell produced an incomparable pair,
 	// so the whole cell is invalidated first and the retained evidence keeps
 	// every original arm.
-	if profileBindingRequired(config) {
+	if !deploymentFree && profileBindingRequired(config) {
 		for index := range samples {
 			if samples[index].Status != "pass" {
 				continue
@@ -234,6 +255,9 @@ func FinalizeRun(runDir string) (Summary, error) {
 	for _, sample := range samples {
 		if sample.CampaignID != config.CampaignID || sample.ExperimentID != config.ExperimentID {
 			return summary, errors.New("raw sample campaign/experiment mismatch")
+		}
+		if deploymentFree && sample.ProfileBinding != nil {
+			return summary, errors.New("deployment-free publication sample fabricates a ProfileBinding")
 		}
 		deployments[sample.DeploymentID] = true
 		if digest := sampleAdapterBindingSHA256(sample); digest != "" {
@@ -501,26 +525,35 @@ func FinalizeRun(runDir string) (Summary, error) {
 	} else if len(deployments) != 3 {
 		summary.Reasons = append(summary.Reasons, "publication campaign requires exactly three deployments")
 	}
-	if config.CampaignClass == "publication" {
+	if config.CampaignClass == "publication" && !deploymentFree {
 		summary.Reasons = append(summary.Reasons, validateDeploymentEvidence(runDir, config)...)
 		environmentBindings, bindingReasons := readRunEnvironmentBindingIdentities(runDir, config)
 		summary.Reasons = append(summary.Reasons, bindingReasons...)
 		summary.Reasons = append(summary.Reasons,
 			validatePublicationSampleBindingDigests(config.ExperimentID, environmentBindings, sampleBindingDigests)...)
 	}
-	for _, workload := range config.Workloads {
-		for _, scale := range workload.Scales {
-			for _, mode := range workload.Modes {
-				cell := workload.ID + "/" + scale + "/" + mode
-				d, ok := summary.Cells[cell]
-				processes := config.ProcessReplicates
-				if processes == 0 {
-					processes = 1
-				}
-				if !ok || d.N != config.Deployments*config.Samples*processes || d.Failed != 0 || d.Invalid != 0 {
-					summary.Reasons = append(summary.Reasons, "required cell incomplete: "+cell)
+	if !deploymentFree {
+		for _, workload := range config.Workloads {
+			for _, scale := range workload.Scales {
+				for _, mode := range workload.Modes {
+					expectedCells[workload.ID+"/"+scale+"/"+mode] = true
 				}
 			}
+		}
+	}
+	processes := config.ProcessReplicates
+	if processes == 0 {
+		processes = 1
+	}
+	for cell := range expectedCells {
+		d, ok := summary.Cells[cell]
+		if !ok || d.N != config.Deployments*config.Samples*processes || d.Failed != 0 || d.Invalid != 0 {
+			summary.Reasons = append(summary.Reasons, "required cell incomplete: "+cell)
+		}
+	}
+	for cell := range summary.Cells {
+		if !expectedCells[cell] {
+			summary.Reasons = append(summary.Reasons, "unexpected cell present: "+cell)
 		}
 	}
 	for _, d := range summary.Cells {
@@ -538,6 +571,45 @@ func FinalizeRun(runDir string) (Summary, error) {
 		return summary, err
 	}
 	return summary, nil
+}
+
+func validateNonProfileSelection(config Config, selected []string) error {
+	if config.CampaignClass != "publication" || len(selected) == 0 {
+		return errors.New("deployment-free finalization requires a non-empty publication selection")
+	}
+	wantWorkload := ""
+	switch config.ProtocolProfile {
+	case "scale":
+		wantWorkload = "outcome-merkle"
+	case "scale-extreme":
+		wantWorkload = "taskgate_scale_extreme"
+	case "compiler":
+		// Every Compiler cell is deployment-free.
+	default:
+		return fmt.Errorf("protocol profile %q is not deployment-free", config.ProtocolProfile)
+	}
+	want := map[string]bool{}
+	for _, workload := range config.Workloads {
+		if wantWorkload != "" && workload.ID != wantWorkload {
+			continue
+		}
+		for _, scale := range workload.Scales {
+			for _, mode := range workload.Modes {
+				want[strings.Join([]string{config.ExperimentID, workload.ID, scale, mode}, "/")] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, cell := range selected {
+		if !want[cell] || seen[cell] {
+			return fmt.Errorf("invalid or duplicate deployment-free cell %q", cell)
+		}
+		seen[cell] = true
+	}
+	if len(seen) != len(want) {
+		return fmt.Errorf("deployment-free selection has %d cells, want the exact %d-cell frozen profile subset", len(seen), len(want))
+	}
+	return nil
 }
 
 func validatePublicationSampleBindingDigests(experimentID string, expected map[string]string,

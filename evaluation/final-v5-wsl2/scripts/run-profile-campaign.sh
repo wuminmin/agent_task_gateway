@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Pilot-only launcher for the P30 per-profile deployment mechanism. A selected
-# profile/repetition receives one fresh Compose project, only its planned cells
-# are dispatched, and the credential-free records are merged after cleanup.
+# Profile-split launcher. A selected profile/repetition receives one fresh
+# Compose project. Publication additionally runs the 49 deployment-free cells
+# as an independent three-execution subcampaign after all profile deployments.
 set -euo pipefail
 umask 077
 
@@ -9,13 +9,22 @@ umask 077
 : "${TASKGATE_SUBMISSION_COMMIT:?TASKGATE_SUBMISSION_COMMIT is required}"
 : "${TASKGATE_CAMPAIGN_ID:?TASKGATE_CAMPAIGN_ID is required}"
 : "${TASKGATE_DATASET_BINDINGS:?TASKGATE_DATASET_BINDINGS is required}"
-[[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]] || { echo "profile campaign runner is pilot-only" >&2; exit 2; }
+[[ "$TASKGATE_EXPERIMENT_CLASS" == pilot || "$TASKGATE_EXPERIMENT_CLASS" == publication ]] || {
+  echo "profile campaign runner requires pilot or publication class" >&2; exit 2; }
 [[ "$TASKGATE_SUBMISSION_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "submission commit must be a full SHA" >&2; exit 2; }
 [[ "$TASKGATE_CAMPAIGN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "campaign ID must be path-safe" >&2; exit 2; }
 
-repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-1}"
+repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-}"
+if [[ -z "$repetitions" ]]; then
+  repetitions=1
+  [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || repetitions=3
+fi
 profiles_csv="${TASKGATE_CAMPAIGN_PROFILES:-}"
 [[ "$repetitions" =~ ^[1-9][0-9]*$ ]] || { echo "TASKGATE_CAMPAIGN_REPETITIONS must be positive" >&2; exit 2; }
+if [[ "$TASKGATE_EXPERIMENT_CLASS" == publication ]]; then
+  [[ "$repetitions" == 3 ]] || { echo "publication campaign requires exactly three fresh executions" >&2; exit 2; }
+  [[ -z "$profiles_csv" ]] || { echo "publication campaign cannot select a partial profile matrix" >&2; exit 2; }
+fi
 
 for command in docker git go jq sha256sum curl install; do
   command -v "$command" >/dev/null || { echo "$command is required" >&2; exit 2; }
@@ -39,20 +48,30 @@ campaign_root="$repo/evaluation/final-v5-wsl2/raw/$TASKGATE_CAMPAIGN_ID"
 [[ ! -e "$campaign_root" ]] || { echo "refusing to overwrite $campaign_root" >&2; exit 2; }
 mkdir -m 700 -p "$campaign_root/source" "$campaign_root/deployments"
 plan="$campaign_root/campaign-plan.json"
-GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-plan -require-ready >"$plan"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-plan \
+  -campaign-class "$TASKGATE_EXPERIMENT_CLASS" -require-ready >"$plan"
 chmod 600 "$plan"
-preregistration_source="$repo/config/profiles/concurrency-preregistration-v1.json"
-preregistration_retained_rel="$(jq -er '.preregistered_aggregates[0].retained_path' "$plan")"
-preregistration_sha256="$(jq -er '.preregistered_aggregates[0].source_sha256' "$plan")"
-preregistration_rounds="$(jq -er '.preregistered_aggregates[0].rounds' "$plan")"
-[[ "$preregistration_retained_rel" == source/concurrency-preregistration-v1.json &&
-   "$preregistration_sha256" =~ ^[0-9a-f]{64}$ && "$preregistration_rounds" =~ ^[1-9][0-9]*$ ]] || {
-  echo "campaign plan carries an invalid concurrency preregistration" >&2; exit 1; }
-preregistration_retained="$campaign_root/$preregistration_retained_rel"
-install -m 600 "$preregistration_source" "$preregistration_retained"
-[[ "$(sha256sum "$preregistration_source" | awk '{print $1}')" == "$preregistration_sha256" &&
-   "$(sha256sum "$preregistration_retained" | awk '{print $1}')" == "$preregistration_sha256" ]] || {
-  echo "concurrency preregistration source/retained digest drift" >&2; exit 1; }
+preregistration_retained_rel=""
+preregistration_sha256=""
+preregistration_rounds=0
+preregistration_retained=""
+if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+  preregistration_source="$repo/config/profiles/concurrency-preregistration-v1.json"
+  preregistration_retained_rel="$(jq -er '.preregistered_aggregates[0].retained_path' "$plan")"
+  preregistration_sha256="$(jq -er '.preregistered_aggregates[0].source_sha256' "$plan")"
+  preregistration_rounds="$(jq -er '.preregistered_aggregates[0].rounds' "$plan")"
+  [[ "$preregistration_retained_rel" == source/concurrency-preregistration-v1.json &&
+     "$preregistration_sha256" =~ ^[0-9a-f]{64}$ && "$preregistration_rounds" =~ ^[1-9][0-9]*$ ]] || {
+    echo "campaign plan carries an invalid concurrency preregistration" >&2; exit 1; }
+  preregistration_retained="$campaign_root/$preregistration_retained_rel"
+  install -m 600 "$preregistration_source" "$preregistration_retained"
+  [[ "$(sha256sum "$preregistration_source" | awk '{print $1}')" == "$preregistration_sha256" &&
+     "$(sha256sum "$preregistration_retained" | awk '{print $1}')" == "$preregistration_sha256" ]] || {
+    echo "concurrency preregistration source/retained digest drift" >&2; exit 1; }
+else
+  GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-split-publication \
+    -plan "$plan" -validate-plan
+fi
 rq5_cell_map_retained_rel="source/rq5-workload-cell-map-v1.json"
 rq5_cell_map_retained="$campaign_root/$rq5_cell_map_retained_rel"
 install -m 600 "$rq5_cell_map_source" "$rq5_cell_map_retained"
@@ -84,11 +103,11 @@ for alias in "${selected_profiles[@]}"; do
     echo "profile is absent or not ready: $alias" >&2; exit 2; }
   selected_seen["$alias"]=1
 done
-if [[ -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions" != "$preregistration_rounds" ]]; then
+if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions" != "$preregistration_rounds" ]]; then
   echo "concurrency-expense-detail requires exactly $preregistration_rounds preregistered repetitions" >&2
   exit 2
 fi
-echo "P30-STAGE: plan=pass ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions preregistered_rounds=$preregistration_rounds preregistered_aggregates=$(jq '.preregistered_aggregates | length' "$plan")"
+echo "P30-STAGE: plan=pass class=$TASKGATE_EXPERIMENT_CLASS ready=$(jq '.deployments | length' "$plan") selected=${#selected_profiles[@]} repetitions=$repetitions preregistered_rounds=$preregistration_rounds preregistered_aggregates=$(jq '.preregistered_aggregates | length' "$plan")"
 
 finalizer_qualification=""
 finalizer_postgresql_identity=""
@@ -287,7 +306,12 @@ current_compose=()
 current_rq5_secret=""
 current_rq5_project=""
 current_rq5_run_root=""
+current_nonprofile_container=""
 current_stage="preflight"
+cleanup_nonprofile_backend() {
+  [[ -z "$current_nonprofile_container" ]] || docker container rm --force --volumes "$current_nonprofile_container" >/dev/null 2>&1
+  current_nonprofile_container=""
+}
 cleanup_rq5() {
   local status=0 fixture network owner expected_owner project output driver_status=not_run fallback_status=pass
   local containers=0 volumes=0 networks=0 external_networks=0 proof driver_proof driver_proof_tmp
@@ -432,6 +456,7 @@ cleanup_current() {
   if [[ -n "$current_project" ]]; then
     "${current_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1
   fi
+  cleanup_nonprofile_backend || status=1
   cleanup_rq5 || status=1
   current_project=""
   current_dir=""
@@ -574,6 +599,8 @@ for alias in "${selected_profiles[@]}"; do
       esac
     done
     deployment_key="${alias}/$(printf '%03d' "$repetition")"
+    profile_execution_id=deployment-01
+    [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || profile_execution_id="$(printf 'deployment-%02d' "$repetition")"
     current_dir="$campaign_root/deployments/${alias}/$(printf '%03d' "$repetition")"
     mkdir -m 700 -p "$current_dir/raw" "$current_dir/config" "$current_dir/selected-cells" "$current_dir/activation" \
       "$current_dir/adapter-stderr"
@@ -691,7 +718,7 @@ for alias in "${selected_profiles[@]}"; do
     GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-route-matrix -mode live -profile-alias "$alias" \
       -root "$repo" -registry "$profile_registry" -activation-evidence-dir "$current_dir/activation" \
       -activator-binary "$activator" -compose-project "$current_project" -compose-files "$compose_files_colon" \
-      -deployment-id deployment-01 -dataset-binding "$dataset_binding" -profile-artifact-root "$profile_artifacts" \
+      -deployment-id "$profile_execution_id" -dataset-binding "$dataset_binding" -profile-artifact-root "$profile_artifacts" \
       -profile-artifact-manifest "$artifact_manifest" -ready-timeout 10m
     jq -e '.status == "pass" and .activation_smoke_passed == true and .publication_eligible == false' "$activation_evidence" >/dev/null
 
@@ -727,19 +754,30 @@ for alias in "${selected_profiles[@]}"; do
     ' "$gateway_image" >/dev/null || {
       echo "P20 Gateway image observation differs from the verified formal image" >&2; exit 1;
     }
+    # EnvironmentManifest is an observation consumed by the publication
+    # finalizer, not a standalone publication verdict. Record it through the
+    # historical non-eligible path: the master-deployment publication binder
+    # requires a different FreshDeploymentProof schema and must not be faked
+    # for a Catalog-backed profile deployment.
     environment="$current_dir/environment.json"
-    export TASKGATE_DEPLOYMENT_ID=deployment-01 TASKGATE_ENVIRONMENT_OUTPUT="$environment"
+    export TASKGATE_DEPLOYMENT_ID="$profile_execution_id" TASKGATE_ENVIRONMENT_OUTPUT="$environment"
     if [[ "$binding_strict_valid" == 1 ]]; then
-      bash evaluation/final-v5-wsl2/scripts/record-environment.sh
+      TASKGATE_EXPERIMENT_CLASS=pilot bash evaluation/final-v5-wsl2/scripts/record-environment.sh
     else
       # record-environment's Dataset section validates the complete reviewed
       # Scale/Artifact/ProvSQL binding. A profile that consumes none of those
       # sections is already bound by ProfileBinding to the supplied file SHA;
       # do not ask the environment recorder to make a broader claim.
-      env -u TASKGATE_DATASET_BINDINGS bash evaluation/final-v5-wsl2/scripts/record-environment.sh
+      env -u TASKGATE_DATASET_BINDINGS TASKGATE_EXPERIMENT_CLASS=pilot \
+        bash evaluation/final-v5-wsl2/scripts/record-environment.sh
     fi
     fresh_proof="$current_dir/fresh-proof.json"
-    jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
+    publication_eligible=false
+    formal_campaign=false
+    [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || { publication_eligible=true; formal_campaign=true; }
+    jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg campaign_class "$TASKGATE_EXPERIMENT_CLASS" \
+      --argjson publication_eligible "$publication_eligible" --argjson formal_campaign "$formal_campaign" \
+      --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
       --arg compose_project "$current_project" --arg profile_alias "$alias" --arg profile_id "$profile_id" \
       --arg catalog_sha256 "$catalog_sha" --argjson repetition "$repetition" \
       --argjson requires_finalizer_material "$requires_finalizer_material" \
@@ -766,8 +804,8 @@ for alias in "${selected_profiles[@]}"; do
       --arg formal_gateway_runtime "$formal_gateway_runtime" \
       --arg formal_gateway_runtime_sha256 "$formal_gateway_runtime_sha256" \
       --slurpfile formal_gateway_manifest "$formal_gateway_build_manifest" \
-      '{schema_version:1,record:"taskgate-p30-fresh-profile-deployment-v1",status:"pass",
-        campaign_class:"pilot",publication_eligible:false,campaign_id:$campaign_id,
+      '{schema_version:1,record:"taskgate-final-v5-fresh-profile-execution-v1",status:"pass",
+        campaign_class:$campaign_class,publication_eligible:$publication_eligible,formal_campaign:$formal_campaign,campaign_id:$campaign_id,
         submission_commit:$submission_commit,compose_project:$compose_project,profile_alias:$profile_alias,
         profile_id:$profile_id,catalog_sha256:$catalog_sha256,repetition:$repetition,
         formal_gateway_built:true,
@@ -808,9 +846,11 @@ for alias in "${selected_profiles[@]}"; do
         else {} end)' >"$fresh_proof"
 
     if printf '%s\n' "${experiments[@]}" | grep -qx rq5; then
+      rq5_execution_id=deployment-01
+      [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || rq5_execution_id="$(printf 'deployment-%02d' "$repetition")"
       current_rq5_run_root="$current_dir/rq5-live"
-      current_rq5_project="$(bash evaluation/final-v5-wsl2/scripts/rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" deployment-01)"
-      current_rq5_secret="$(mktemp -d /tmp/taskgate-rq5-secrets.deployment-01.XXXXXXXX)"
+      current_rq5_project="$(bash evaluation/final-v5-wsl2/scripts/rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" "$rq5_execution_id")"
+      current_rq5_secret="$(mktemp -d "/tmp/taskgate-rq5-secrets.$rq5_execution_id.XXXXXXXX")"
       mkdir -m 700 -p "$current_rq5_run_root"
       export TASKGATE_FINAL_V5_RQ5_DRIVER="$rq5_driver"
       export TASKGATE_FINAL_V5_RQ5_DRIVER_SHA256="$rq5_sha"
@@ -822,7 +862,7 @@ for alias in "${selected_profiles[@]}"; do
       export TASKGATE_FINAL_V5_RQ5_REPO_ROOT="$repo"
       export TASKGATE_FINAL_V5_RQ5_RUN_ROOT="$current_rq5_run_root"
       export TASKGATE_FINAL_V5_RQ5_EXPECTED_CAMPAIGN_ID="$TASKGATE_CAMPAIGN_ID"
-      export TASKGATE_FINAL_V5_RQ5_EXPECTED_DEPLOYMENT_ID=deployment-01
+      export TASKGATE_FINAL_V5_RQ5_EXPECTED_DEPLOYMENT_ID="$rq5_execution_id"
       export TASKGATE_FINAL_V5_RQ5_PROJECT="$current_rq5_project"
       export TASKGATE_FINAL_V5_RQ5_SECRET_ROOT="$current_rq5_secret"
       rq5_profile_binding="$current_dir/rq5-profile-binding.json"
@@ -864,10 +904,16 @@ for alias in "${selected_profiles[@]}"; do
         gate_mapping_args=(-campaign-selected-cells "$campaign_selected" -rq5-cell-map "$rq5_cell_map_retained")
       fi
       config="$current_dir/config/$experiment.json"
-      jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
-        '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
-         .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=0 | .samples=1 |
-         .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
+      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+        jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+          '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
+           .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=0 | .samples=1 |
+           .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
+      else
+        jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+          '.campaign_class="publication" | del(.pilot_kind) | .campaign_id=$campaign |
+           .submission_commit=$commit | .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
+      fi
       runner="$(experiment_command "$experiment")"
       raw="$current_dir/raw/$experiment.jsonl"
       adapter_stderr="$current_dir/adapter-stderr/$experiment.log"
@@ -875,36 +921,43 @@ for alias in "${selected_profiles[@]}"; do
       operation_profile_binding="$profile_binding"
       [[ "$experiment" != rq5 ]] || operation_profile_binding="$rq5_profile_binding"
       runner_status=0
-      GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id deployment-01 \
+      runner_deployment_id="$profile_execution_id"
+      runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")
+      [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || runner_stderr_args=()
+      GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id "$runner_deployment_id" \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
-        -deployment-repetition "$repetition" -adapter-stderr-output "$adapter_stderr" \
+        -deployment-repetition "$repetition" "${runner_stderr_args[@]}" \
         >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
-	  export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
-	  export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
-	  export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
-	  export TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD=final-v5-provsql-local-only
-	  adapter_stderr_secret_args=()
-	  if [[ "$experiment" == rq5 && -f "$current_rq5_secret/deployment-secrets.json" ]]; then
-	    adapter_stderr_secret_args=(-sensitive-json-file "$current_rq5_secret/deployment-secrets.json")
-	  fi
-      if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
-	    -input "$adapter_stderr" -output "$adapter_stderr_scan" "${adapter_stderr_sensitive_args[@]}" \
-	    "${adapter_stderr_secret_args[@]}"; then
-        rm -f "$adapter_stderr" "$adapter_stderr_scan"
-        echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
-        exit 1
+      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+	    export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
+	    export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
+	    export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
+	    export TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD=final-v5-provsql-local-only
+	    adapter_stderr_secret_args=()
+	    if [[ "$experiment" == rq5 && -f "$current_rq5_secret/deployment-secrets.json" ]]; then
+	      adapter_stderr_secret_args=(-sensitive-json-file "$current_rq5_secret/deployment-secrets.json")
+	    fi
+        if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
+	      -input "$adapter_stderr" -output "$adapter_stderr_scan" "${adapter_stderr_sensitive_args[@]}" \
+	      "${adapter_stderr_secret_args[@]}"; then
+          rm -f "$adapter_stderr" "$adapter_stderr_scan"
+          echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
+          exit 1
+        fi
+	    unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
+	      TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
       fi
-	  unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
-	    TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
       (( runner_status == 0 )) || exit "$runner_status"
       preregistration_gate_args=()
-      if [[ "$experiment" == concurrency ]]; then
+      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && "$experiment" == concurrency ]]; then
         preregistration_gate_args=(-preregistration "$preregistration_retained" \
           -preregistration-sha256 "$preregistration_sha256")
       fi
+      process_replicates="$(jq -r '.process_replicates // 1' "$config")"
+      samples_per_cell=$(( $(jq -r '.samples' "$config") * process_replicates ))
       GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-launcher-gate \
         -experiment "$experiment" -selected-cells "$selected" -input "$raw" \
-        -campaign-class pilot -samples-per-cell 1 "${gate_mapping_args[@]}" \
+        -campaign-class "$TASKGATE_EXPERIMENT_CLASS" -samples-per-cell "$samples_per_cell" "${gate_mapping_args[@]}" \
         "${preregistration_gate_args[@]}" >"$current_dir/$experiment.gate.json" || {
         echo "$deployment_key/$experiment retained a failed or misrouted cell" >&2; exit 1; }
       echo "P30-STAGE: cells=pass deployment=$deployment_key experiment=$experiment count=$(jq -s 'length' "$raw")"
@@ -967,17 +1020,21 @@ for alias in "${selected_profiles[@]}"; do
       fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
       add_ref launcher_gate "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/$experiment.gate.json"
-      add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
-      add_ref adapter_stderr_credential_scan "$experiment" \
-        "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
+      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+        add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
+        add_ref adapter_stderr_credential_scan "$experiment" \
+          "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
+      fi
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
-    jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+    jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg campaign_class "$TASKGATE_EXPERIMENT_CLASS" \
+      --argjson publication_eligible "$publication_eligible" --argjson formal_campaign "$formal_campaign" \
+      --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
       --arg compose_project "$COMPOSE_PROJECT_NAME" --arg profile_id "$profile_id" --arg profile_alias "$alias" \
       --arg catalog_path "$catalog_path" --arg catalog_sha256 "$catalog_sha" --argjson repetition "$repetition" \
       --argjson cells "$cells_json" --slurpfile files "$refs" \
-      '{schema_version:1,campaign_id:$campaign_id,campaign_class:"pilot",publication_eligible:false,
-        formal_campaign:false,submission_commit:$commit,compose_project:$compose_project,profile_id:$profile_id,
+      '{schema_version:1,campaign_id:$campaign_id,campaign_class:$campaign_class,publication_eligible:$publication_eligible,
+        formal_campaign:$formal_campaign,submission_commit:$commit,compose_project:$compose_project,profile_id:$profile_id,
         profile_alias:$profile_alias,catalog_path:$catalog_path,catalog_sha256:$catalog_sha256,
         repetition:$repetition,cells:$cells,files:$files}' >"$record"
     rm "$refs"
@@ -986,9 +1043,105 @@ for alias in "${selected_profiles[@]}"; do
 done
 
 manifest="$campaign_root/campaign-evidence.json"
-GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-evidence -root "$campaign_root" -plan "$plan" \
-  -campaign-id "$TASKGATE_CAMPAIGN_ID" -submission-commit "$TASKGATE_SUBMISSION_COMMIT" \
-  -repetitions "$repetitions" -profiles "$profiles_csv" -out "$manifest"
-jq -e '.status == "pass" and .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false' "$manifest" >/dev/null
+if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+  GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-evidence -root "$campaign_root" -plan "$plan" \
+    -campaign-id "$TASKGATE_CAMPAIGN_ID" -submission-commit "$TASKGATE_SUBMISSION_COMMIT" \
+    -repetitions "$repetitions" -profiles "$profiles_csv" -out "$manifest"
+  jq -e '.status == "pass" and .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false' "$manifest" >/dev/null
+else
+  # These cells are deployment-free by source semantics. Each top-level
+  # repetition starts a new runner process, which in turn starts the frozen
+  # number of fresh adapter processes. No service, ProfileBinding, deployment
+  # proof, or credential environment is carried into this subcampaign.
+  mkdir -m 700 -p "$campaign_root/non-profile"
+  nonprofile_unset=(
+    -u TASKGATE_FINAL_V5_PROFILE_ALIAS -u TASKGATE_FINAL_V5_CATALOG
+    -u TASKGATE_FINAL_V5_CONTROL_DSN -u TASKGATE_FINAL_V5_BUSINESS_DSN
+    -u TASKGATE_FINAL_V5_BUSINESS_OBSERVER_DSN -u TASKGATE_FINAL_V5_GATEWAY_URL
+    -u TASKGATE_FINAL_V5_OA_URL -u TASKGATE_FINAL_V5_OBJECT_STORE_URL
+    -u TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY -u TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY
+    -u TASKGATE_FINAL_V5_CONCURRENCY_TOKEN -u TASKGATE_FINAL_V5_DIRECT_DSN
+    -u TASKGATE_FINAL_V5_PROVSQL_DSN -u TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION
+    -u TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
+  )
+  mapfile -t nonprofile_ids < <(jq -er '.non_profile_campaigns[].id' "$plan")
+  for nonprofile_id in "${nonprofile_ids[@]}"; do
+    nonprofile_dir="$campaign_root/non-profile/$nonprofile_id"
+    mkdir -m 700 -p "$nonprofile_dir/raw"
+    jq -e --arg id "$nonprofile_id" '.non_profile_campaigns[] | select(.id == $id) | .cells' "$plan" \
+      >"$nonprofile_dir/selected-cells.json"
+    nonprofile_experiment="$(jq -er --arg id "$nonprofile_id" '.non_profile_campaigns[] | select(.id == $id) | .experiment_id' "$plan")"
+    case "$nonprofile_id" in
+      scale-outcome-merkle) nonprofile_config_source=evaluation/final-v5-wsl2/config/scale.example.json ;;
+      scale-kernel-storage) nonprofile_config_source=evaluation/final-v5-wsl2/config/scale-extreme.example.json ;;
+      compiler) nonprofile_config_source=evaluation/final-v5-wsl2/config/compiler-scale.example.json ;;
+      *) echo "unknown non-profile campaign $nonprofile_id" >&2; exit 1 ;;
+    esac
+    jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+      '.campaign_class="publication" | del(.pilot_kind) | .campaign_id=$campaign |
+       .submission_commit=$commit | .fresh_root_per_sample=true' "$nonprofile_config_source" \
+      >"$nonprofile_dir/config.json"
+    chmod 600 "$nonprofile_dir/config.json" "$nonprofile_dir/selected-cells.json"
+    install -m 600 "$adapter_manifest" "$nonprofile_dir/adapter-build.json"
+    printf '%s\n' "$adapter_sha" >"$nonprofile_dir/adapter.sha256"
+    chmod 600 "$nonprofile_dir/adapter.sha256"
+    nonprofile_runner="$(experiment_command "$nonprofile_experiment")"
+    for repetition in 1 2 3; do
+      nonprofile_backend=none
+      nonprofile_backend_system_identifier=""
+      nonprofile_backend_image=""
+      nonprofile_execution_env=(env "${nonprofile_unset[@]}" GOFLAGS=-buildvcs=false)
+      if [[ "$nonprofile_id" == scale-outcome-merkle ]]; then
+        nonprofile_backend=fresh_postgresql_process
+        nonprofile_backend_image=postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+        nonprofile_password="$(sha256sum /proc/sys/kernel/random/uuid | awk '{print $1}')"
+        nonprofile_name_hash="$(printf '%s\0%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$nonprofile_id" "$repetition" | sha256sum | awk '{print $1}')"
+        current_nonprofile_container="taskgate-nonprofile-${nonprofile_name_hash:0:20}-$repetition"
+        docker run --detach --name "$current_nonprofile_container" --publish 127.0.0.1::5432 \
+          --env POSTGRES_PASSWORD="$nonprofile_password" --env POSTGRES_DB=taskgate_control \
+          "$nonprofile_backend_image" >/dev/null
+        for attempt in $(seq 1 120); do
+          docker exec "$current_nonprofile_container" pg_isready -U postgres -d taskgate_control >/dev/null 2>&1 && break
+          [[ "$attempt" != 120 ]] || { echo "non-profile PostgreSQL process did not become ready" >&2; exit 1; }
+          sleep 1
+        done
+        nonprofile_port="$(docker port "$current_nonprofile_container" 5432/tcp | awk -F: 'END{print $NF}')"
+        nonprofile_dsn="postgres://postgres:$nonprofile_password@127.0.0.1:$nonprofile_port/taskgate_control?sslmode=disable"
+        TASKGATE_FINAL_V5_CONTROL_DSN="$nonprofile_dsn" GOFLAGS=-buildvcs=false \
+          go run ./evaluation/cmd/final-v5-control-init -dsn-env TASKGATE_FINAL_V5_CONTROL_DSN
+        nonprofile_backend_system_identifier="$(docker exec "$current_nonprofile_container" \
+          psql -U postgres -d taskgate_control -Atqc 'SELECT system_identifier FROM pg_control_system()')"
+        [[ "$nonprofile_backend_system_identifier" =~ ^[0-9]+$ ]] || { echo "non-profile PostgreSQL omitted its system identifier" >&2; exit 1; }
+        nonprofile_execution_env+=("TASKGATE_FINAL_V5_CONTROL_DSN=$nonprofile_dsn")
+      fi
+      "${nonprofile_execution_env[@]}" \
+        go run "./evaluation/cmd/$nonprofile_runner" -config "$nonprofile_dir/config.json" \
+        -deployment-id "$(printf 'deployment-%02d' "$repetition")" -adapter "$adapter" \
+        -selected-cells "$nonprofile_dir/selected-cells.json" -deployment-repetition "$repetition" \
+        -output "$nonprofile_dir/raw/$(printf 'execution-%02d.jsonl' "$repetition")"
+      cleanup_nonprofile_backend
+      jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
+        --arg group "$nonprofile_id" --arg execution_id "$(printf 'execution-%02d' "$repetition")" \
+        --arg adapter_sha256 "$adapter_sha" --arg backend "$nonprofile_backend" \
+        --arg backend_image "$nonprofile_backend_image" \
+        --arg backend_system_identifier "$nonprofile_backend_system_identifier" --argjson repetition "$repetition" \
+        '{schema_version:1,record:"taskgate-final-v5-non-profile-execution-v1",status:"pass",
+          campaign_class:"publication",publication_eligible:true,formal_campaign:true,
+          campaign_id:$campaign_id,submission_commit:$submission_commit,group:$group,
+          execution_id:$execution_id,repetition:$repetition,execution_model:"deployment_free_process",
+          fresh_runner_process:true,fresh_adapter_process:true,state_inheritance:false,
+          profile_binding:"forbidden",adapter_sha256:$adapter_sha256,
+          backend_process:$backend,backend_image:$backend_image,
+          backend_system_identifier:$backend_system_identifier,backend_cleanup:true}' \
+        >"$nonprofile_dir/$(printf 'execution-%02d.json' "$repetition")"
+      echo "P62B-STAGE: nonprofile_execution=pass group=$nonprofile_id repetition=$repetition cells=$(jq 'length' "$nonprofile_dir/selected-cells.json")"
+    done
+  done
+  GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-split-publication \
+    -root "$campaign_root" -plan "$plan" -out "$manifest"
+  jq -e '.status == "pass" and .campaign_class == "publication" and .publication_eligible == true and
+    .formal_campaign == true and .profile_cells == 129 and .scale_non_profile_cells == 38 and
+    .compiler_non_profile_cells == 11 and .total_cells == 178' "$manifest" >/dev/null
+fi
 trap - EXIT
-echo "P30-STAGE: mechanism=pass deployments=$deployment_count publication_eligible=false evidence=$manifest"
+echo "P30-STAGE: mechanism=pass class=$TASKGATE_EXPERIMENT_CLASS deployments=$deployment_count publication_eligible=$publication_eligible evidence=$manifest"

@@ -33,7 +33,9 @@ const (
 )
 
 type scaleAdapter struct {
-	real *realAdapter
+	realOnce sync.Once
+	real     *realAdapter
+	realErr  error
 
 	// Only dependency-e2e is a governed TaskGate arm. Delay construction of its
 	// acceptance authority until that arm is selected so Outcome-radix and the
@@ -48,16 +50,25 @@ type scaleAdapter struct {
 // PostgreSQL Outcome-radix, and production ordinal implementations. Missing
 // deployment bindings or backends remain fail-closed at execution time.
 func newScaleAdapter(ctx context.Context) (sourceControlledAdapter, error) {
-	real, err := newRealAdapter(ctx)
-	if err != nil {
-		return nil, err
-	}
-	real.timeout = 30 * time.Minute
-	real.http.Timeout = real.timeout
-	return &scaleAdapter{real: real}, nil
+	return &scaleAdapter{}, nil
 }
 
-func (adapter *scaleAdapter) Close() { adapter.real.Close() }
+func (adapter *scaleAdapter) Close() {
+	if adapter.real != nil {
+		adapter.real.Close()
+	}
+}
+
+func (adapter *scaleAdapter) dependencyReal(ctx context.Context) (*realAdapter, error) {
+	adapter.realOnce.Do(func() {
+		adapter.real, adapter.realErr = newRealAdapter(ctx)
+		if adapter.realErr == nil {
+			adapter.real.timeout = 30 * time.Minute
+			adapter.real.http.Timeout = adapter.real.timeout
+		}
+	})
+	return adapter.real, adapter.realErr
+}
 
 func (adapter *scaleAdapter) dependencyFinalizer(ctx context.Context) (*experiment.RuntimeFinalizerV3, error) {
 	adapter.finalizerOnce.Do(func() {
@@ -75,6 +86,9 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 	}
 	switch operation.WorkloadID {
 	case "dependency-e2e":
+		if _, err := adapter.dependencyReal(ctx); err != nil {
+			return invalidSample(operation, "scale_backend_invalid")
+		}
 		if _, err := experiment.ParseDependencyScale(operation.Scale); err != nil ||
 			(operation.Mode != "novel" && operation.Mode != "semantic_replay") {
 			return invalidSample(operation, "unsupported_frozen_scale_cell")

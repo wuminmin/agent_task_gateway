@@ -32,8 +32,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-experiment, -selected-cells, -input, and -campaign-class are required")
 		os.Exit(2)
 	}
-	if *campaignClass != "pilot" {
-		fail(fmt.Errorf("profile campaign launcher gate requires campaign_class pilot"))
+	if *campaignClass != "pilot" && *campaignClass != "publication" {
+		fail(fmt.Errorf("profile campaign launcher gate requires campaign_class pilot or publication"))
 	}
 	selectedBytes, err := os.ReadFile(*selectedPath)
 	if err != nil {
@@ -64,6 +64,9 @@ func main() {
 
 	var records []experiment.ProfileCampaignSampleV1
 	if *retainedInput {
+		if *campaignClass != "pilot" {
+			fail(fmt.Errorf("offline retained-sample wrapping is pilot-only"))
+		}
 		samples, err := experiment.ReadSamples([]string{*inputPath})
 		if err != nil {
 			fail(err)
@@ -90,9 +93,19 @@ func main() {
 		}
 		preregistration = &loaded
 	}
-	if err := experiment.ValidateProfileCampaignExperimentGateWithPreregistration(
-		*experimentID, selected, records, *samplesPerCell, preregistration, *preregistrationSHA256); err != nil {
-		fail(err)
+	var gateErr error
+	if preregistration != nil {
+		if *campaignClass != "pilot" {
+			fail(fmt.Errorf("publication launcher cannot attach the pilot preregistration"))
+		}
+		gateErr = experiment.ValidateProfileCampaignExperimentGateWithPreregistration(
+			*experimentID, selected, records, *samplesPerCell, preregistration, *preregistrationSHA256)
+	} else {
+		gateErr = experiment.ValidateProfileCampaignExperimentGateForClass(
+			*campaignClass, *experimentID, selected, records, *samplesPerCell)
+	}
+	if gateErr != nil {
+		fail(gateErr)
 	}
 	result := map[string]any{
 		"schema_version": 1,

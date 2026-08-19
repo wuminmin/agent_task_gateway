@@ -15,13 +15,15 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	}
 	script := string(payload)
 	for _, required := range []string{
-		`repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-1}"`,
-		`final-v5-campaign-plan -require-ready`,
+		`repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-}"`,
+		`[[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || repetitions=3`,
+		`final-v5-campaign-plan \
+  -campaign-class "$TASKGATE_EXPERIMENT_CLASS" -require-ready`,
 		`-profile-alias "$alias"`,
 		`export TASKGATE_FINAL_V5_PROFILE_ALIAS="$alias"`,
 		`-selected-cells "$selected"`,
 		`final-v5-launcher-gate`,
-		`-campaign-class pilot -samples-per-cell 1`,
+		`-campaign-class "$TASKGATE_EXPERIMENT_CLASS" -samples-per-cell "$samples_per_cell"`,
 		`concurrency-preregistration-v1.json`,
 		`-deployment-repetition "$repetition"`,
 		`-preregistration-sha256 "$preregistration_sha256"`,
@@ -75,7 +77,7 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`add_ref launcher_gate "$experiment"`,
 		`add_ref deployment_configuration ""`,
 		`publication_eligible:false`,
-		`formal_campaign:false`,
+		`--argjson formal_campaign "$formal_campaign"`,
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("profile campaign launcher lacks %q", required)
@@ -141,7 +143,7 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	if !strings.Contains(script, `"$(git rev-parse HEAD)" == "$TASKGATE_SUBMISSION_COMMIT"`) {
 		t.Fatal("launcher does not assert the checkout against its fixed submission-commit input")
 	}
-	if !strings.Contains(script, `rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" deployment-01`) ||
+	if !strings.Contains(script, `rq5-project-prefix.sh "$TASKGATE_CAMPAIGN_ID" "$rq5_execution_id"`) ||
 		strings.Contains(script, `rq5-project-prefix.sh "$project_identity" deployment-01`) {
 		t.Fatal("RQ5 driver project prefix is not derived from the campaign identity bound in driver state")
 	}
@@ -255,19 +257,56 @@ func TestProfileCampaignUsesOneFormalGatewayImageForEveryDeployment(t *testing.T
 	}
 }
 
-func TestRunDeploymentRoutesOnlyPilotToProfileCampaign(t *testing.T) {
+func TestRunDeploymentRoutesPilotAndPublicationToProfileCampaign(t *testing.T) {
 	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-deployment.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	script := string(payload)
-	dispatch := `if [[ "${TASKGATE_EXPERIMENT_CLASS:-}" == pilot ]]; then`
-	publicationGuard := `[[ "$TASKGATE_EXPERIMENT_CLASS" == publication ]]`
-	if strings.Index(script, dispatch) < 0 || strings.Index(script, dispatch) > strings.Index(script, publicationGuard) {
-		t.Fatal("pilot dispatch is absent or occurs after the publication-only guard")
+	dispatch := `if [[ "${TASKGATE_EXPERIMENT_CLASS:-}" == pilot || "${TASKGATE_EXPERIMENT_CLASS:-}" == publication ]]; then`
+	if strings.Index(script, dispatch) < 0 {
+		t.Fatal("pilot/publication profile campaign dispatch is absent")
 	}
 	if !strings.Contains(script,
 		`DAILY_RQ5_INSTALL_DSN=postgres://cleanup:cleanup@rq5-cleanup.invalid/cleanup?sslmode=disable`) {
 		t.Fatal("formal campaign RQ5 cleanup cannot interpolate the installer service")
+	}
+}
+
+func TestPublicationNonProfileSubcampaignHasNoProfileDeploymentFiction(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-profile-campaign.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(payload)
+	marker := `# These cells are deployment-free by source semantics.`
+	start := strings.Index(script, marker)
+	if start < 0 {
+		t.Fatal("publication launcher has no independent deployment-free section")
+	}
+	nonProfile := script[start:]
+	for _, required := range []string{
+		`for repetition in 1 2 3; do`,
+		`execution_model:"deployment_free_process"`,
+		`fresh_runner_process:true`,
+		`fresh_adapter_process:true`,
+		`state_inheritance:false`,
+		`profile_binding:"forbidden"`,
+		`scale-outcome-merkle`,
+		`scale-kernel-storage`,
+		`compiler`,
+		`postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55`,
+		`final-v5-split-publication`,
+		`.profile_cells == 129`,
+		`.scale_non_profile_cells == 38`,
+		`.compiler_non_profile_cells == 11`,
+		`.total_cells == 178`,
+	} {
+		if !strings.Contains(nonProfile, required) {
+			t.Fatalf("deployment-free publication section lacks %q", required)
+		}
+	}
+	if strings.Contains(nonProfile, `-profile-binding`) || strings.Contains(nonProfile, `profile_deployment`) {
+		t.Fatal("deployment-free publication section attaches a profile binding or profile deployment")
 	}
 }

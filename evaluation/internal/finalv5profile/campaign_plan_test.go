@@ -126,7 +126,7 @@ func TestCampaignPlanKeepsUnreadyProfilesVisible(t *testing.T) {
 	}
 }
 
-func TestCampaignPlanSeparatesKernelOnlyCells(t *testing.T) {
+func TestCampaignPlanSeparatesNonProfileCells(t *testing.T) {
 	registry := repositoryRegistry(t)
 	required := append(requiredCells(registry), "scale/outcome-merkle/10k-x1-o0/merkle_control")
 	kernel := map[string]bool{"scale/outcome-merkle/10k-x1-o0/merkle_control": true}
@@ -134,13 +134,13 @@ func TestCampaignPlanSeparatesKernelOnlyCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build campaign plan: %v", err)
 	}
-	if len(plan.KernelOnlyCells) != 1 {
-		t.Fatalf("kernel-only cells = %v, want exactly the declared one", plan.KernelOnlyCells)
+	if len(plan.NonProfileCells) != 1 {
+		t.Fatalf("non-profile cells = %v, want exactly the declared one", plan.NonProfileCells)
 	}
 	for _, deploy := range plan.Deployments {
 		for _, cell := range deploy.Cells {
 			if kernel[cell] {
-				t.Fatalf("kernel-only cell %s was assigned a deployment", cell)
+				t.Fatalf("non-profile cell %s was assigned a deployment", cell)
 			}
 		}
 	}

@@ -19,11 +19,35 @@ import (
 // result-heavy profile Catalog. One deployment cannot be two Catalogs, so the
 // campaign becomes several deployments and the plan is what says which.
 type CampaignPlan struct {
-	ContractRelease         string                           `json:"contract_release"`
-	Deployments             []PlannedDeploy                  `json:"deployments"`
-	KernelOnlyCells         []string                         `json:"kernel_only_cells"`
+	ContractRelease string          `json:"contract_release"`
+	Deployments     []PlannedDeploy `json:"deployments"`
+	// NonProfileCells are source-controlled workload cells whose implementation
+	// does not acquire a Catalog-backed Gateway deployment.  They are planned,
+	// executed, and finalized independently; assigning one to an arbitrary
+	// profile would fabricate a deployment relationship.
+	NonProfileCells         []string                         `json:"non_profile_cells"`
+	NonProfileCampaigns     []PlannedNonProfileCampaign      `json:"non_profile_campaigns"`
 	Coverage                map[string][]string              `json:"coverage"`
 	PreregisteredAggregates []CampaignPreregisteredAggregate `json:"preregistered_aggregates"`
+}
+
+// PlannedNonProfileCampaign describes one homogeneous deployment-free runner
+// invocation. FreshExecutions is the publication-level repetition count. The
+// process/warmup/sample members are copied from the frozen replicate contract,
+// so Compiler's five processes are not collapsed into one process merely
+// because the top-level campaign still has three fresh executions.
+type PlannedNonProfileCampaign struct {
+	ID                     string   `json:"id"`
+	ExperimentID           string   `json:"experiment_id"`
+	ProtocolProfile        string   `json:"protocol_profile"`
+	ExecutionModel         string   `json:"execution_model"`
+	FreshExecutions        int      `json:"fresh_executions"`
+	ProcessReplicates      int      `json:"process_replicates"`
+	WarmupsPerCell         int      `json:"warmups_per_cell_per_process"`
+	MeasuredSamplesPerCell int      `json:"measured_samples_per_cell_per_process"`
+	StateInheritance       bool     `json:"state_inheritance"`
+	ProfileBinding         string   `json:"profile_binding"`
+	Cells                  []string `json:"cells"`
 }
 
 type CampaignPreregisteredAggregate struct {
@@ -96,13 +120,13 @@ type PlannedDeploy struct {
 // by exactly one profile or declared kernel-only; anything else is an error
 // rather than a warning, because a cell assigned twice would be measured twice
 // under different Catalogs and a cell assigned to none would vanish.
-func BuildCampaignPlan(registry Registry, required []string, kernelOnly map[string]bool) (CampaignPlan, error) {
+func BuildCampaignPlan(registry Registry, required []string, nonProfile map[string]bool) (CampaignPlan, error) {
 	plan := CampaignPlan{ContractRelease: registry.ContractRelease, Coverage: map[string][]string{}}
 	assigned := map[string]string{}
 	for _, profile := range registry.Profiles {
 		measured := make([]string, 0, len(profile.Cells))
 		for _, cell := range profile.Cells {
-			if kernelOnly[cell] {
+			if nonProfile[cell] {
 				continue
 			}
 			measured = append(measured, cell)
@@ -136,8 +160,8 @@ func BuildCampaignPlan(registry Registry, required []string, kernelOnly map[stri
 	var missing []string
 	for _, cell := range required {
 		switch {
-		case kernelOnly[cell]:
-			plan.KernelOnlyCells = append(plan.KernelOnlyCells, cell)
+		case nonProfile[cell]:
+			plan.NonProfileCells = append(plan.NonProfileCells, cell)
 		case assigned[cell] == "":
 			missing = append(missing, cell)
 		default:
@@ -145,7 +169,7 @@ func BuildCampaignPlan(registry Registry, required []string, kernelOnly map[stri
 			plan.Coverage[experiment] = append(plan.Coverage[experiment], cell)
 		}
 	}
-	sort.Strings(plan.KernelOnlyCells)
+	sort.Strings(plan.NonProfileCells)
 	for experiment := range plan.Coverage {
 		sort.Strings(plan.Coverage[experiment])
 	}

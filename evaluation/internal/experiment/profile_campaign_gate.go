@@ -13,8 +13,8 @@ import (
 
 const ProfileCampaignSampleV1Record = "taskgate-final-v5-profile-campaign-sample-v1"
 
-// ProfileCampaignSampleV1 is the runner-owned envelope for a P30 real-system
-// profile campaign. The nested Sample keeps its original v1, v2, or v3 wire;
+// ProfileCampaignSampleV1 is the runner-owned envelope for a profile-split
+// campaign. The nested Sample keeps its original v1, v2, or v3 wire;
 // campaign metadata therefore does not silently revise any retained Sample
 // schema.
 type ProfileCampaignSampleV1 struct {
@@ -37,14 +37,14 @@ func (record ProfileCampaignSampleV1) Validate() error {
 	if record.SchemaVersion != 1 || record.Record != ProfileCampaignSampleV1Record {
 		return errors.New("profile campaign sample has an unknown record version")
 	}
-	if record.CampaignClass != "pilot" {
-		return errors.New("profile campaign sample must be runner-stamped as pilot")
+	if record.CampaignClass != "pilot" && record.CampaignClass != "publication" {
+		return errors.New("profile campaign sample has an invalid runner-owned class")
 	}
 	if err := record.Sample.Validate(); err != nil {
 		return fmt.Errorf("nested sample: %w", err)
 	}
-	if record.Sample.PublicationEligible {
-		return errors.New("pilot profile campaign sample cannot be publication eligible")
+	if record.Sample.PublicationEligible != (record.CampaignClass == "publication") {
+		return errors.New("profile campaign sample eligibility differs from its runner-owned class")
 	}
 	return nil
 }
@@ -96,19 +96,32 @@ func WrapRetainedSamplesForProfileCampaignAudit(samples []Sample, campaignClass 
 // jq predicate incorrectly treated as uniform.
 func ValidateProfileCampaignExperimentGate(experimentID string, selectedCells []string,
 	records []ProfileCampaignSampleV1, samplesPerCell int) error {
-	return validateProfileCampaignExperimentGate(experimentID, selectedCells, records, samplesPerCell, nil, "")
+	return validateProfileCampaignExperimentGate("pilot", experimentID, selectedCells, records, samplesPerCell, nil, "")
+}
+
+// ValidateProfileCampaignExperimentGateForClass is the publication launcher
+// entry point. Pilot callers keep the historical wrapper above.
+func ValidateProfileCampaignExperimentGateForClass(campaignClass, experimentID string, selectedCells []string,
+	records []ProfileCampaignSampleV1, samplesPerCell int) error {
+	return validateProfileCampaignExperimentGate(campaignClass, experimentID, selectedCells, records, samplesPerCell, nil, "")
 }
 
 func ValidateProfileCampaignExperimentGateWithPreregistration(experimentID string, selectedCells []string,
 	records []ProfileCampaignSampleV1, samplesPerCell int, preregistration *concurrencyfixture.Preregistration,
 	preregistrationSHA256 string) error {
-	return validateProfileCampaignExperimentGate(experimentID, selectedCells, records, samplesPerCell,
+	return validateProfileCampaignExperimentGate("pilot", experimentID, selectedCells, records, samplesPerCell,
 		preregistration, preregistrationSHA256)
 }
 
-func validateProfileCampaignExperimentGate(experimentID string, selectedCells []string,
+func validateProfileCampaignExperimentGate(campaignClass, experimentID string, selectedCells []string,
 	records []ProfileCampaignSampleV1, samplesPerCell int, preregistration *concurrencyfixture.Preregistration,
 	preregistrationSHA256 string) error {
+	if campaignClass != "pilot" && campaignClass != "publication" {
+		return errors.New("profile campaign gate has an invalid campaign class")
+	}
+	if campaignClass == "publication" && preregistration != nil {
+		return errors.New("publication profile campaign cannot use the pilot preregistration exception")
+	}
 	if !profileCampaignExperiment(experimentID) {
 		return fmt.Errorf("unsupported profile campaign experiment %q", experimentID)
 	}
@@ -148,6 +161,9 @@ func validateProfileCampaignExperimentGate(experimentID string, selectedCells []
 		record := records[index]
 		if err := record.Validate(); err != nil {
 			return fmt.Errorf("record %d: %w", index+1, err)
+		}
+		if record.CampaignClass != campaignClass {
+			return fmt.Errorf("record %d campaign class differs from the launcher", index+1)
 		}
 		sample := record.Sample
 		identity := sample.ExperimentID + "/" + sample.CellID

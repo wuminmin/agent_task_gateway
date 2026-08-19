@@ -203,6 +203,22 @@ func TestProfileCampaignGateRejectsCrossExperimentTerminalDefects(t *testing.T) 
 	})
 }
 
+func TestProfileCampaignGateAcceptsPublicationOnlyWithMatchingEligibility(t *testing.T) {
+	sample := profileGateArtifactSample()
+	sample.PublicationEligible = true
+	record := NewProfileCampaignSampleV1("publication", sample)
+	selected := []string{"artifact/" + sample.CellID}
+	if err := ValidateProfileCampaignExperimentGateForClass("publication", "artifact", selected,
+		[]ProfileCampaignSampleV1{record}, 1); err != nil {
+		t.Fatalf("publication profile sample: %v", err)
+	}
+	record.Sample.PublicationEligible = false
+	if err := ValidateProfileCampaignExperimentGateForClass("publication", "artifact", selected,
+		[]ProfileCampaignSampleV1{record}, 1); err == nil {
+		t.Fatal("publication launcher accepted an ineligible nested sample")
+	}
+}
+
 func TestProfileCampaignGateDispatchesAttackExpectedRejectionsInsideEvidence(t *testing.T) {
 	sample := profileGateAttackSamples(t)[1]
 	selected := []string{"attack/" + sample.CellID}
