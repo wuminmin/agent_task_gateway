@@ -85,7 +85,7 @@ func LoadConfig(path, expectedExperiment string) (Config, []byte, error) {
 	if err := config.Validate(expectedExperiment); err != nil {
 		return Config{}, value, err
 	}
-	if config.CampaignClass == "publication" {
+	if config.CampaignClass == "publication" || config.PilotKind == "nonprofile_smoke" {
 		if err := config.ValidateProtocol(protocolRoot()); err != nil {
 			return Config{}, value, err
 		}
@@ -343,7 +343,7 @@ func consumeStrictJSONValue(decoder *json.Decoder) error {
 // Artifact cells for validation only, and baseline_targeted does the same for
 // Baseline S1 and S2. All three bind every arm to a deployment profile;
 // synthetic_smoke never does.
-var PilotKinds = [...]string{"synthetic_smoke", "real_system", "profile_activation_smoke", "artifact_targeted", "baseline_targeted"}
+var PilotKinds = [...]string{"synthetic_smoke", "real_system", "profile_activation_smoke", "artifact_targeted", "baseline_targeted", "nonprofile_smoke"}
 
 // ValidPilotKind reports whether a pilot declares a reviewed run class.
 func ValidPilotKind(kind string) bool {
@@ -363,7 +363,17 @@ func (config Config) Validate(expectedExperiment string) error {
 		return errors.New("invalid experiment configuration")
 	}
 	if config.CampaignClass == "pilot" {
-		if config.Deployments != 1 || config.Samples > 3 || !ValidPilotKind(config.PilotKind) {
+		if !ValidPilotKind(config.PilotKind) {
+			return errors.New("pilot must declare a reviewed pilot kind")
+		}
+		if config.PilotKind == "nonprofile_smoke" {
+			if config.Deployments != 3 || !config.FreshRootPerSample || !fullSHA.MatchString(config.SubmissionCommit) ||
+				config.ProtocolVersion == "" || config.ProtocolProfile == "" || !validSHA256(config.ProtocolSHA256) ||
+				!validSHA256(config.WorkloadSHA256) || !validSHA256(config.AcceptanceSHA256) || !validSHA256(config.StatisticsSHA256) ||
+				(config.ProtocolProfile != "scale" && config.ProtocolProfile != "scale-extreme" && config.ProtocolProfile != "compiler") {
+				return errors.New("non-profile smoke pilot requires three fresh executions and frozen scale/compiler protocol bindings")
+			}
+		} else if config.Deployments != 1 || config.Samples > 3 {
 			return errors.New("pilot must declare a reviewed pilot kind, use one deployment, and use at most three samples per cell")
 		}
 	} else {

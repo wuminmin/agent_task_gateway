@@ -165,7 +165,8 @@ func FinalizeRun(runDir string) (Summary, error) {
 	return finalizeRun(runDir, nil, false)
 }
 
-// FinalizeNonProfileRun validates one deployment-free publication subcampaign.
+// FinalizeNonProfileRun validates one deployment-free publication subcampaign
+// or its exact pilot-class smoke rehearsal.
 // It deliberately reuses the experiment evidence validators and statistics
 // implementation, but replaces deployment/ProfileBinding checks with the
 // exact source-controlled non-profile selection contract.
@@ -574,8 +575,9 @@ func finalizeRun(runDir string, selectedCells []string, deploymentFree bool) (Su
 }
 
 func validateNonProfileSelection(config Config, selected []string) error {
-	if config.CampaignClass != "publication" || len(selected) == 0 {
-		return errors.New("deployment-free finalization requires a non-empty publication selection")
+	if (config.CampaignClass != "publication" &&
+		!(config.CampaignClass == "pilot" && config.PilotKind == "nonprofile_smoke")) || len(selected) == 0 {
+		return errors.New("deployment-free finalization requires a non-empty publication or non-profile smoke selection")
 	}
 	wantWorkload := ""
 	switch config.ProtocolProfile {

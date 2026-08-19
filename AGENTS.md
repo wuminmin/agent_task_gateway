@@ -39,7 +39,7 @@ HEAD、环境命令、范围边界、停手判据、验收命令与提交格式�
 
 ```bash
 export GOFLAGS=-buildvcs=false
-docker version                                  # Docker 反复上下线，每次实测，不要假设
+docker version                                  # WSL 原生 dockerd（systemd）；每次仍实测
 ./scripts/db-test-env.sh up
 ./scripts/db-test-env.sh verify                 # 期望 server_version_num=160014
 gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...
@@ -47,6 +47,10 @@ gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...
 env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/validate.sh
 ./evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh  # 真执行 SQL 门禁（自建一次性空库）
 ```
+
+Docker Desktop 已于 2026-08-18 卸载；当前 Docker 是本 WSL 发行版内由 systemd 管理的
+原生 `dockerd`，数据根目录为 `/var/lib/docker`。此前“Docker 反复上下线”是 Docker
+Desktop 历史环境的现象，不再描述当前运行方式；但开工仍逐次实测 daemon 状态，不能假设。
 
 ### 测试分层（2026-08-16 定，取代「每任务一次全量」）
 
@@ -82,7 +86,8 @@ env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/v
 - **实跑期间不得修改该运行依赖的任何文件**（脚本被读到半截会中止运行）。
 - **创建任何具名产物（Product、视图、schema）之前先全仓 grep 这个名字**——
   已有方案或视图链可能早就存在（台账 P17 记过同根因两次）。
-- 全仓 `gofmt -l` 稳定只报 `internal/control/execution_binding.go` 这一项既有失败项，
+- 2026-08-19 复核，全仓 `gofmt -l` 仍只报
+  `internal/control/execution_binding.go` 这一项既有失败项，
   **不要顺手修**；
   只需确认本轮改动的 Go 文件无输出。
 

@@ -614,11 +614,11 @@ func validateNonProfileRawFiles(runDir string, config Config, campaign finalv5pr
 			proof.ProfileBinding != "forbidden" || proof.AdapterSHA256 != adapterDigest || !proof.BackendCleanup {
 			return fmt.Errorf("fresh execution proof %d is invalid", index+1)
 		}
-		if campaign.ID == "scale-outcome-merkle" {
+		if campaign.ID == "scale-outcome-merkle" || campaign.ID == "compiler" {
 			if proof.BackendProcess != "fresh_postgresql_process" ||
 				proof.BackendImage != "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55" ||
 				proof.BackendSystemIdentifier == "" || backendSystems[proof.BackendSystemIdentifier] {
-				return fmt.Errorf("fresh Outcome-Merkle backend proof %d is reused or invalid", index+1)
+				return fmt.Errorf("fresh PostgreSQL backend proof %d is reused or invalid", index+1)
 			}
 			backendSystems[proof.BackendSystemIdentifier] = true
 		} else if proof.BackendProcess != "none" || proof.BackendImage != "" || proof.BackendSystemIdentifier != "" {

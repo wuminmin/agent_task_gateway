@@ -633,6 +633,53 @@ func TestPublicationReplicateAndWarmupContracts(t *testing.T) {
 	}
 }
 
+func TestNonProfileSmokePilotUsesFrozenReplicateEnvelope(t *testing.T) {
+	root := filepath.Join("..", "..", "final-v5-wsl2")
+	tests := []struct {
+		path       string
+		experiment string
+	}{
+		{path: "scale.example.json", experiment: "scale"},
+		{path: "scale-extreme.example.json", experiment: "scale"},
+		{path: "compiler-scale.example.json", experiment: "compiler"},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join(root, "config", test.path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config Config
+			if err := StrictJSON(payload, &config); err != nil {
+				t.Fatal(err)
+			}
+			config.CampaignClass = "pilot"
+			config.PilotKind = "nonprofile_smoke"
+			config.CampaignID = "p63-test"
+			config.SubmissionCommit = strings.Repeat("a", 40)
+			if err := config.Validate(test.experiment); err != nil {
+				t.Fatal(err)
+			}
+			if err := config.ValidateProtocol(filepath.Join(root, "protocol")); err != nil {
+				t.Fatal(err)
+			}
+			config.Deployments = 1
+			if err := config.Validate(test.experiment); err == nil {
+				t.Fatal("non-profile smoke accepted fewer than three fresh executions")
+			}
+		})
+	}
+
+	ordinary := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system", CampaignID: "ordinary-pilot",
+		ExperimentID: "scale", Deployments: 3, Warmups: 5, Samples: 30, RandomSeed: 20260801,
+		Workloads: []Workload{{ID: "outcome-merkle", Scales: []string{"tiny"}, Modes: []string{"merkle_control"}}},
+	}
+	if err := ordinary.Validate("scale"); err == nil {
+		t.Fatal("ordinary pilot escaped the one-deployment/three-sample ceiling")
+	}
+}
+
 func TestConfigRejectsUnsafeCampaignIDs(t *testing.T) {
 	base := Config{
 		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system", CampaignID: "safe-campaign_1.0",

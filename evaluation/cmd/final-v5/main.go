@@ -14,7 +14,7 @@ func main() { os.Exit(run()) }
 
 func run() int {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: final-v5 <validate|finalize|campaign-finalize|evidence|smoke|record-environment|record-deployment>")
+		fmt.Fprintln(os.Stderr, "usage: final-v5 <validate|finalize|nonprofile-finalize|campaign-finalize|evidence|smoke|record-environment|record-deployment>")
 		return 2
 	}
 	switch os.Args[1] {
@@ -22,6 +22,8 @@ func run() int {
 		return validate(os.Args[2:])
 	case "finalize":
 		return finalize(os.Args[2:])
+	case "nonprofile-finalize":
+		return nonProfileFinalize(os.Args[2:])
 	case "campaign-finalize":
 		return campaignFinalize(os.Args[2:])
 	case "evidence":
@@ -36,6 +38,33 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "unknown subcommand")
 		return 2
 	}
+}
+
+func nonProfileFinalize(args []string) int {
+	f := flag.NewFlagSet("nonprofile-finalize", flag.ContinueOnError)
+	runDir := f.String("run-dir", "", "")
+	selectedPath := f.String("selected-cells", "", "")
+	if f.Parse(args) != nil || *runDir == "" || *selectedPath == "" {
+		return 2
+	}
+	selectedBytes, err := os.ReadFile(*selectedPath)
+	var selected []string
+	if err == nil {
+		err = experiment.StrictJSON(selectedBytes, &selected)
+	}
+	var summary experiment.Summary
+	if err == nil {
+		summary, err = experiment.FinalizeNonProfileRun(*runDir, selected)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(summary)
+	if summary.Status != "pass" {
+		return 1
+	}
+	return 0
 }
 
 func campaignFinalize(args []string) int {

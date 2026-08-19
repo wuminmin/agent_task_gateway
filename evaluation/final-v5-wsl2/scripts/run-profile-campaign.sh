@@ -202,13 +202,15 @@ rq5_sha="$(build_sealed ./evaluation/cmd/rq5-sequential-driver "$rq5_driver" "$r
 export TASKGATE_DATASET_BINDINGS="$dataset_binding"
 binding_file_sha="$(sha256sum "$dataset_binding" | awk '{print $1}')"
 binding_validation=""
+binding_section_sha=""
 binding_strict_valid=0
 if binding_validation="$($adapter --validate-binding 2>"$campaign_root/source/dataset-binding.validation.stderr")" &&
   jq -e '.schema_version == 2 and .status == "valid"' <<<"$binding_validation" >/dev/null; then
 	  binding_strict_valid=1
   [[ "$(jq -er .dataset_binding_sha256 <<<"$binding_validation")" == "$binding_file_sha" ]] || { echo "dataset binding digest drift" >&2; exit 1; }
   export TASKGATE_FINAL_V5_BINDING_FILE_SHA256="$binding_file_sha"
-  export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$(jq -er .final_v5_adapter_sha256 <<<"$binding_validation")"
+  binding_section_sha="$(jq -er .final_v5_adapter_sha256 <<<"$binding_validation")"
+  export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$binding_section_sha"
   export TASKGATE_FINAL_V5_DATASET_SHA256="$(jq -er .dataset_sha256 <<<"$binding_validation")"
   export TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256="$(jq -er .dataset_probe_sql_sha256 <<<"$binding_validation")"
   export TASKGATE_FINAL_V5_DATASET_PROBE_SHA256="$(jq -er .dataset_probe_sha256 <<<"$binding_validation")"
@@ -1062,6 +1064,10 @@ else
     -u TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY -u TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY
     -u TASKGATE_FINAL_V5_CONCURRENCY_TOKEN -u TASKGATE_FINAL_V5_DIRECT_DSN
     -u TASKGATE_FINAL_V5_PROVSQL_DSN -u TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION
+    -u TASKGATE_FINAL_V5_COMPILER_DSN
+    -u TASKGATE_DATASET_BINDINGS
+    -u TASKGATE_FINAL_V5_BINDING_FILE_SHA256
+    -u TASKGATE_FINAL_V5_BINDING_SECTION_SHA256
     -u TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY
   )
   mapfile -t nonprofile_ids < <(jq -er '.non_profile_campaigns[].id' "$plan")
@@ -1077,6 +1083,12 @@ else
       compiler) nonprofile_config_source=evaluation/final-v5-wsl2/config/compiler-scale.example.json ;;
       *) echo "unknown non-profile campaign $nonprofile_id" >&2; exit 1 ;;
     esac
+    nonprofile_binding_path=""
+    if [[ "$nonprofile_id" == scale-outcome-merkle || "$nonprofile_id" == scale-kernel-storage ]]; then
+      # These are the two deployment-free branches that statically call
+      # loadAdapterDeploymentBinding. Compiler does not consume the binding.
+      nonprofile_binding_path="$dataset_binding"
+    fi
     jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
       '.campaign_class="publication" | del(.pilot_kind) | .campaign_id=$campaign |
        .submission_commit=$commit | .fresh_root_per_sample=true' "$nonprofile_config_source" \
@@ -1091,28 +1103,48 @@ else
       nonprofile_backend_system_identifier=""
       nonprofile_backend_image=""
       nonprofile_execution_env=(env "${nonprofile_unset[@]}" GOFLAGS=-buildvcs=false)
-      if [[ "$nonprofile_id" == scale-outcome-merkle ]]; then
+      if [[ -n "$nonprofile_binding_path" ]]; then
+        # loadAdapterDeploymentBinding requires the complete pre-start identity
+        # tuple, not a path that happens to inherit profile-process exports.
+        nonprofile_execution_env+=(
+          "TASKGATE_DATASET_BINDINGS=$nonprofile_binding_path"
+          "TASKGATE_FINAL_V5_BINDING_FILE_SHA256=$binding_file_sha"
+          "TASKGATE_FINAL_V5_BINDING_SECTION_SHA256=$binding_section_sha"
+        )
+      fi
+      if [[ "$nonprofile_id" == scale-outcome-merkle || "$nonprofile_id" == compiler ]]; then
         nonprofile_backend=fresh_postgresql_process
         nonprofile_backend_image=postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
         nonprofile_password="$(sha256sum /proc/sys/kernel/random/uuid | awk '{print $1}')"
         nonprofile_name_hash="$(printf '%s\0%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$nonprofile_id" "$repetition" | sha256sum | awk '{print $1}')"
         current_nonprofile_container="taskgate-nonprofile-${nonprofile_name_hash:0:20}-$repetition"
         docker run --detach --name "$current_nonprofile_container" --publish 127.0.0.1::5432 \
-          --env POSTGRES_PASSWORD="$nonprofile_password" --env POSTGRES_DB=taskgate_control \
+          --env POSTGRES_PASSWORD="$nonprofile_password" --env POSTGRES_DB=taskgate_nonprofile \
           "$nonprofile_backend_image" >/dev/null
         for attempt in $(seq 1 120); do
-          docker exec "$current_nonprofile_container" pg_isready -U postgres -d taskgate_control >/dev/null 2>&1 && break
+          docker exec "$current_nonprofile_container" pg_isready -U postgres -d taskgate_nonprofile >/dev/null 2>&1 && break
           [[ "$attempt" != 120 ]] || { echo "non-profile PostgreSQL process did not become ready" >&2; exit 1; }
           sleep 1
         done
         nonprofile_port="$(docker port "$current_nonprofile_container" 5432/tcp | awk -F: 'END{print $NF}')"
-        nonprofile_dsn="postgres://postgres:$nonprofile_password@127.0.0.1:$nonprofile_port/taskgate_control?sslmode=disable"
-        TASKGATE_FINAL_V5_CONTROL_DSN="$nonprofile_dsn" GOFLAGS=-buildvcs=false \
-          go run ./evaluation/cmd/final-v5-control-init -dsn-env TASKGATE_FINAL_V5_CONTROL_DSN
+        nonprofile_dsn="postgres://postgres:$nonprofile_password@127.0.0.1:$nonprofile_port/taskgate_nonprofile?sslmode=disable"
+        if [[ "$nonprofile_id" == scale-outcome-merkle ]]; then
+          TASKGATE_FINAL_V5_CONTROL_DSN="$nonprofile_dsn" GOFLAGS=-buildvcs=false \
+            go run ./evaluation/cmd/final-v5-control-init -dsn-env TASKGATE_FINAL_V5_CONTROL_DSN
+          nonprofile_execution_env+=("TASKGATE_FINAL_V5_CONTROL_DSN=$nonprofile_dsn")
+        else
+          # The three fresh executions are the fixture isolation boundary.
+          # Each execution-scoped immutable fixture is shared by its frozen
+          # five adapter process replicates, all of which validate it on open.
+          docker exec "$current_nonprofile_container" psql -X -v ON_ERROR_STOP=1 \
+            -U postgres -d taskgate_nonprofile -c 'CREATE ROLE taskgate_snapshot_owner' >/dev/null
+          docker exec -i "$current_nonprofile_container" psql -X -v ON_ERROR_STOP=1 \
+            -U postgres -d taskgate_nonprofile <db/init/08-final-v5-compiler-fixture.sql >/dev/null
+          nonprofile_execution_env+=("TASKGATE_FINAL_V5_COMPILER_DSN=$nonprofile_dsn")
+        fi
         nonprofile_backend_system_identifier="$(docker exec "$current_nonprofile_container" \
-          psql -U postgres -d taskgate_control -Atqc 'SELECT system_identifier FROM pg_control_system()')"
+          psql -U postgres -d taskgate_nonprofile -Atqc 'SELECT system_identifier FROM pg_control_system()')"
         [[ "$nonprofile_backend_system_identifier" =~ ^[0-9]+$ ]] || { echo "non-profile PostgreSQL omitted its system identifier" >&2; exit 1; }
-        nonprofile_execution_env+=("TASKGATE_FINAL_V5_CONTROL_DSN=$nonprofile_dsn")
       fi
       "${nonprofile_execution_env[@]}" \
         go run "./evaluation/cmd/$nonprofile_runner" -config "$nonprofile_dir/config.json" \
