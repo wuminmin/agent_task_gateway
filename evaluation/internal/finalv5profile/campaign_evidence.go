@@ -505,6 +505,12 @@ func validateProfileDeploymentConfig(root string, planned PlannedDeploy, files [
 	return nil
 }
 
+// ValidateProfileDeploymentConfigEvidence applies the same retained override
+// validation to publication and pilot profile records.
+func ValidateProfileDeploymentConfigEvidence(root string, planned PlannedDeploy, files []CampaignEvidenceFile) error {
+	return validateProfileDeploymentConfig(root, planned, files)
+}
+
 func validateAdapterStderrEvidence(root, experiment string, files []CampaignEvidenceFile) error {
 	stderrFile, err := campaignExperimentEvidenceFile(files, "adapter_stderr", experiment)
 	if err != nil {
@@ -523,10 +529,12 @@ func validateAdapterStderrEvidence(root, experiment string, files []CampaignEvid
 	if err := decodeStrictCampaignFile(filepath.Join(root, scanFile.Path), &scan); err != nil {
 		return fmt.Errorf("adapter stderr credential scan: %w", err)
 	}
-	if scan.SchemaVersion != 1 || scan.Record != finalv5publication.AdapterStderrCredentialScanVersion ||
-		scan.Status != "pass" || scan.InputSHA256 != stderrFile.SHA256 || scan.InputBytes != stderrFile.Bytes ||
-		scan.SensitiveValuesChecked < 1 || scan.URLUserinfoHits != 0 || scan.PEMMarkerHits != 0 ||
-		scan.SecretAssignmentHits != 0 || scan.JSONScalarExactHits != 0 || scan.ExactValueSubstringHits != 0 {
+	value, err := os.ReadFile(stderrPath)
+	if err != nil {
+		return err
+	}
+	if err := finalv5publication.ValidateAdapterStderrCredentialScan(value, scan); err != nil ||
+		scan.InputSHA256 != stderrFile.SHA256 || scan.InputBytes != stderrFile.Bytes {
 		return errors.New("adapter stderr credential scan is incomplete or differs from the retained stderr")
 	}
 	return nil
@@ -740,6 +748,13 @@ func validateEnvironmentAndImage(root, commit string, files []CampaignEvidenceFi
 	if environment.GitCommit != commit || len(environment.GitStatus) != 0 || environment.PublicationEligible {
 		return errors.New("environment is not clean, fixed-commit pilot evidence")
 	}
+	return ValidateGatewayImageObservation(root, files)
+}
+
+// ValidateGatewayImageObservation requires the shared mode-0600 observation
+// to name the verified formal image while keeping it explicitly distinct from
+// publication acceptance evidence.
+func ValidateGatewayImageObservation(root string, files []CampaignEvidenceFile) error {
 	var image struct {
 		RecordKind          string `json:"record_kind"`
 		ExperimentClass     string `json:"experiment_class"`

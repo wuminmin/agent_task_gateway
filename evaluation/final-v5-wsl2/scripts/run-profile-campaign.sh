@@ -441,14 +441,22 @@ cleanup_rq5() {
 }
 cleanup_current() {
   local status="${1:-0}"
+  local failure_publication_eligible=false failure_formal_campaign=false
+  [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || {
+    failure_publication_eligible=true
+    failure_formal_campaign=true
+  }
   set +e
   if [[ -n "$current_dir" && "$status" -ne 0 ]]; then
     if [[ ! -e "$current_dir/deployment-failure.json" ]]; then
       jq -n --arg status "fail" --arg failure_stage "$current_stage" \
         --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
-        --arg compose_project "$current_project" \
-        '{schema_version:1,status:$status,failure_stage:$failure_stage,campaign_class:"pilot",
-          publication_eligible:false,campaign_id:$campaign_id,submission_commit:$submission_commit,
+        --arg compose_project "$current_project" --arg campaign_class "$TASKGATE_EXPERIMENT_CLASS" \
+        --argjson publication_eligible "$failure_publication_eligible" \
+        --argjson formal_campaign "$failure_formal_campaign" \
+        '{schema_version:1,status:$status,failure_stage:$failure_stage,campaign_class:$campaign_class,
+          publication_eligible:$publication_eligible,formal_campaign:$formal_campaign,
+          campaign_id:$campaign_id,submission_commit:$submission_commit,
           compose_project:$compose_project}' >"$current_dir/deployment-failure.json"
       chmod 600 "$current_dir/deployment-failure.json"
     fi
@@ -925,30 +933,27 @@ for alias in "${selected_profiles[@]}"; do
       runner_status=0
       runner_deployment_id="$profile_execution_id"
       runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")
-      [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || runner_stderr_args=()
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id "$runner_deployment_id" \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
         -deployment-repetition "$repetition" "${runner_stderr_args[@]}" \
         >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
-      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
-	    export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
-	    export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
-	    export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
-	    export TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD=final-v5-provsql-local-only
-	    adapter_stderr_secret_args=()
-	    if [[ "$experiment" == rq5 && -f "$current_rq5_secret/deployment-secrets.json" ]]; then
-	      adapter_stderr_secret_args=(-sensitive-json-file "$current_rq5_secret/deployment-secrets.json")
-	    fi
-        if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
-	      -input "$adapter_stderr" -output "$adapter_stderr_scan" "${adapter_stderr_sensitive_args[@]}" \
-	      "${adapter_stderr_secret_args[@]}"; then
-          rm -f "$adapter_stderr" "$adapter_stderr_scan"
-          echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
-          exit 1
-        fi
-	    unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
-	      TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
+      export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
+      export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
+      export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
+      export TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD=final-v5-provsql-local-only
+      adapter_stderr_secret_args=()
+      if [[ "$experiment" == rq5 && -f "$current_rq5_secret/deployment-secrets.json" ]]; then
+        adapter_stderr_secret_args=(-sensitive-json-file "$current_rq5_secret/deployment-secrets.json")
       fi
+      if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
+        -input "$adapter_stderr" -output "$adapter_stderr_scan" "${adapter_stderr_sensitive_args[@]}" \
+        "${adapter_stderr_secret_args[@]}"; then
+        rm -f "$adapter_stderr" "$adapter_stderr_scan"
+        echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
+        exit 1
+      fi
+      unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
+        TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
       (( runner_status == 0 )) || exit "$runner_status"
       preregistration_gate_args=()
       if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && "$experiment" == concurrency ]]; then
@@ -1022,11 +1027,9 @@ for alias in "${selected_profiles[@]}"; do
       fi
       add_ref raw_jsonl "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/raw/$experiment.jsonl"
       add_ref launcher_gate "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/$experiment.gate.json"
-      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
-        add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
-        add_ref adapter_stderr_credential_scan "$experiment" \
-          "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
-      fi
+      add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
+      add_ref adapter_stderr_credential_scan "$experiment" \
+        "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
     jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg campaign_class "$TASKGATE_EXPERIMENT_CLASS" \

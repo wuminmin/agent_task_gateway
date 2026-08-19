@@ -219,6 +219,28 @@ func TestTargetedRunnerCanRetainExactAdapterStderrPrivately(t *testing.T) {
 		!strings.Contains(err.Error(), "restricted to targeted diagnostics") {
 		t.Fatalf("a mismatched targeted kind opened the stderr channel: %v", err)
 	}
+
+	publication := Config{
+		SchemaVersion: 1, CampaignClass: "publication", CampaignID: "publication-stderr",
+		ExperimentID: "baseline", SubmissionCommit: "0123456789abcdef0123456789abcdef01234567",
+		Deployments: 3, Warmups: 5, Samples: 30, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	bindTestProtocol(t, &publication)
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "publication")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", publication.CampaignID)
+	t.Setenv("TASKGATE_SUBMISSION_COMMIT", publication.SubmissionCommit)
+	publicationStderr := filepath.Join(directory, "publication-profile.log")
+	publicationErr := executeAdapterCampaignWithProfileSelection(publication, "deployment-01", os.Args[0],
+		filepath.Join(directory, "publication-profile.jsonl"), testActivatedProfile(), publicationStderr,
+		map[string]bool{"baseline/S1/tiny/novel": true}, 1)
+	if publicationErr != nil && strings.Contains(publicationErr.Error(), "restricted to targeted diagnostics") {
+		t.Fatalf("profile-bound publication stderr was refused: %v", publicationErr)
+	}
+	retained, readErr = os.ReadFile(publicationStderr)
+	if readErr != nil || string(retained) != "exact adapter diagnostic\n" {
+		t.Fatalf("publication profile retained adapter stderr = %q, err=%v", retained, readErr)
+	}
 }
 
 func TestRunnerPreservesEmittedFailureWhenAdapterThenExits(t *testing.T) {

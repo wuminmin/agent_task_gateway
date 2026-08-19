@@ -38,3 +38,37 @@ func TestAdapterStderrCredentialGateRejectsEveryStrictGate(t *testing.T) {
 		})
 	}
 }
+
+func TestAdapterStderrCredentialScanVerifierBindsExactBytesAndClosedGates(t *testing.T) {
+	value := []byte("private diagnostic without credentials\n")
+	report, err := ValidateAdapterStderr(value, []string{"PrivateValue_2039"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAdapterStderrCredentialScan(value, report); err != nil {
+		t.Fatalf("valid retained scan: %v", err)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*AdapterStderrCredentialScan)
+	}{
+		{"digest", func(scan *AdapterStderrCredentialScan) { scan.InputSHA256 = strings.Repeat("0", 64) }},
+		{"bytes", func(scan *AdapterStderrCredentialScan) { scan.InputBytes++ }},
+		{"no sensitive values", func(scan *AdapterStderrCredentialScan) { scan.SensitiveValuesChecked = 0 }},
+		{"URL userinfo hit", func(scan *AdapterStderrCredentialScan) { scan.URLUserinfoHits = 1 }},
+		{"PEM hit", func(scan *AdapterStderrCredentialScan) { scan.PEMMarkerHits = 1 }},
+		{"assignment hit", func(scan *AdapterStderrCredentialScan) { scan.SecretAssignmentHits = 1 }},
+		{"JSON scalar hit", func(scan *AdapterStderrCredentialScan) { scan.JSONScalarExactHits = 1 }},
+		{"exact substring hit", func(scan *AdapterStderrCredentialScan) { scan.ExactValueSubstringHits = 1 }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := report
+			test.mutate(&mutated)
+			if err := ValidateAdapterStderrCredentialScan(value, mutated); err == nil {
+				t.Fatal("mutated retained scan was accepted")
+			}
+		})
+	}
+}

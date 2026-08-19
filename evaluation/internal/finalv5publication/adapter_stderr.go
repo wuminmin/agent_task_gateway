@@ -70,3 +70,20 @@ func ValidateAdapterStderr(value []byte, sensitiveValues []string) (AdapterStder
 	}
 	return report, nil
 }
+
+// ValidateAdapterStderrCredentialScan proves that a retained scan report binds
+// the exact stderr bytes and that every credential gate stayed closed. The
+// launcher supplies the sensitive values; this verifier consumes only the safe
+// report and retained diagnostic bytes.
+func ValidateAdapterStderrCredentialScan(value []byte, report AdapterStderrCredentialScan) error {
+	digest := sha256.Sum256(value)
+	if report.SchemaVersion != 1 || report.Record != AdapterStderrCredentialScanVersion ||
+		report.Status != "pass" || report.InputSHA256 != hex.EncodeToString(digest[:]) ||
+		report.InputBytes != int64(len(value)) || report.SensitiveValuesChecked < 1 ||
+		report.URLUserinfoHits != 0 || report.PEMMarkerHits != 0 ||
+		report.SecretAssignmentHits != 0 || report.JSONScalarExactHits != 0 ||
+		report.ExactValueSubstringHits != 0 {
+		return fmt.Errorf("adapter stderr credential scan is incomplete or differs from the retained stderr")
+	}
+	return nil
+}

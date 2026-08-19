@@ -76,7 +76,7 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 		`add_ref adapter_stderr_credential_scan "$experiment"`,
 		`add_ref launcher_gate "$experiment"`,
 		`add_ref deployment_configuration ""`,
-		`publication_eligible:false`,
+		`add_ref gateway_image "" "$gateway_image"`,
 		`--argjson formal_campaign "$formal_campaign"`,
 	} {
 		if !strings.Contains(script, required) {
@@ -93,6 +93,27 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	retain := strings.Index(script, `add_ref adapter_stderr "$experiment"`)
 	if scan < 0 || retain < 0 || scan > retain {
 		t.Fatal("Adapter stderr is not credential-gated before campaign retention")
+	}
+	for _, forbidden := range []string{
+		`[[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || runner_stderr_args=()`,
+		`if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+        add_ref adapter_stderr`,
+		`campaign_class:"pilot",
+          publication_eligible:false,campaign_id:$campaign_id`,
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("publication profile branch still has weaker retention or record wiring %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		`runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")`,
+		`--arg campaign_class "$TASKGATE_EXPERIMENT_CLASS"`,
+		`publication_eligible:$publication_eligible,formal_campaign:$formal_campaign`,
+		`finalizer_material_dispatch`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("pilot/publication shared retention wiring lacks %q", required)
+		}
 	}
 	if !strings.Contains(script, `-retained-source-path "$deployment_overrides_retained_rel"`) ||
 		!strings.Contains(script, `-overrides "$deployment_overrides_retained"`) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
 const SplitPublicationCampaignVersion = "taskgate-final-v5-split-publication-campaign-v1"
@@ -278,7 +279,7 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 			if file.Experiment != "" {
 				return fmt.Errorf("deployment evidence %s names an experiment", file.Kind)
 			}
-		case "config", "selected_cells", "raw_jsonl", "launcher_gate":
+		case "config", "selected_cells", "raw_jsonl", "launcher_gate", "adapter_stderr", "adapter_stderr_credential_scan":
 			if !plannedExperiments[file.Experiment] {
 				return fmt.Errorf("evidence %s names unplanned experiment %q", file.Kind, file.Experiment)
 			}
@@ -287,15 +288,14 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 			if file.Experiment != "rq5" || !plannedExperiments["rq5"] {
 				return fmt.Errorf("evidence %s is not owned by a planned RQ5 experiment", file.Kind)
 			}
-		case "adapter_stderr", "adapter_stderr_credential_scan":
-			return errors.New("publication profile evidence retained forbidden adapter stderr")
 		default:
 			return fmt.Errorf("publication profile evidence has unknown kind %q", file.Kind)
 		}
 		files[key] = file
 	}
-	for _, kind := range []string{"profile_binding", "activation_evidence", "environment", "fresh_proof", "cleanup",
-		"formal_gateway_runtime", "formal_gateway_build_manifest", "formal_gateway_compose_override"} {
+	for _, kind := range []string{"profile_binding", "activation_evidence", "environment", "fresh_proof", "gateway_image",
+		"cleanup", "deployment_configuration", "formal_gateway_runtime", "formal_gateway_build_manifest",
+		"formal_gateway_compose_override", "formal_gateway_build_log"} {
 		if files[publicationFileKey{kind, ""}].Path == "" {
 			return fmt.Errorf("missing deployment evidence kind %s", kind)
 		}
@@ -324,6 +324,12 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 	}
 	if datasetBinding, _ := environment.Datasets[datasetBindingFileSHAKey].(string); datasetBinding != binding.DatasetBindingSHA256 {
 		return errors.New("profile environment observation differs from the ProfileBinding Dataset identity")
+	}
+	if err := finalv5profile.ValidateGatewayImageObservation(root, record.Files); err != nil {
+		return err
+	}
+	if err := finalv5profile.ValidateProfileDeploymentConfigEvidence(root, planned, record.Files); err != nil {
+		return err
 	}
 	var cleanup struct {
 		SchemaVersion int             `json:"schema_version"`
@@ -364,6 +370,9 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 		fresh.ComposeProject == "" || !fresh.FormalGatewayBuilt || len(fresh.FormalGateway) == 0 {
 		return errors.New("fresh profile-deployment proof differs from the formal record")
 	}
+	if err := validatePublicationFinalizerMaterial(fresh.FinalizerMaterial, planned.Experiments); err != nil {
+		return err
+	}
 	if err := validatePublicationFormalGateway(root, files, binding, record, fresh.FormalGateway); err != nil {
 		return err
 	}
@@ -374,8 +383,14 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 		if experimentID == "rq5" {
 			selectedFile = files[publicationFileKey{"runner_selected_cells", experimentID}]
 		}
-		if configFile.Path == "" || campaignSelectedFile.Path == "" || selectedFile.Path == "" || rawFile.Path == "" || gateFile.Path == "" {
-			return fmt.Errorf("experiment %s lacks config/selection/raw/gate evidence", experimentID)
+		stderrFile := files[publicationFileKey{"adapter_stderr", experimentID}]
+		stderrScanFile := files[publicationFileKey{"adapter_stderr_credential_scan", experimentID}]
+		if configFile.Path == "" || campaignSelectedFile.Path == "" || selectedFile.Path == "" || rawFile.Path == "" || gateFile.Path == "" ||
+			stderrFile.Path == "" || stderrScanFile.Path == "" {
+			return fmt.Errorf("experiment %s lacks config/selection/raw/gate/stderr/credential-scan evidence", experimentID)
+		}
+		if err := validatePublicationAdapterStderr(root, stderrFile, stderrScanFile); err != nil {
+			return fmt.Errorf("experiment %s: %w", experimentID, err)
 		}
 		config, _, err := LoadConfig(filepath.Join(root, configFile.Path), experimentID)
 		if err != nil || config.CampaignClass != "publication" || config.CampaignID != record.CampaignID ||
@@ -454,6 +469,72 @@ func validatePublicationProfileRecord(root string, planned finalv5profile.Planne
 				return fmt.Errorf("experiment %s sample differs from the fresh profile execution", experimentID)
 			}
 		}
+	}
+	return nil
+}
+
+func validatePublicationFinalizerMaterial(raw json.RawMessage, experiments []string) error {
+	type dispatch struct {
+		Experiments                    []string `json:"experiments"`
+		AttestationQualificationPath   string   `json:"attestation_qualification_path"`
+		AttestationQualificationSHA256 string   `json:"attestation_qualification_sha256"`
+		PostgreSQLIdentityPath         string   `json:"postgresql_identity_path"`
+		PostgreSQLIdentitySHA256       string   `json:"postgresql_identity_sha256"`
+	}
+	want := map[string]bool{}
+	for _, experiment := range experiments {
+		if experiment == "artifact" || experiment == "provsql" || experiment == "scale" {
+			want[experiment] = true
+		}
+	}
+	if len(want) == 0 {
+		if len(raw) != 0 {
+			return errors.New("ordinary publication profile carries finalizer material dispatch")
+		}
+		return nil
+	}
+	var values []dispatch
+	if len(raw) == 0 || StrictJSON(raw, &values) != nil || len(values) != len(want) {
+		return errors.New("publication profile finalizer material dispatch is absent or incomplete")
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if len(value.Experiments) != 1 || !want[value.Experiments[0]] || seen[value.Experiments[0]] {
+			return errors.New("publication profile finalizer material dispatch is duplicated or misrouted")
+		}
+		seen[value.Experiments[0]] = true
+		for _, file := range []struct{ path, digest string }{
+			{value.AttestationQualificationPath, value.AttestationQualificationSHA256},
+			{value.PostgreSQLIdentityPath, value.PostgreSQLIdentitySHA256},
+		} {
+			info, err := os.Lstat(file.path)
+			actual, hashErr := FileSHA256(file.path)
+			if file.path == "" || !filepath.IsAbs(file.path) || !validSHA256(file.digest) ||
+				err != nil || hashErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || actual != file.digest {
+				return errors.New("publication profile finalizer material is absent, unsafe, or changed")
+			}
+		}
+	}
+	return nil
+}
+
+func validatePublicationAdapterStderr(root string, stderrFile, scanFile finalv5profile.CampaignEvidenceFile) error {
+	stderrPath := filepath.Join(root, stderrFile.Path)
+	info, err := os.Lstat(stderrPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return errors.New("adapter stderr is absent, unsafe, or not mode 0600")
+	}
+	value, err := os.ReadFile(stderrPath)
+	if err != nil {
+		return err
+	}
+	var scan finalv5publication.AdapterStderrCredentialScan
+	if err := readStrictFile(filepath.Join(root, scanFile.Path), &scan); err != nil {
+		return fmt.Errorf("adapter stderr credential scan: %w", err)
+	}
+	if err := finalv5publication.ValidateAdapterStderrCredentialScan(value, scan); err != nil ||
+		scan.InputSHA256 != stderrFile.SHA256 || scan.InputBytes != stderrFile.Bytes {
+		return errors.New("adapter stderr credential scan is incomplete or differs from the retained stderr")
 	}
 	return nil
 }
