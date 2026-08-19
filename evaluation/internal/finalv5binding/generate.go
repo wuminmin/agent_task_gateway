@@ -93,7 +93,8 @@ func GenerateScaleOutcomeCandidateExpectations(catalogSHA256 string,
 // input. Returned Binding identities are recomputed by Parse from returned
 // bytes, so callers cannot serialize an unvalidated intermediate value.
 func BuildCompleteBinding(input CompleteBindingInput) (Binding, []byte, error) {
-	if err := validateCompleteBindingInput(input); err != nil {
+	enableExtreme, err := validateCompleteBindingInput(input)
+	if err != nil {
 		return Binding{}, nil, err
 	}
 	scaleManifests, err := verifyScaleManifestArtifacts(input.ScaleManifests, input.OracleOptions)
@@ -105,7 +106,7 @@ func BuildCompleteBinding(input CompleteBindingInput) (Binding, []byte, error) {
 		return Binding{}, nil, fmt.Errorf("verify the exact ProvSQL manifest closure: %w", err)
 	}
 
-	scale, err := buildScaleBinding(scaleManifests, input.ScaleOutcomes)
+	scale, err := buildScaleBinding(scaleManifests, input.ScaleOutcomes, enableExtreme)
 	if err != nil {
 		return Binding{}, nil, err
 	}
@@ -159,52 +160,53 @@ func canonicalBindingDocument(document bindingDocument) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func validateCompleteBindingInput(input CompleteBindingInput) error {
+func validateCompleteBindingInput(input CompleteBindingInput) (bool, error) {
 	for name, digest := range map[string]string{
 		"dataset_sha256": input.DatasetSHA256, "dataset_probe_sha256": input.DatasetProbeSHA256,
 	} {
 		if !generatedDigest(digest) {
-			return fmt.Errorf("complete binding %s is missing, a placeholder, or not SHA-256", name)
+			return false, fmt.Errorf("complete binding %s is missing, a placeholder, or not SHA-256", name)
 		}
 	}
 	if input.DatasetSHA256 == input.DatasetProbeSHA256 {
-		return errors.New("typed Dataset identity and live scalar probe digest must be independent")
+		return false, errors.New("typed Dataset identity and live scalar probe digest must be independent")
 	}
 	if input.Catalog == nil || !generatedDigest(input.Catalog.SHA256) {
-		return errors.New("complete binding requires a parsed, non-placeholder Catalog")
+		return false, errors.New("complete binding requires a parsed, non-placeholder Catalog")
 	}
 	if err := input.Catalog.Validate(); err != nil {
-		return fmt.Errorf("complete binding Catalog is invalid: %w", err)
+		return false, fmt.Errorf("complete binding Catalog is invalid: %w", err)
 	}
 	if input.Catalog.SHA256 == input.DatasetSHA256 || input.Catalog.SHA256 == input.DatasetProbeSHA256 {
-		return errors.New("Catalog, typed Dataset, and live scalar probe identities must be independent")
+		return false, errors.New("Catalog, typed Dataset, and live scalar probe identities must be independent")
 	}
 	if err := validateFixedCatalogRoutes(input.Catalog); err != nil {
-		return err
+		return false, err
 	}
 	if input.ArtifactRuntime == nil {
-		return errors.New("complete binding requires the verified Contract runtime")
+		return false, errors.New("complete binding requires the verified Contract runtime")
 	}
 	if len(input.ScaleManifests) != 24 {
-		return fmt.Errorf("complete binding received %d Scale manifests; expected exactly 24", len(input.ScaleManifests))
+		return false, fmt.Errorf("complete binding received %d Scale manifests; expected exactly 24", len(input.ScaleManifests))
 	}
 	if len(input.ProvSQLManifests) != 105 {
-		return fmt.Errorf("complete binding received %d ProvSQL manifests; expected exactly 105", len(input.ProvSQLManifests))
+		return false, fmt.Errorf("complete binding received %d ProvSQL manifests; expected exactly 105", len(input.ProvSQLManifests))
 	}
 	reviewedDataset, err := input.ArtifactRuntime.DatasetIdentitySHA256()
 	if err != nil {
-		return fmt.Errorf("resolve the reviewed typed Dataset identity: %w", err)
+		return false, fmt.Errorf("resolve the reviewed typed Dataset identity: %w", err)
 	}
 	if input.DatasetSHA256 != reviewedDataset {
-		return errors.New("complete binding Dataset identity differs from the reviewed five-Product formula")
+		return false, errors.New("complete binding Dataset identity differs from the reviewed five-Product formula")
 	}
-	if err := validateContractRuntimeClosure(input.ArtifactRuntime); err != nil {
-		return err
+	enableExtreme, err := validateContractRuntimeClosure(input.ArtifactRuntime)
+	if err != nil {
+		return false, err
 	}
 	if err := input.ScaleOutcomes.validate(input.Catalog.SHA256); err != nil {
-		return fmt.Errorf("complete binding strict Scale Outcome expectations are invalid: %w", err)
+		return false, fmt.Errorf("complete binding strict Scale Outcome expectations are invalid: %w", err)
 	}
-	return nil
+	return enableExtreme, nil
 }
 
 func validateFixedCatalogRoutes(source *catalog.Catalog) error {
@@ -224,10 +226,10 @@ func validateFixedCatalogRoutes(source *catalog.Catalog) error {
 	return nil
 }
 
-func validateContractRuntimeClosure(runtime *finalv5contracts.Runtime) error {
+func validateContractRuntimeClosure(runtime *finalv5contracts.Runtime) (bool, error) {
 	contractCells, err := runtime.ContractWorkloadCells()
 	if err != nil {
-		return fmt.Errorf("load fixed Scale Contract cells: %w", err)
+		return false, fmt.Errorf("load fixed Scale Contract cells: %w", err)
 	}
 	wantedScale := make(map[string]bool, 24)
 	for _, cell := range finalv5oracle.ExposureScaleDependencyCells() {
@@ -243,17 +245,25 @@ func validateContractRuntimeClosure(runtime *finalv5contracts.Runtime) error {
 		}
 		key := cell.Identity.Scale + "/" + cell.Identity.Mode
 		if !wantedScale[key] || seenScale[key] || len(cell.Products) != 1 || cell.Products[0] != exposureScaleProduct {
-			return fmt.Errorf("Scale Contract cell %s is outside the exact 24-cell Product closure", cell.Identity)
+			return false, fmt.Errorf("Scale Contract cell %s is outside the exact 24-cell Product closure", cell.Identity)
 		}
 		seenScale[key] = true
 	}
 	if len(seenScale) != len(wantedScale) {
-		return fmt.Errorf("Scale Contract runtime has %d dependency cells; expected exactly 24", len(seenScale))
+		return false, fmt.Errorf("Scale Contract runtime has %d dependency cells; expected exactly 24", len(seenScale))
+	}
+	extremeCells, err := runtime.ProtocolProfileCells("scale-extreme")
+	if err != nil {
+		return false, fmt.Errorf("load fixed Scale extreme protocol cells: %w", err)
+	}
+	enableExtreme, err := scaleExtremeFeatureEnabled(extremeCells)
+	if err != nil {
+		return false, err
 	}
 
 	provSQLCells, err := runtime.ProtocolProfileCells("provsql")
 	if err != nil {
-		return fmt.Errorf("load fixed ProvSQL protocol cells: %w", err)
+		return false, fmt.Errorf("load fixed ProvSQL protocol cells: %w", err)
 	}
 	wantedProvSQL := make(map[string]bool, 9)
 	for _, scale := range []string{"1k", "10k", "45k"} {
@@ -266,14 +276,36 @@ func validateContractRuntimeClosure(runtime *finalv5contracts.Runtime) error {
 		key := cell.Scale + "/" + cell.Mode
 		if cell.ExperimentID != "provsql" || cell.WorkloadID != "nonce-join-group" ||
 			!wantedProvSQL[key] || seenProvSQL[key] {
-			return fmt.Errorf("ProvSQL protocol cell %s is outside the exact 3-by-3 closure", cell)
+			return false, fmt.Errorf("ProvSQL protocol cell %s is outside the exact 3-by-3 closure", cell)
 		}
 		seenProvSQL[key] = true
 	}
 	if len(seenProvSQL) != len(wantedProvSQL) {
-		return fmt.Errorf("ProvSQL Contract runtime has %d protocol cells; expected exactly 9", len(seenProvSQL))
+		return false, fmt.Errorf("ProvSQL Contract runtime has %d protocol cells; expected exactly 9", len(seenProvSQL))
 	}
-	return nil
+	return enableExtreme, nil
+}
+
+func scaleExtremeFeatureEnabled(cells []finalv5contracts.CellIdentity) (bool, error) {
+	if len(cells) == 0 {
+		return false, nil
+	}
+	wanted := map[string]bool{
+		"scale-extreme/taskgate_scale_extreme/10m/kernel_storage_only":  true,
+		"scale-extreme/taskgate_scale_extreme/100m/kernel_storage_only": true,
+	}
+	seen := make(map[string]bool, len(wanted))
+	for _, cell := range cells {
+		key := cell.String()
+		if !wanted[key] || seen[key] {
+			return false, fmt.Errorf("Scale extreme protocol cell %s is outside the exact two-cell closure", cell)
+		}
+		seen[key] = true
+	}
+	if len(seen) != len(wanted) {
+		return false, fmt.Errorf("Scale extreme protocol has %d cells; expected exactly 2", len(seen))
+	}
+	return true, nil
 }
 
 func generatedDigest(value string) bool {
@@ -331,7 +363,7 @@ func verifyProvSQLManifestArtifacts(input []finalv5oracle.ProvSQLManifestArtifac
 }
 
 func buildScaleBinding(manifests []finalv5oracle.ExposureScaleManifestArtifact,
-	outcomes ScaleOutcomeCandidateExpectations) (*ScaleBinding, error) {
+	outcomes ScaleOutcomeCandidateExpectations, enableExtreme bool) (*ScaleBinding, error) {
 	byScale := make(map[string]map[string]finalv5oracle.OracleManifest, 12)
 	for _, artifact := range manifests {
 		manifest := artifact.Manifest
@@ -343,7 +375,8 @@ func buildScaleBinding(manifests []finalv5oracle.ExposureScaleManifestArtifact,
 		}
 		byScale[manifest.Scale][manifest.Mode] = manifest
 	}
-	binding := &ScaleBinding{DependencyE2E: make(map[string]DependencyCellBinding, 12), EnableOutcomeMerkle: true}
+	binding := &ScaleBinding{DependencyE2E: make(map[string]DependencyCellBinding, 12),
+		EnableOutcomeMerkle: true, EnableExtreme: enableExtreme}
 	for _, spec := range finalv5oracle.ExposureScaleDependencyCells() {
 		modes := byScale[spec.Scale]
 		novel, novelPresent := modes[finalv5oracle.ExposureScaleModeNovel]

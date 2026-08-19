@@ -1,6 +1,8 @@
 package finalv5binding
 
 import (
+	"bytes"
+	"encoding/json"
 	"path"
 	"reflect"
 	"strings"
@@ -229,8 +231,52 @@ func TestVerifiedRuntimeClosesScaleAndProvSQLPublicMatrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateContractRuntimeClosure(runtime); err != nil {
+	enableExtreme, err := validateContractRuntimeClosure(runtime)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !enableExtreme {
+		t.Fatal("verified runtime did not enable its exact Scale extreme grid")
+	}
+}
+
+func TestScaleExtremeFeatureFlagFollowsSourceControlledGridAndRoundTrips(t *testing.T) {
+	exact := []finalv5contracts.CellIdentity{
+		{ExperimentID: "scale-extreme", WorkloadID: "taskgate_scale_extreme", Scale: "10m", Mode: "kernel_storage_only"},
+		{ExperimentID: "scale-extreme", WorkloadID: "taskgate_scale_extreme", Scale: "100m", Mode: "kernel_storage_only"},
+	}
+	for _, test := range []struct {
+		name  string
+		cells []finalv5contracts.CellIdentity
+		want  bool
+	}{
+		{name: "exact extreme grid", cells: exact, want: true},
+		{name: "no extreme grid", cells: nil, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			enabled, err := scaleExtremeFeatureEnabled(test.cells)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding := ScaleBinding{EnableExtreme: enabled}
+			value, err := json.Marshal(binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(value, []byte(`"enable_extreme"`)) != test.want {
+				t.Fatalf("encoded Scale binding = %s; enable_extreme presence want %t", value, test.want)
+			}
+			var decoded ScaleBinding
+			if err := strictJSON(value, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.EnableExtreme != test.want {
+				t.Fatalf("decoded enable_extreme = %t, want %t", decoded.EnableExtreme, test.want)
+			}
+		})
+	}
+	if _, err := scaleExtremeFeatureEnabled(exact[:1]); err == nil {
+		t.Fatal("partial Scale extreme grid was accepted")
 	}
 }
 
