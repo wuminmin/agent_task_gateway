@@ -585,3 +585,24 @@ oracles, campaigns, or the paper are complete.
     per-profile launcher/finalizer path under v1.10 only. It does not authorise
     a deployment, campaign, measurement, capability flip, frozen-byte change,
     publication evidence, tag, or tag movement.
+
+35. **Repair the publication-binding generator to enable the frozen extreme
+    cells and prepare one replacement binding candidate.** (Taken 2026-08-19
+    by author wuminmin, answered exactly "1" in the agent conversation to the
+    options reported by P63e.) The `final_v5_adapter_v2.scale` section must
+    emit `enable_extreme=true` when the source-controlled extreme-cell
+    definitions are present, matching the Scale adapter's existing closed
+    consumption contract. The generator is repaired first and then rerun from
+    the same P45 input chain to produce a private mode-0600 candidate. The
+    currently signed publication binding remains unchanged and in use until
+    the author signs the replacement single file.
+
+    Signing session #2b supersedes only the publication-binding item from
+    signing session #2. The 135 oracle manifests and their signed identities
+    carry forward byte-for-byte; they are not regenerated or re-signed. The
+    candidate diff must be limited to `scale.enable_extreme` and its derived
+    digest closure. This decision authorises the generator repair, focused
+    tests, private candidate generation, validation, and single-file signing
+    manifest only. It does not approve or install the candidate, authorise a
+    deployment or campaign, change a capability, replace frozen bytes, or
+    approve a release, publication evidence, tag, or tag movement.
