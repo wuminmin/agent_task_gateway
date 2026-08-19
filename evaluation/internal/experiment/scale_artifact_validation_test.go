@@ -166,7 +166,7 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 		SchemaVersion: SampleSchemaVersion, ExperimentID: "scale", WorkloadID: "outcome-merkle", Scale: "10k-x100-o50", Mode: "merkle_control",
 		RandomSeed: 20260801,
 		System:     "taskgate", ResultSHA256: digest("a"), Counters: map[string]int64{
-			"blocks_loaded": 2, "leaves_loaded": 3, "hashes_loaded": 51, "blocks_reused": 254,
+			"blocks_loaded": 2, "leaves_loaded": 3, "hashes_loaded": 51, "blocks_reused": oracle.blocksReused,
 			"leaves_changed": 2, "novelty": 50, "storage_bytes": 3000,
 			"heap_alloc_bytes_after": 4000, "replay_changed_objects": 0,
 		}, DiagnosticMS: map[string]float64{"outcome_radix_load": 1, "outcome_radix_difference_union": 2, "outcome_radix_persist": 3},
@@ -180,7 +180,7 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 			CandidateMemberOracleSHA256: oracle.candidateSHA256, UnionMemberOracleSHA256: oracle.unionSHA256,
 			ObservedUnionMemberSHA256: oracle.unionSHA256,
 			ProductionRootSHA256:      digest("6"), ProductionUnionSHA256: digest("a"), ReplayUnionSHA256: digest("a"),
-			BlocksLoaded: 2, LeavesLoaded: 3, HashesLoaded: 51, BlocksReused: 254, LeavesChanged: 2,
+			BlocksLoaded: 2, LeavesLoaded: 3, HashesLoaded: 51, BlocksReused: oracle.blocksReused, LeavesChanged: 2,
 			ChangedObjects: 4, ReplayChangedObjects: 0, StorageObjectsBefore: 100, StorageObjectsAfter: 104,
 			StorageBytesBefore: 2000, StorageBytesAfter: 3000, HeapAllocBytesAfter: 4000,
 			LoadMS: 1, DifferenceUnionMS: 2, PersistMS: 3,
@@ -203,6 +203,10 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 			value.ObservedUnionMemberSHA256 = digest("f")
 		}},
 		{name: "counter", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) { value.Counters["novelty"]++ }},
+		{name: "forged zero reused blocks", mutate: func(value *Sample, evidence *OutcomeMerkleEvidence) {
+			value.Counters["blocks_reused"] = 0
+			evidence.BlocksReused = 0
+		}},
 		{name: "fake Task root", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) { value.RootTaskIDHash = digest("e") }},
 		{name: "fake governed acceptance", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) {
 			value.TaskGateAcceptanceV3 = &FinalizationV3{}
@@ -226,6 +230,32 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 				t.Fatal("tampered Outcome-Merkle evidence was accepted")
 			}
 		})
+	}
+}
+
+func TestOutcomeMerkleReusedBlocksFollowProductionGeometryForEveryFrozenCell(t *testing.T) {
+	wantByCandidateAndOverlap := map[string]int64{
+		"x1-o0": 255, "x1-o50": 256, "x1-o90": 256, "x1-o100": 256,
+		"x100-o0": 178, "x100-o50": 213, "x100-o90": 247, "x100-o100": 256,
+		"x10k-o0": 0, "x10k-o50": 0, "x10k-o90": 5, "x10k-o100": 256,
+	}
+	for _, root := range []string{"10k", "100k", "1m"} {
+		for candidateAndOverlap, want := range wantByCandidateAndOverlap {
+			scale := root + "-" + candidateAndOverlap
+			t.Run(scale, func(t *testing.T) {
+				spec, err := ParseOutcomeMerkleScale(scale)
+				if err != nil {
+					t.Fatal(err)
+				}
+				oracle, err := reconstructOutcomeMerkleOracle(20260801, scale, spec)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if oracle.blocksReused != want {
+					t.Fatalf("production-derived reused blocks = %d, want %d", oracle.blocksReused, want)
+				}
+			})
+		}
 	}
 }
 

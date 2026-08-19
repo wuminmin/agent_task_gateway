@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
@@ -542,11 +543,14 @@ func validateOutcomeMerkleVerification(sample Sample, evidence *ScaleVerificatio
 		return errors.New("Outcome-Merkle scale/cardinality/result binding is inconsistent")
 	}
 	if merkle.BlocksLoaded <= 0 || merkle.LeavesLoaded < 0 || merkle.HashesLoaded < 0 ||
-		merkle.BlocksReused <= 0 || merkle.StorageObjectsBefore < 0 ||
+		merkle.BlocksReused < 0 || merkle.StorageObjectsBefore < 0 ||
 		merkle.StorageObjectsAfter < merkle.StorageObjectsBefore || merkle.StorageBytesBefore <= 0 ||
 		merkle.StorageBytesAfter < merkle.StorageBytesBefore || merkle.LoadMS <= 0 ||
 		merkle.HeapAllocBytesAfter <= 0 || merkle.DifferenceUnionMS <= 0 || merkle.PersistMS <= 0 || merkle.ReplayChangedObjects != 0 {
 		return errors.New("Outcome-Merkle production telemetry is absent or incoherent")
+	}
+	if merkle.BlocksReused != oracle.blocksReused {
+		return errors.New("Outcome-Merkle reused-block telemetry differs from the frozen production geometry")
 	}
 	if spec.OverlapFacts > 0 && (merkle.LeavesLoaded <= 0 || merkle.HashesLoaded <= 0) {
 		return errors.New("overlapping Outcome-Merkle candidate did not load its committed leaf")
@@ -582,12 +586,14 @@ type reconstructedOutcomeMerkleOracle struct {
 	rootSHA256      string
 	candidateSHA256 string
 	unionSHA256     string
+	blocksReused    int64
 }
 
 type reconstructedOutcomeRoot struct {
-	members [][sha256.Size]byte
-	digest  string
-	err     error
+	members       [][sha256.Size]byte
+	digest        string
+	blockPrefixes map[byte]struct{}
+	err           error
 }
 
 var reconstructedOutcomeRoots sync.Map
@@ -624,15 +630,29 @@ func reconstructOutcomeMerkleOracle(seed int64, scale string,
 		seenCandidate[member] = true
 		candidate = append(candidate, member)
 	}
+	novel := append([][sha256.Size]byte(nil), candidate[spec.OverlapFacts:]...)
 	sort.Slice(candidate, func(left, right int) bool {
 		return bytes.Compare(candidate[left][:], candidate[right][:]) < 0
 	})
+	novelBlockPrefixes, err := outcomeMerkleBlockPrefixes(novel)
+	if err != nil {
+		return reconstructedOutcomeMerkleOracle{}, fmt.Errorf("derive novel Outcome-Merkle block geometry: %w", err)
+	}
+	// A root block is reused exactly when no novel member lands in its
+	// production-derived block prefix. Overlap-only prefixes rebuild the same
+	// canonical block, while a novel member changes that block's cardinality.
+	blocksReused := int64(len(root.blockPrefixes))
+	for prefix := range novelBlockPrefixes {
+		if _, present := root.blockPrefixes[prefix]; present {
+			blocksReused--
+		}
+	}
 	candidateDigest := ordinaryOutcomeOracleDigest(candidate)
 	unionDigest := ordinaryOutcomeOracleUnionDigest(root.members, candidate)
 	fixtureDigest := sha256Hex([]byte(strings.Join([]string{"TASKGATE-FINAL-V5-OUTCOME-FIXTURE-V1",
 		strconv.FormatInt(seed, 10), scale, root.digest, candidateDigest, unionDigest}, "\x00")))
 	result := reconstructedOutcomeMerkleOracle{fixtureSHA256: fixtureDigest, rootSHA256: root.digest,
-		candidateSHA256: candidateDigest, unionSHA256: unionDigest}
+		candidateSHA256: candidateDigest, unionSHA256: unionDigest, blocksReused: blocksReused}
 	reconstructedOutcomeOracles.Store(key, result)
 	return result, nil
 }
@@ -658,8 +678,35 @@ func reconstructOutcomeRoot(seed, facts int64) reconstructedOutcomeRoot {
 		}
 	}
 	result.members, result.digest = members, ordinaryOutcomeOracleDigest(members)
+	result.blockPrefixes, result.err = outcomeMerkleBlockPrefixes(members)
 	reconstructedOutcomeRoots.Store(key, result)
 	return result
+}
+
+// outcomeMerkleBlockPrefixes deliberately asks the production hash-set
+// constructor for its physical partitioning. The evaluation invariant thus
+// follows the single production block geometry instead of copying its prefix
+// width or leaf-chunk constants into a second implementation.
+func outcomeMerkleBlockPrefixes(members [][sha256.Size]byte) (map[byte]struct{}, error) {
+	hashes := make([]string, len(members))
+	for index, member := range members {
+		hashes[index] = hex.EncodeToString(member[:])
+	}
+	objects, err := control.BuildOutcomeHashSetV5(hashes)
+	if err != nil {
+		return nil, err
+	}
+	prefixes := make(map[byte]struct{}, objects.Set.BlockCount)
+	for _, block := range objects.Blocks {
+		if _, exists := prefixes[block.Prefix8]; exists {
+			return nil, errors.New("production Outcome-Merkle geometry emitted duplicate block prefixes")
+		}
+		prefixes[block.Prefix8] = struct{}{}
+	}
+	if len(prefixes) != objects.Set.BlockCount {
+		return nil, errors.New("production Outcome-Merkle block count differs from its exact prefixes")
+	}
+	return prefixes, nil
 }
 
 func deterministicOutcomeOracleMember(kind string, seed, index int64) [sha256.Size]byte {

@@ -81,12 +81,12 @@ jq -n --arg baseline_commit "$TASKGATE_SUBMISSION_COMMIT" --arg source_sha256 "$
     source_files:$source_files}' >"$adapter_manifest"
 chmod 600 "$adapter_manifest"
 
-# P46 authorizes only this exact private binding after a source-built adapter
+# P64b authorizes only this exact private binding after a source-built adapter
 # reports the complete current Catalog/Dataset/section closure. Keep the
 # private bytes out of the campaign tree; retain the path, exact identities,
 # validator report, and the derived current_valid assertion instead.
-expected_binding_sha=3bb2771fa07b3cd7b0e0d806cf84af41d05628b958f425310368b854b77b7526
-expected_binding_section_sha=a32e78ba5c19ece0b391cbdd0456d3446459e1df1ea41d70933268da09d18290
+expected_binding_sha=3ae86ce4d2b7a94916dc11e5e0092ec5e5280ec6e27a2964a50bda43bcc13380
+expected_binding_section_sha=b088b75e2c81a39ad5219ea36a4d1c8c8abf3e11e32570ddce3ad0b8bb756d5c
 expected_binding_catalog_sha=ac2dc5cf30ef500a96c15bbbe2d6e067a4ed9eedb18c93970c40cea652eb88b6
 expected_binding_dataset_sha=f90239bb32ef9542089ca8f1bd7c30c7870cbe627e835698364bdb9b4dc15978
 expected_binding_probe_sha=0eb905408442997de37ac810683f18c758b614a716c50758312015aeb753d314
@@ -345,8 +345,8 @@ jq -e '
   .formal_campaign == false and .deployments == 0 and (.groups | length) == 3 and
   ([.groups[].id] | sort) == ["compiler","scale-kernel-storage","scale-outcome-merkle"] and
   .private_dataset_binding.current_valid == true and
-  .private_dataset_binding.sha256 == "3bb2771fa07b3cd7b0e0d806cf84af41d05628b958f425310368b854b77b7526" and
-  .private_dataset_binding.section_sha256 == "a32e78ba5c19ece0b391cbdd0456d3446459e1df1ea41d70933268da09d18290" and
+  .private_dataset_binding.sha256 == "3ae86ce4d2b7a94916dc11e5e0092ec5e5280ec6e27a2964a50bda43bcc13380" and
+  .private_dataset_binding.section_sha256 == "b088b75e2c81a39ad5219ea36a4d1c8c8abf3e11e32570ddce3ad0b8bb756d5c" and
   ([.groups[] | select(.id == "scale-outcome-merkle" or .id == "scale-kernel-storage") |
     .private_dataset_binding.consumed] == [true,true]) and
   ([.groups[] | select(.id == "compiler") | .private_dataset_binding.consumed] == [false]) and
