@@ -52,17 +52,14 @@ func committedSupport(t *testing.T) finalv5profile.ActivationSupport {
 	return support
 }
 
-// The eight live-route profiles have completed a smoke under the current
-// contract release. Evidence from an earlier release does not carry forward,
-// so every other profile remains unsupported until it is activated again.
+// The eleven live-route profiles have completed a smoke under the current
+// contract release. Evidence from an earlier release does not carry forward.
 func TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles(t *testing.T) {
 	support := committedSupport(t)
 	proven := map[string]bool{
 		"rls-unlimited": true, "expense-detail": true, "attack-expense-detail": true,
 		"rls-bounded": true, "concurrency-expense-detail": true,
 		"provsql-nonce-join": true, "result-heavy": true, "exposure-scale": true,
-	}
-	unproven := map[string]bool{
 		"depth4-semantic-view": true, "analytics-orders-lineitem": true,
 		"analytics-orders": true,
 	}
@@ -78,13 +75,6 @@ func TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles(t *test
 			if len(profile.ActivationEvidenceSHA256) == 0 {
 				t.Errorf("proven profile %s carries no evidence digest", profile.ProfileAlias)
 			}
-		case unproven[profile.ProfileAlias]:
-			if profile.ActivationSupported || profile.ActivationSmokePassed {
-				t.Errorf("unproven profile %s claims activation support", profile.ProfileAlias)
-			}
-			if !strings.Contains(profile.Reason, "live_activation_smoke_not_executed") {
-				t.Errorf("unproven profile %s reason = %q", profile.ProfileAlias, profile.Reason)
-			}
 		default:
 			t.Errorf("unexpected profile %s in the manifest", profile.ProfileAlias)
 		}
@@ -92,11 +82,6 @@ func TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles(t *test
 	for alias := range proven {
 		if !seen[alias] {
 			t.Errorf("proven profile %s is missing from the manifest", alias)
-		}
-	}
-	for alias := range unproven {
-		if !seen[alias] {
-			t.Errorf("unproven profile %s is missing from the manifest", alias)
 		}
 	}
 }
@@ -500,11 +485,11 @@ func TestCommittedRegistryMatchesTheManifest(t *testing.T) {
 			t.Errorf("%s: routable is not derived", profile.Alias)
 		}
 	}
-	if supported != 8 {
-		t.Errorf("registry reports %d activation-supported profiles, want 8", supported)
+	if supported != 11 {
+		t.Errorf("registry reports %d activation-supported profiles, want 11", supported)
 	}
-	if eligible != 8 {
-		t.Errorf("registry reports %d targeted-run-eligible profiles, want 8", eligible)
+	if eligible != 11 {
+		t.Errorf("registry reports %d targeted-run-eligible profiles, want 11", eligible)
 	}
 	if routable != 0 {
 		t.Errorf("registry reports %d routable profiles, want 0", routable)

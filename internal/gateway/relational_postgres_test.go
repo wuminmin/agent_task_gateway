@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
+	"taskbound.local/agent-data-gateway/internal/catalogschema"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
@@ -177,13 +178,14 @@ func TestRelationalGatewayEndToEndAgainstPostgreSQL(t *testing.T) {
 	harness := newGatewayHarness(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if len(harness.catalog.Sources) != 1 {
-		t.Fatalf("gateway E2E requires one Catalog source, got %d", len(harness.catalog.Sources))
+	built, err := catalogschema.Build(harness.catalog)
+	if err != nil {
+		t.Fatal(err)
 	}
-	source := harness.catalog.Sources[0]
+	source := built.Source
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
 		DSN: dsn, StatementTimeout: 5 * time.Second, ConnectTimeout: 5 * time.Second, MaxRows: 500, MaxConnections: 2,
-		ExpectedSchema:       relationalExpectedSchema(t, harness.catalog),
+		ExpectedSchema:       built.Entries,
 		ExpectedSchemaDigest: source.SchemaDigest,
 		ExpectedAttestation: dataconnector.ExpectedAttestation{
 			DatasourceID: source.DatasourceID, Database: source.Database, User: source.User,
@@ -311,21 +313,4 @@ func splitReportingView(t *testing.T, value string) []string {
 	}
 	t.Fatalf("invalid reporting view %q", value)
 	return nil
-}
-
-func relationalExpectedSchema(t *testing.T, loaded *catalog.Catalog) []dataconnector.ViewSchema {
-	t.Helper()
-	result := make([]dataconnector.ViewSchema, 0, len(loaded.Products))
-	for _, product := range loaded.Products {
-		parts := splitReportingView(t, product.ReportingView)
-		columns := make([]dataconnector.SchemaColumn, 0, len(product.Fields))
-		for _, field := range product.Fields {
-			columns = append(columns, dataconnector.SchemaColumn{
-				Name: field.Name, PostgreSQLType: field.Type, Collation: field.Collation,
-				CollationVersion: field.CollationVersion, CollationDeterministic: field.Collation != "",
-			})
-		}
-		result = append(result, dataconnector.ViewSchema{Schema: parts[0], View: parts[1], Columns: columns})
-	}
-	return result
 }
