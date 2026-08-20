@@ -196,8 +196,8 @@ func TestApprovalCallbackPhaseTimingIsOffByDefaultAndCompleteWhenEnabled(t *test
 
 	var disabled bytes.Buffer
 	disabledStore := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 44), WithClock(clock))
-	createAwaitingApprovalTask(t, disabledStore, "task_callback_timing_off", expires)
-	approveTask(t, disabledStore, "task_callback_timing_off", expires, BudgetLimits{Queries: 2, Rows: 10, DBMS: 1000})
+	createCallbackTimingTask(t, disabledStore, "task_callback_timing_off", expires)
+	submitCallbackTimingTask(t, disabledStore, "task_callback_timing_off")
 	if disabled.Len() != 0 || disabledStore.callbackPhaseTiming != nil {
 		t.Fatalf("default-disabled callback timing emitted output or installed a recorder: bytes=%d recorder=%v", disabled.Len(), disabledStore.callbackPhaseTiming != nil)
 	}
@@ -205,7 +205,8 @@ func TestApprovalCallbackPhaseTimingIsOffByDefaultAndCompleteWhenEnabled(t *test
 	var enabled bytes.Buffer
 	enabledStore := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 45),
 		WithClock(clock), WithCallbackPhaseTiming(&enabled))
-	createAwaitingApprovalTask(t, enabledStore, "task_callback_timing_on", expires)
+	createCallbackTimingTask(t, enabledStore, "task_callback_timing_on", expires)
+	submitCallbackTimingTask(t, enabledStore, "task_callback_timing_on")
 	approveTask(t, enabledStore, "task_callback_timing_on", expires, BudgetLimits{Queries: 2, Rows: 10, DBMS: 1000})
 	var record CallbackPhaseTimingV1
 	if err := json.NewDecoder(&enabled).Decode(&record); err != nil {
@@ -213,7 +214,7 @@ func TestApprovalCallbackPhaseTimingIsOffByDefaultAndCompleteWhenEnabled(t *test
 	}
 	if record.SchemaVersion != 1 || record.Record != CallbackPhaseTimingV1Record ||
 		record.TaskID != "task_callback_timing_on" || record.TaskIDSHA256 != CallbackPhaseTaskIDSHA256(record.TaskID) ||
-		record.EventID != "oa_task_callback_timing_on" || record.FinalResult != "committed" ||
+		record.EventID != "oa_submitted_task_callback_timing_on" || record.FinalResult != "committed" ||
 		record.ErrorClass != "none" || len(record.Phases) != len(callbackPhaseOrder) {
 		t.Fatalf("unexpected callback phase timing record: %+v", record)
 	}
@@ -222,6 +223,37 @@ func TestApprovalCallbackPhaseTimingIsOffByDefaultAndCompleteWhenEnabled(t *test
 			phase.StartedOffsetMS < 0 || phase.FinishedOffsetMS < phase.StartedOffsetMS || phase.DurationMS < 0 {
 			t.Fatalf("callback phase[%d] is incomplete: %+v", index, phase)
 		}
+	}
+	if enabled.Len() != 0 {
+		t.Fatalf("non-submitted approval callback emitted an extra timing record: %q", enabled.String())
+	}
+}
+
+func createCallbackTimingTask(t *testing.T, store *Store, taskID string, expires time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	principalID := "principal_" + taskID
+	if err := store.CreatePrincipal(ctx, Principal{ID: principalID, Subject: "alice_" + taskID, Role: "requester"}); err != nil {
+		t.Fatalf("CreatePrincipal: %v", err)
+	}
+	if err := store.CreateTask(ctx, Task{ID: taskID, PrincipalID: principalID, Objective: "callback timing",
+		State: TaskAwaitingSubmission, CatalogVersion: "catalog-v1", ExpiresAt: &expires}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+}
+
+func submitCallbackTimingTask(t *testing.T, store *Store, taskID string) {
+	t.Helper()
+	claim, err := store.ApplyApprovalCallback(context.Background(), ApprovalCallback{
+		EventID: "oa_submitted_" + taskID, RawPayload: []byte(`{"status":"submitted"}`),
+		Event:         ApprovalEvent{TaskID: taskID, Actor: "oa", Decision: "submitted"},
+		ExpectedState: TaskAwaitingSubmission, NewState: TaskAwaitingApproval, Response: []byte(`{"ok":true}`),
+	})
+	if err != nil {
+		t.Fatalf("ApplyApprovalCallback submitted: %v", err)
+	}
+	if !claim.Claimed || claim.Status != CallbackCompleted {
+		t.Fatalf("unexpected submitted callback claim: %+v", claim)
 	}
 }
 

@@ -241,7 +241,11 @@ type ApprovalCallback struct {
 
 func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCallback) (claimResult CallbackClaim, resultErr error) {
 	const op = "apply approval callback"
-	trace := s.newCallbackPhaseTrace(callback.Event.TaskID, callback.EventID)
+	var trace *callbackPhaseTrace
+	if callback.ExpectedState == TaskAwaitingSubmission && callback.NewState == TaskAwaitingApproval &&
+		callback.Reason == "" && callback.Grant == nil {
+		trace = s.newCallbackPhaseTrace(callback.Event.TaskID, callback.EventID)
+	}
 	defer func() { trace.finish(resultErr, claimResult.Replay) }()
 	ctx = withCallbackPhaseTrace(ctx, trace)
 	if err := s.checkOpen(op); err != nil {
