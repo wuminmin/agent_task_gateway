@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p68d-analyzer-closure-v1",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "source_evidence": {
+    "raw_samples_sha256": "4622365ea19d1d7170404e0301d78187fc4021d3360895b743608ab1bb6e4622",
+    "adapter_stderr_sha256": "b710a6b90867c075b3a6096e6af338e1975d802e52db52b4dd1d912e45b4a27b",
+    "observer_sha256": "d62c1eb9ce883c4dfa081ba6c8a6bc726ec21950b3d2eabcee2912a116b3f2a4",
+    "diagnosis_failure_sha256": "fccbee30d485003dc177316cb35d0bbd52dee5a6c2df5a98b3011e2f4729ddfa"
+  },
+  "analyzer_outputs": {
+    "summary": "analyzer-closure.json",
+    "summary_sha256": "4dcd9f8e854439f0314e03aaea64e4a7e1f7a22d45b980dc97289d96053ac321",
+    "migration_curve": "migration-curve.csv",
+    "migration_curve_sha256": "1bee265647c3bf43d9915f8ae3251e26f30ed985ecdf80e9062256182cdd550c",
+    "state_curve": "state-curve.csv",
+    "state_curve_sha256": "5bef3de918e023efb9c030449d45b31162d2995f7827ef39c742fabbcacc6a1f",
+    "correlation": "correlation.json",
+    "correlation_sha256": "f47d09025ff04803ea56002de3b75d71725c57960564a5d959c7a86cd88b43b6"
+  },
+  "input_accounting": {
+    "raw_records": 271,
+    "measured_samples": 270,
+    "excluded_warmup_records": 1,
+    "operation_records": 315,
+    "observer_snapshots": 1006
+  },
+  "analyzer_verdict": "cliff_reproduced",
+  "timeout_records": 48,
+  "timeout_order_positions": "268-315",
+  "measured_status_counts": {
+    "pass": 221,
+    "fail": 48,
+    "invalid": 1
+  },
+  "v3_acceptance_verdict": "not_applicable_by_concurrency_contract",
+  "v3_acceptance_records": 0,
+  "profile_campaign_terminal_verdict": "fail",
+  "publication_eligible": false,
+  "deployment_performed": false
+}
