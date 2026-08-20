@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -90,18 +91,9 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 	if err != nil {
 		return false, err
 	}
-	samples := make(map[string]experiment.Sample, len(records))
-	statusCounts := make(map[string]int)
-	for _, record := range records {
-		sample := record.Sample
-		if record.CampaignClass != "pilot" || sample.PublicationEligible || sample.ExperimentID != "concurrency" || sample.Warmup {
-			return false, errors.New("diagnosis samples are not measured non-publication concurrency records")
-		}
-		if _, duplicate := samples[sample.SampleID]; duplicate {
-			return false, errors.New("diagnosis samples contain a duplicate identity")
-		}
-		samples[sample.SampleID] = sample
-		statusCounts[sample.Status]++
+	samples, statusCounts, excludedWarmupRecords, err := selectMeasuredSamples(records)
+	if err != nil {
+		return false, err
 	}
 	migrations, timeoutRecords, err := readMigrations(migrationPath, samples)
 	if err != nil {
@@ -111,8 +103,8 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 	if err != nil {
 		return false, err
 	}
-	if len(records) != 270 {
-		return false, fmt.Errorf("diagnosis retained %d measured samples, want frozen density 270", len(records))
+	if len(samples) != 270 {
+		return false, fmt.Errorf("diagnosis retained %d measured samples, want frozen density 270", len(samples))
 	}
 	if err := writeMigrationCSV(migrationCSV, migrations); err != nil {
 		return false, err
@@ -145,7 +137,8 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 	summary := map[string]any{
 		"schema_version": 1, "record": "taskgate-final-v5-cliff-diagnosis-v1",
 		"classification": diagnosisMarker, "status": "complete", "publication_eligible": false,
-		"measured_samples": len(records), "operation_records": len(migrations), "observer_snapshots": len(observers),
+		"measured_samples": len(samples), "excluded_warmup_records": excludedWarmupRecords,
+		"operation_records": len(migrations), "observer_snapshots": len(observers),
 		"sample_status_counts": statusCounts, "migration_timeout_records": timeoutRecords,
 		"first_timeout_order_position": firstTimeout, "last_timeout_order_position": lastTimeout,
 		"cliff_reproduced": reproduced,
@@ -156,6 +149,30 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 		return false, err
 	}
 	return reproduced, nil
+}
+
+func selectMeasuredSamples(records []experiment.ProfileCampaignSampleV1) (map[string]experiment.Sample, map[string]int, int, error) {
+	samples := make(map[string]experiment.Sample, len(records))
+	statusCounts := make(map[string]int)
+	seen := make(map[string]bool, len(records))
+	excludedWarmupRecords := 0
+	for _, record := range records {
+		sample := record.Sample
+		if record.CampaignClass != "pilot" || sample.PublicationEligible || sample.ExperimentID != "concurrency" {
+			return nil, nil, 0, errors.New("diagnosis samples are not non-publication concurrency records")
+		}
+		if seen[sample.SampleID] {
+			return nil, nil, 0, errors.New("diagnosis samples contain a duplicate identity")
+		}
+		seen[sample.SampleID] = true
+		if sample.Warmup {
+			excludedWarmupRecords++
+			continue
+		}
+		samples[sample.SampleID] = sample
+		statusCounts[sample.Status]++
+	}
+	return samples, statusCounts, excludedWarmupRecords, nil
 }
 
 func readMigrations(path string, samples map[string]experiment.Sample) ([]sampleMigration, int, error) {
@@ -169,8 +186,12 @@ func readMigrations(path string, samples map[string]experiment.Sample) ([]sample
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
 		var members map[string]json.RawMessage
-		if err := experiment.StrictJSON(scanner.Bytes(), &members); err != nil {
+		if err := experiment.StrictJSON(line, &members); err != nil {
 			return nil, 0, err
 		}
 		var record string
@@ -179,7 +200,7 @@ func readMigrations(path string, samples map[string]experiment.Sample) ([]sample
 			continue
 		}
 		var diagnostic experiment.TaskMigrationWaitDiagnosticV1
-		if err := experiment.StrictJSON(scanner.Bytes(), &diagnostic); err != nil {
+		if err := experiment.StrictJSON(line, &diagnostic); err != nil {
 			return nil, 0, err
 		}
 		if err := diagnostic.Validate(); err != nil {

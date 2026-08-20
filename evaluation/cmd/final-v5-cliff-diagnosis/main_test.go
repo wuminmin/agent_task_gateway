@@ -22,6 +22,32 @@ func TestPearsonRanksSynchronousAndConstantMetrics(t *testing.T) {
 	}
 }
 
+func TestSelectMeasuredSamplesReportsAndExcludesWarmups(t *testing.T) {
+	records := []experiment.ProfileCampaignSampleV1{
+		{CampaignClass: "pilot", Sample: experiment.Sample{SampleID: "warmup-1", ExperimentID: "concurrency", Warmup: true, Status: "invalid"}},
+		{CampaignClass: "pilot", Sample: experiment.Sample{SampleID: "measured-1", ExperimentID: "concurrency", Status: "pass"}},
+	}
+	samples, statuses, excluded, err := selectMeasuredSamples(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples["measured-1"].Warmup || statuses["pass"] != 1 || excluded != 1 {
+		t.Fatalf("samples=%+v statuses=%+v excluded=%d", samples, statuses, excluded)
+	}
+}
+
+func TestSelectMeasuredSamplesKeepsNonWarmupContractFailClosed(t *testing.T) {
+	tests := []experiment.ProfileCampaignSampleV1{
+		{CampaignClass: "publication", Sample: experiment.Sample{SampleID: "wrong-class", ExperimentID: "concurrency", PublicationEligible: true}},
+		{CampaignClass: "pilot", Sample: experiment.Sample{SampleID: "wrong-experiment", ExperimentID: "baseline"}},
+	}
+	for _, record := range tests {
+		if _, _, _, err := selectMeasuredSamples([]experiment.ProfileCampaignSampleV1{record}); err == nil {
+			t.Fatalf("accepted invalid record: %+v", record)
+		}
+	}
+}
+
 func TestReadMigrationsRetainsFrozenDensityAndFindsTailTimeouts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "migration.jsonl")
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -29,6 +55,9 @@ func TestReadMigrationsRetainsFrozenDensityAndFindsTailTimeouts(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoder := json.NewEncoder(file)
+	if _, err := fmt.Fprintln(file, "concurrency diagnostic progress"); err != nil {
+		t.Fatal(err)
+	}
 	samples := make(map[string]experiment.Sample, 270)
 	for position := 1; position <= 315; position++ {
 		sampleID := fmt.Sprintf("sample-%04d", position)
