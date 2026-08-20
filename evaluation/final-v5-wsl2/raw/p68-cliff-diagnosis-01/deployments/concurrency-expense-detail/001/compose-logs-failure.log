@@ -1,0 +1,525 @@
+business-postgres-1              | CREATE TABLE
+result-object-store-init-1       | Added `taskgate` successfully.
+control-postgres-1               | The files belonging to this database system will be owned by user "postgres".
+result-object-store-init-1       | Bucket created successfully `taskgate/taskgate-results`.
+snapshot-index-result-heavy-1    | publication_dir=/data/snapshot-index/final-v5-result-heavy-v1
+snapshot-index-detail-1          | publication_dir=/data/snapshot-index/expense-detail-v1
+snapshot-index-exposure-scale-1  | publication_dir=/data/snapshot-index/final-v5-exposure-scale-v1
+snapshot-index-exposure-scale-1  | manifest_digest=3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff
+gateway-1                        | {"time":"2026-08-20T07:04:26.361079307Z","level":"INFO","msg":"gateway listening","address":":8082"}
+snapshot-index-result-heavy-1    | manifest_digest=80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd
+snapshot-index-exposure-scale-1  | dictionary_digest=2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5
+snapshot-index-result-heavy-1    | dictionary_digest=9d014210da03effded9c72f42fe1af370c9a563fbee6315c298c10560a7254c0
+snapshot-index-exposure-scale-1  | sidecar_digest=8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df
+business-postgres-1              | INSERT 0 4
+result-object-store-1            | INFO: Formatting 1st pool, 1 set(s), 1 drives per set.
+result-object-store-init-1       | Access permission for `taskgate/taskgate-results` is set to `private`
+result-object-store-init-1       | Added user `taskgate-gateway` successfully.
+business-postgres-1              | INSERT 0 10
+final-v5-provsql-postgres-1      | The files belonging to this database system will be owned by user "postgres".
+snapshot-index-detail-1          | manifest_digest=f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915
+business-postgres-1              | SELECT 10
+snapshot-index-result-heavy-1    | sidecar_digest=f50d45943e4388bc9cbc897be0ff337bf76cf004cd55e553fdab8695b567a1fc
+snapshot-index-detail-1          | dictionary_digest=315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
+snapshot-sidecar-install-1       | installed_publication=expense-detail-v1 row_count=10 manifest_digest=f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915 sidecar=taskgate_ordinal.expense_detail_v1
+snapshot-index-result-heavy-1    | cold_payload_digest=26221cfb1471aa58851849a9ef0e04c0752e8b48e49a063c545d045a494f1f4e
+final-v5-provsql-postgres-1      | This user must also own the server process.
+snapshot-index-result-heavy-1    | hot_index_digest=ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/expense-summary-v1
+snapshot-sidecar-install-1       | installed_publication=expense-summary-v1 row_count=10 manifest_digest=fab914ec7a73ca135d53b510e9699ceb11766c54aeacc01ce8468a0ab933ca9c sidecar=taskgate_ordinal.expense_summary_v1
+snapshot-index-detail-1          | sidecar_digest=bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
+snapshot-sidecar-install-1       | installed_publication=provsql-orders-v1 row_count=50000 manifest_digest=e79cda20623ec8904f834273800f466918578072d336bdfaef160974ae155909 sidecar=taskgate_ordinal.provsql_orders_v1
+snapshot-index-summary-1         | manifest_digest=fab914ec7a73ca135d53b510e9699ceb11766c54aeacc01ce8468a0ab933ca9c
+snapshot-index-detail-1          | cold_payload_digest=6ae1f688f5bafac44723624a6df5e72cc636c68aca213e92d62a47d97fa88cd6
+final-v5-provsql-postgres-1      | 
+gateway-1                        | {"time":"2026-08-20T07:04:29.540828249Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_ab5294ac86baac4eeb50e2c8b295d926","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+snapshot-index-detail-1          | hot_index_digest=ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675
+gateway-1                        | {"time":"2026-08-20T07:04:29.541428068Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_a930d1c38d08061fd2a5d8a91857532f","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+final-v5-direct-postgres-1       | The files belonging to this database system will be owned by user "postgres".
+final-v5-direct-postgres-1       | This user must also own the server process.
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | The database cluster will be initialized with locale "en_US.utf8".
+final-v5-direct-postgres-1       | The default database encoding has accordingly been set to "UTF8".
+final-v5-direct-postgres-1       | The default text search configuration will be set to "english".
+snapshot-index-exposure-scale-1  | cold_payload_digest=c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c
+oa-demo-1                        | {"time":"2026-08-20T07:04:21.09148153Z","level":"INFO","msg":"oa demo listening","address":":8092"}
+snapshot-index-exposure-scale-1  | hot_index_digest=43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f
+control-postgres-1               | This user must also own the server process.
+control-postgres-1               | 
+control-postgres-1               | The database cluster will be initialized with locale "en_US.utf8".
+control-postgres-1               | The default database encoding has accordingly been set to "UTF8".
+control-postgres-1               | The default text search configuration will be set to "english".
+control-postgres-1               | 
+control-postgres-1               | Data page checksums are disabled.
+snapshot-sidecar-install-1       | installed_publication=provsql-lineitem-v1 row_count=250000 manifest_digest=4be0601c8b909e89051e4018c430542e9d1c1827460b82a3f0cd7eff66e25ab5 sidecar=taskgate_ordinal.provsql_lineitem_v1
+snapshot-index-summary-1         | dictionary_digest=ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
+snapshot-index-summary-1         | sidecar_digest=2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
+snapshot-index-summary-1         | cold_payload_digest=5c829b553fabc808791d74240b8a43bba6f38e14950b9bd630aa016b8c5e590e
+snapshot-index-summary-1         | hot_index_digest=d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-orders-v1
+snapshot-index-summary-1         | manifest_digest=e79cda20623ec8904f834273800f466918578072d336bdfaef160974ae155909
+snapshot-index-summary-1         | dictionary_digest=af304d7670eb00a84f671690df5bea26815edf9e53e6c2c2b1878e3153d8e975
+snapshot-sidecar-install-1       | installed_publication=provsql-nonce-v1 row_count=1000 manifest_digest=0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb sidecar=taskgate_ordinal.provsql_nonce_v1
+result-object-store-1            | INFO: WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.
+result-object-store-1            | MinIO Object Storage Server
+snapshot-sidecar-install-1       | installed_publication=final-v5-result-heavy-v1 row_count=100000 manifest_digest=80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd sidecar=taskgate_ordinal.final_v5_result_heavy_v1
+result-object-store-init-1       | Created policy `taskgate-result-artifacts` successfully.
+snapshot-sidecar-install-1       | installed_publication=final-v5-exposure-scale-v1 row_count=414000 manifest_digest=3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff sidecar=taskgate_ordinal.final_v5_exposure_scale_v1
+result-object-store-init-1       | Attached Policies: [taskgate-result-artifacts]
+result-object-store-init-1       | To User: taskgate-gateway
+business-postgres-1              | SELECT 10
+business-postgres-1              | SELECT 10
+business-postgres-1              | SELECT 10
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | psql:/docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql:5: NOTICE:  schema "reporting" already exists, skipping
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 50000
+business-postgres-1              | INSERT 0 250000
+business-postgres-1              | INSERT 0 1000
+business-postgres-1              | CREATE INDEX
+business-postgres-1              | ANALYZE
+business-postgres-1              | ANALYZE
+business-postgres-1              | ANALYZE
+business-postgres-1              | SELECT 50000
+business-postgres-1              | SELECT 250000
+result-object-store-1            | Copyright: 2015-2026 MinIO, Inc.
+gateway-1                        | {"time":"2026-08-20T07:04:29.541907161Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_87a97113de64a8fee96b387636bb3103","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+control-postgres-1               | 
+final-v5-direct-postgres-1       | 
+gateway-1                        | {"time":"2026-08-20T07:04:29.542334126Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_066992f70d8fe4e1c332fc35e508719d","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+gateway-1                        | {"time":"2026-08-20T07:04:29.54267458Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5ab721d922b31c6b01163645d63f9f68","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+gateway-1                        | {"time":"2026-08-20T07:04:29.543040641Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_3c329c38dca6c24206f6fd53b36be52f","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+final-v5-direct-postgres-1       | Data page checksums are disabled.
+gateway-1                        | {"time":"2026-08-20T07:04:29.543422441Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_2454daa9854f218e08216eb0dd6acc42","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+final-v5-direct-postgres-1       | 
+business-postgres-1              | SELECT 1000
+final-v5-direct-postgres-1       | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+business-postgres-1              | REVOKE
+final-v5-direct-postgres-1       | creating subdirectories ... ok
+business-postgres-1              | REVOKE
+final-v5-direct-postgres-1       | selecting dynamic shared memory implementation ... posix
+business-postgres-1              | REVOKE
+final-v5-direct-postgres-1       | selecting default max_connections ... 100
+final-v5-direct-postgres-1       | selecting default shared_buffers ... 128MB
+final-v5-direct-postgres-1       | selecting default time zone ... Etc/UTC
+final-v5-direct-postgres-1       | creating configuration files ... ok
+final-v5-direct-postgres-1       | running bootstrap script ... ok
+final-v5-direct-postgres-1       | performing post-bootstrap initialization ... ok
+final-v5-direct-postgres-1       | syncing data to disk ... ok
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | Success. You can now start the database server using:
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | initdb: warning: enabling "trust" authentication for local connections
+final-v5-direct-postgres-1       | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+snapshot-index-summary-1         | sidecar_digest=a75e4a6aa2f9b6cf724c295e7b9ec2e75460015f31a21e87b6791223d52aba18
+snapshot-index-summary-1         | cold_payload_digest=57bd85b7ffdcf3fdb725356e1ceff6785a0abfa2934d2c84a50933a87e1e4131
+snapshot-index-summary-1         | hot_index_digest=80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-lineitem-v1
+snapshot-index-summary-1         | manifest_digest=4be0601c8b909e89051e4018c430542e9d1c1827460b82a3f0cd7eff66e25ab5
+snapshot-index-summary-1         | dictionary_digest=e718bc8f0d9eeb92069cbb7df26b8041e6ebc13ca8ef0943ba77e280cfd9895d
+snapshot-index-summary-1         | sidecar_digest=f8b90a24a69fe0fdcc0423462fd9920e44860eb38b881d8e803622d89285cfa2
+snapshot-index-summary-1         | cold_payload_digest=09348d31b4c5f2a05a92908ee69f4b16b7b27f771dfd07208b41b16027a7f17f
+business-postgres-1              | COMMIT
+snapshot-index-summary-1         | hot_index_digest=65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1
+gateway-1                        | {"time":"2026-08-20T07:04:29.543803212Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_4b597314216676fea49a014662c7f36c","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+control-postgres-1               | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-nonce-v1
+snapshot-index-summary-1         | manifest_digest=0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb
+gateway-1                        | {"time":"2026-08-20T07:04:29.54415959Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_848a6304c756252f879043375edf56bd","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+snapshot-index-summary-1         | dictionary_digest=8f44bdcadfe186a39533be51b885f02b195095830acaaf57330acc0e7ab102de
+result-object-store-1            | License: GNU AGPLv3 - https://www.gnu.org/licenses/agpl-3.0.html
+snapshot-index-summary-1         | sidecar_digest=be22806ef83c069ae6da1fc08983b503e59fadb0acf45ce4a7417d12dfdbd9dd
+snapshot-index-summary-1         | cold_payload_digest=7c2e49619a3fd7782e4279943534db748ddcc08ed4c7fd396c7d854f63703718
+result-object-store-1            | Version: RELEASE.2025-04-22T22-12-26Z (go1.24.2 linux/amd64)
+control-postgres-1               | creating subdirectories ... ok
+business-postgres-1              | 
+final-v5-provsql-postgres-1      | The database cluster will be initialized with locale "en_US.utf8".
+control-postgres-1               | selecting dynamic shared memory implementation ... posix
+snapshot-index-summary-1         | hot_index_digest=12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530
+result-object-store-1            | 
+control-postgres-1               | selecting default max_connections ... 100
+result-object-store-1            | API: http://172.24.0.2:9000  http://172.27.0.2:9000  http://127.0.0.1:9000 
+control-postgres-1               | selecting default shared_buffers ... 128MB
+final-v5-direct-postgres-1       | waiting for server to start....2026-08-20 07:00:06.912 UTC [55] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-direct-postgres-1       | 2026-08-20 07:00:06.927 UTC [55] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-direct-postgres-1       | 2026-08-20 07:00:06.994 UTC [58] LOG:  database system was shut down at 2026-08-20 07:00:04 UTC
+final-v5-provsql-postgres-1      | The default database encoding has accordingly been set to "UTF8".
+final-v5-provsql-postgres-1      | The default text search configuration will be set to "english".
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | Data page checksums are disabled.
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+final-v5-provsql-postgres-1      | creating subdirectories ... ok
+final-v5-provsql-postgres-1      | selecting dynamic shared memory implementation ... posix
+final-v5-provsql-postgres-1      | selecting default max_connections ... 100
+final-v5-provsql-postgres-1      | selecting default shared_buffers ... 128MB
+final-v5-provsql-postgres-1      | selecting default time zone ... Etc/UTC
+final-v5-provsql-postgres-1      | creating configuration files ... ok
+final-v5-provsql-postgres-1      | running bootstrap script ... ok
+final-v5-provsql-postgres-1      | performing post-bootstrap initialization ... ok
+final-v5-provsql-postgres-1      | syncing data to disk ... ok
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+business-postgres-1              | 
+final-v5-provsql-postgres-1      | initdb: warning: enabling "trust" authentication for local connections
+final-v5-direct-postgres-1       | 2026-08-20 07:00:07.024 UTC [55] LOG:  database system is ready to accept connections
+final-v5-direct-postgres-1       |  done
+final-v5-direct-postgres-1       | server started
+final-v5-direct-postgres-1       | CREATE DATABASE
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql
+final-v5-direct-postgres-1       | BEGIN
+final-v5-direct-postgres-1       | CREATE SCHEMA
+final-v5-direct-postgres-1       | CREATE SCHEMA
+final-v5-direct-postgres-1       | CREATE TABLE
+final-v5-direct-postgres-1       | CREATE TABLE
+final-v5-direct-postgres-1       | CREATE TABLE
+final-v5-direct-postgres-1       | INSERT 0 50000
+final-v5-direct-postgres-1       | INSERT 0 250000
+final-v5-direct-postgres-1       | INSERT 0 1000
+final-v5-direct-postgres-1       | CREATE INDEX
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-direct-postgres-1       | SELECT 50000
+final-v5-direct-postgres-1       | SELECT 250000
+final-v5-direct-postgres-1       | SELECT 1000
+final-v5-direct-postgres-1       | REVOKE
+final-v5-direct-postgres-1       | REVOKE
+final-v5-direct-postgres-1       | REVOKE
+final-v5-direct-postgres-1       | COMMIT
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | waiting for server to shut down....2026-08-20 07:00:09.362 UTC [55] LOG:  received fast shutdown request
+final-v5-direct-postgres-1       | 2026-08-20 07:00:09.383 UTC [55] LOG:  aborting any active transactions
+final-v5-direct-postgres-1       | 2026-08-20 07:00:09.385 UTC [55] LOG:  background worker "logical replication launcher" (PID 61) exited with exit code 1
+final-v5-direct-postgres-1       | 2026-08-20 07:00:09.385 UTC [56] LOG:  shutting down
+final-v5-direct-postgres-1       | 2026-08-20 07:00:09.404 UTC [56] LOG:  checkpoint starting: shutdown immediate
+result-object-store-1            | WebUI: http://172.24.0.2:9001 http://172.27.0.2:9001 http://127.0.0.1:9001  
+final-v5-direct-postgres-1       | ....2026-08-20 07:00:13.766 UTC [56] LOG:  checkpoint complete: wrote 6259 buffers (38.2%); 0 WAL file(s) added, 0 removed, 5 recycled; write=0.084 s, sync=3.521 s, total=4.382 s; sync files=314, longest=0.119 s, average=0.012 s; distance=81984 kB, estimate=81984 kB; lsn=0/64FA260, redo lsn=0/64FA260
+final-v5-direct-postgres-1       | 2026-08-20 07:00:13.774 UTC [55] LOG:  database system is shut down
+result-object-store-1            | 
+final-v5-direct-postgres-1       |  done
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/05-ordinal-sidecars.sql
+result-object-store-1            | Docs: https://docs.min.io
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+gateway-1                        | {"time":"2026-08-20T07:04:29.544521875Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_e17f8458a56abd59fae87814df1dd7f4","tool":"request_data_task","subject":"alice","code":"INVALID_REQUEST","error":"INVALID_REQUEST: 请求的数据产品不符合目录策略"}
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMIT
+control-postgres-1               | selecting default time zone ... Etc/UTC
+business-postgres-1              | 
+business-postgres-1              | 
+control-postgres-1               | creating configuration files ... ok
+final-v5-provsql-postgres-1      | Success. You can now start the database server using:
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/07-freeze-publications.sql
+business-postgres-1              | BEGIN
+control-postgres-1               | running bootstrap script ... ok
+business-postgres-1              | DO
+final-v5-provsql-postgres-1      | 
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | CREATE FUNCTION
+final-v5-provsql-postgres-1      | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+business-postgres-1              | REVOKE
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER FUNCTION
+final-v5-provsql-postgres-1      |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+business-postgres-1              | ALTER SCHEMA
+final-v5-direct-postgres-1       | server stopped
+business-postgres-1              | ALTER SCHEMA
+final-v5-direct-postgres-1       | 
+business-postgres-1              | ALTER SCHEMA
+control-postgres-1               | performing post-bootstrap initialization ... ok
+control-postgres-1               | initdb: warning: enabling "trust" authentication for local connections
+control-postgres-1               | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+control-postgres-1               | syncing data to disk ... ok
+control-postgres-1               | 
+control-postgres-1               | 
+control-postgres-1               | Success. You can now start the database server using:
+control-postgres-1               | 
+control-postgres-1               |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+control-postgres-1               | 
+control-postgres-1               | waiting for server to start....2026-08-20 07:00:07.488 UTC [56] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+control-postgres-1               | 2026-08-20 07:00:07.501 UTC [56] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+control-postgres-1               | 2026-08-20 07:00:07.601 UTC [59] LOG:  database system was shut down at 2026-08-20 07:00:04 UTC
+control-postgres-1               | 2026-08-20 07:00:07.637 UTC [56] LOG:  database system is ready to accept connections
+control-postgres-1               |  done
+control-postgres-1               | server started
+control-postgres-1               | CREATE DATABASE
+control-postgres-1               | 
+control-postgres-1               | 
+control-postgres-1               | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-control-role.sh
+control-postgres-1               | CREATE ROLE
+control-postgres-1               | GRANT
+control-postgres-1               | GRANT
+control-postgres-1               | 
+control-postgres-1               | waiting for server to shut down....2026-08-20 07:00:08.011 UTC [56] LOG:  received fast shutdown request
+control-postgres-1               | 2026-08-20 07:00:08.048 UTC [56] LOG:  aborting any active transactions
+control-postgres-1               | 2026-08-20 07:00:08.049 UTC [56] LOG:  background worker "logical replication launcher" (PID 62) exited with exit code 1
+control-postgres-1               | 2026-08-20 07:00:08.049 UTC [57] LOG:  shutting down
+control-postgres-1               | 2026-08-20 07:00:08.098 UTC [57] LOG:  checkpoint starting: shutdown immediate
+control-postgres-1               | .2026-08-20 07:00:09.027 UTC [57] LOG:  checkpoint complete: wrote 931 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.104 s, sync=0.653 s, total=0.978 s; sync files=308, longest=0.065 s, average=0.003 s; distance=4260 kB, estimate=4260 kB; lsn=0/19132B0, redo lsn=0/19132B0
+control-postgres-1               | 2026-08-20 07:00:09.031 UTC [56] LOG:  database system is shut down
+control-postgres-1               |  done
+control-postgres-1               | server stopped
+control-postgres-1               | 
+control-postgres-1               | PostgreSQL init process complete; ready for start up.
+control-postgres-1               | 
+control-postgres-1               | 2026-08-20 07:00:09.147 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+control-postgres-1               | 2026-08-20 07:00:09.148 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+control-postgres-1               | 2026-08-20 07:00:09.148 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+final-v5-direct-postgres-1       | PostgreSQL init process complete; ready for start up.
+business-postgres-1              | ALTER SCHEMA
+final-v5-direct-postgres-1       | 
+business-postgres-1              | COMMIT
+control-postgres-1               | 2026-08-20 07:00:09.175 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+business-postgres-1              | 
+control-postgres-1               | 2026-08-20 07:00:09.219 UTC [75] LOG:  database system was shut down at 2026-08-20 07:00:09 UTC
+business-postgres-1              | 
+control-postgres-1               | 2026-08-20 07:00:09.229 UTC [1] LOG:  database system is ready to accept connections
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/08-final-v5-compiler-fixture.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | waiting for server to start....2026-08-20 07:00:07.479 UTC [55] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:07.491 UTC [55] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:07.589 UTC [58] LOG:  database system was shut down at 2026-08-20 07:00:04 UTC
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:07.589 UTC [60] LOG:  ProvSQL: ProvSQL MMap Worker initialized
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:07.622 UTC [55] LOG:  database system is ready to accept connections
+final-v5-provsql-postgres-1      |  done
+final-v5-provsql-postgres-1      | server started
+final-v5-provsql-postgres-1      | CREATE DATABASE
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql
+final-v5-provsql-postgres-1      | BEGIN
+final-v5-provsql-postgres-1      | CREATE SCHEMA
+final-v5-provsql-postgres-1      | CREATE SCHEMA
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | INSERT 0 50000
+final-v5-provsql-postgres-1      | INSERT 0 250000
+final-v5-provsql-postgres-1      | INSERT 0 1000
+final-v5-provsql-postgres-1      | CREATE INDEX
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | SELECT 50000
+final-v5-provsql-postgres-1      | SELECT 250000
+final-v5-provsql-postgres-1      | SELECT 1000
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | COMMIT
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  installing required extension "uuid-ossp"
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  ProvSQL: schema "provsql" is not in your default search_path (currently: "$user", public).
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  ProvSQL operators and functions are resolved through search_path. Run "SELECT provsql.setup_search_path();" to add it, or set it manually (e.g. ALTER DATABASE final_v5_provsql SET search_path = "$user", public, provsql).
+final-v5-provsql-postgres-1      | CREATE EXTENSION
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:4: NOTICE:  ProvSQL: set search_path = "$user", public, provsql for database "final_v5_provsql" (no previous database-level setting). Only new sessions are affected.
+final-v5-provsql-postgres-1      |     setup_search_path     
+final-v5-direct-postgres-1       | 2026-08-20 07:00:13.971 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-direct-postgres-1       | 2026-08-20 07:00:13.971 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+final-v5-direct-postgres-1       | 2026-08-20 07:00:13.971 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+final-v5-direct-postgres-1       | 2026-08-20 07:00:14.134 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-direct-postgres-1       | 2026-08-20 07:00:14.278 UTC [88] LOG:  database system was shut down at 2026-08-20 07:00:13 UTC
+final-v5-direct-postgres-1       | 2026-08-20 07:00:14.311 UTC [1] LOG:  database system is ready to accept connections
+business-postgres-1              | DO
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/09-final-v5-pg-stat-statements.sql
+business-postgres-1              | CREATE EXTENSION
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/09-final-v5-rls-fixture.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 10
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | CREATE POLICY
+business-postgres-1              | SELECT 10
+business-postgres-1              | SELECT 10
+business-postgres-1              | DO
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+final-v5-provsql-postgres-1      | --------------------------
+final-v5-provsql-postgres-1      |  "$user", public, provsql
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | DO
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | waiting for server to shut down....2026-08-20 07:00:14.220 UTC [55] LOG:  received fast shutdown request
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.245 UTC [55] LOG:  aborting any active transactions
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.245 UTC [60] FATAL:  terminating background worker "ProvSQL MMap" due to administrator command
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.247 UTC [55] LOG:  background worker "ProvSQL MMap" (PID 60) exited with exit code 1
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.247 UTC [55] LOG:  background worker "logical replication launcher" (PID 63) exited with exit code 1
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.247 UTC [56] LOG:  shutting down
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:14.295 UTC [56] LOG:  checkpoint starting: shutdown immediate
+final-v5-provsql-postgres-1      | ..2026-08-20 07:00:17.000 UTC [56] LOG:  checkpoint complete: wrote 10277 buffers (62.7%); 0 WAL file(s) added, 0 removed, 11 recycled; write=0.097 s, sync=2.218 s, total=2.753 s; sync files=329, longest=0.286 s, average=0.007 s; distance=186879 kB, estimate=186879 kB; lsn=0/CB69FC8, redo lsn=0/CB69FC8
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-reader.sh
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-final-v5-benchmark-dataset.sh
+business-postgres-1              | BEGIN
+business-postgres-1              | DO
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 414000
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 100000
+business-postgres-1              | ANALYZE
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.009 UTC [55] LOG:  database system is shut down
+final-v5-provsql-postgres-1      |  done
+final-v5-provsql-postgres-1      | server stopped
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | PostgreSQL init process complete; ready for start up.
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.063 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.063 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.063 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.096 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.127 UTC [100] LOG:  database system was shut down at 2026-08-20 07:00:16 UTC
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.127 UTC [102] LOG:  ProvSQL: ProvSQL MMap Worker initialized
+final-v5-provsql-postgres-1      | 2026-08-20 07:00:17.139 UTC [1] LOG:  database system is ready to accept connections
+business-postgres-1              | ANALYZE
+business-postgres-1              | SELECT 414000
+business-postgres-1              | CREATE INDEX
+business-postgres-1              | SELECT 100000
+business-postgres-1              | CREATE INDEX
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | DO
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | DO
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | waiting for server to shut down....2026-08-20 07:00:14.524 UTC [48] LOG:  received fast shutdown request
+business-postgres-1              | 2026-08-20 07:00:14.662 UTC [48] LOG:  aborting any active transactions
+business-postgres-1              | 2026-08-20 07:00:14.664 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+business-postgres-1              | 2026-08-20 07:00:14.665 UTC [49] LOG:  shutting down
+business-postgres-1              | 2026-08-20 07:00:14.752 UTC [49] LOG:  checkpoint starting: shutdown immediate
+business-postgres-1              | ..2026-08-20 07:00:17.517 UTC [49] LOG:  checkpoint complete: wrote 15410 buffers (94.1%); 0 WAL file(s) added, 0 removed, 14 recycled; write=0.076 s, sync=2.349 s, total=2.853 s; sync files=407, longest=0.144 s, average=0.006 s; distance=227055 kB, estimate=227055 kB; lsn=0/F2A6168, redo lsn=0/F2A6168
+business-postgres-1              | .2026-08-20 07:00:17.544 UTC [48] LOG:  database system is shut down
+business-postgres-1              |  done
+business-postgres-1              | server stopped
+business-postgres-1              | 
+business-postgres-1              | PostgreSQL init process complete; ready for start up.
+business-postgres-1              | 
+business-postgres-1              | 2026-08-20 07:00:17.657 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+business-postgres-1              | 2026-08-20 07:00:17.657 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+business-postgres-1              | 2026-08-20 07:00:17.658 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+business-postgres-1              | 2026-08-20 07:00:17.672 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+business-postgres-1              | 2026-08-20 07:00:17.687 UTC [119] LOG:  database system was shut down at 2026-08-20 07:00:17 UTC
+business-postgres-1              | 2026-08-20 07:00:17.697 UTC [1] LOG:  database system is ready to accept connections

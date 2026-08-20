@@ -937,7 +937,7 @@ for alias in "${selected_profiles[@]}"; do
         export TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY="$scale_finalizer_postgresql_identity"
         ;;
       esac
-      current_stage="cells_$experiment"
+      current_stage="experiment_setup_$experiment"
       campaign_selected="$current_dir/selected-cells/$experiment.json"
       jq --arg experiment "$experiment" '[.[] | select(startswith($experiment + "/"))]' <<<"$cells_json" >"$campaign_selected"
       selected="$campaign_selected"
@@ -978,6 +978,7 @@ for alias in "${selected_profiles[@]}"; do
       runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")
       cliff_observer_output=""
       if [[ -n "$diagnosis_mode" ]]; then
+        current_stage="diagnosis_observer_initial_snapshot"
         cliff_observer_output="$current_dir/cliff-observer.jsonl"
         oa_container="$("${current_compose[@]}" ps -q oa-demo)"
         [[ -n "$oa_container" ]] || { echo "P68 diagnosis cannot resolve the OA container" >&2; exit 1; }
@@ -992,6 +993,7 @@ for alias in "${selected_profiles[@]}"; do
           sleep 1
         done
       fi
+      current_stage="cells_$experiment"
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id "$runner_deployment_id" \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
         -deployment-repetition "$repetition" "${runner_stderr_args[@]}" \

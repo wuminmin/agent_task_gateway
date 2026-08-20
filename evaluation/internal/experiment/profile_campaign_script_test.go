@@ -198,6 +198,7 @@ func TestP68DiagnosisModeIsSingleDeploymentAndNonPublication(t *testing.T) {
 		`TASKGATE_P68_CLIFF_DIAGNOSIS`, `DIAGNOSIS-NOT-FOR-PUBLICATION`,
 		`"$profiles_csv" == concurrency-expense-detail`, `"$repetitions" == 1`,
 		`.warmups=5 | .samples=30`, `final-v5-cliff-observer`, `-interval 30s`, `-oa-container`,
+		`current_stage="diagnosis_observer_initial_snapshot"`,
 		`final-v5-cliff-diagnosis`, `add_ref migration_curve`, `add_ref state_curve`,
 		`add_ref correlation`, `.publication_eligible == false`, `.formal_campaign == false`,
 	} {
@@ -207,6 +208,15 @@ func TestP68DiagnosisModeIsSingleDeploymentAndNonPublication(t *testing.T) {
 	}
 	if strings.Contains(script, `TASKGATE_P68_CLIFF_DIAGNOSIS:-DIAGNOSIS-NOT-FOR-PUBLICATION`) {
 		t.Fatal("ordinary pilot runs silently default into the P68 diagnosis mode")
+	}
+	observerStage := strings.Index(script, `current_stage="diagnosis_observer_initial_snapshot"`)
+	observerStart := strings.Index(script, `"$cliff_observer" -output`)
+	if observerStage < 0 || observerStart < observerStage {
+		t.Fatal("P68 observer startup lacks its own failure stage")
+	}
+	cellsStage := strings.Index(script[observerStart:], `current_stage="cells_$experiment"`)
+	if cellsStage < 0 {
+		t.Fatal("P68 observer startup is not distinguished from the measured cell stage")
 	}
 }
 

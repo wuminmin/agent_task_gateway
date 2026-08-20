@@ -1,0 +1,1 @@
+capture Business: can't scan into dest[4] (col: idx_scan): cannot scan NULL into *int64

@@ -1,0 +1,9 @@
+formal Gateway build
+  commit        b21fcfda0981 (clean, equals origin/tkde-artifact-rerun)
+  context       e5193dca9cd1 over 2020 tracked files
+  manifest      cedc77088687
+  build manifest /home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p68-cliff-diagnosis-01/source/formal-gateway-build.json (a08888691fc9c4f1c26fa73836a64422d67bf0462fd44dc5a167268d71e869e8)
+  compose image  sha256:81780e61a2168b3a970d265cfcfa3bb4e38b7b11a09e1a12e2243a31ec69bc3a
+  image         sha256:81780e61a2168b3a970d265cfcfa3bb4e38b7b11a09e1a12e2243a31ec69bc3a (linux/amd64)
+  tag           taskgate-final-v5-gateway:b21fcfda09814a8cfd7b1fc2ff6dd24d46f502bf
+formal Gateway build: pass

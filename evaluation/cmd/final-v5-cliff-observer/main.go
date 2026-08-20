@@ -19,6 +19,10 @@ import (
 
 const diagnosisMarker = "DIAGNOSIS-NOT-FOR-PUBLICATION"
 const snapshotRecord = "taskgate-final-v5-cliff-observer-snapshot-v1"
+const tableStatsSQL = `SELECT relname,
+	COALESCE(n_live_tup, 0), COALESCE(seq_scan, 0), COALESCE(seq_tup_read, 0),
+	COALESCE(idx_scan, 0), COALESCE(idx_tup_fetch, 0)
+	FROM pg_stat_user_tables WHERE relname = ANY($1::text[]) ORDER BY relname`
 
 type snapshot struct {
 	SchemaVersion  int                `json:"schema_version"`
@@ -276,8 +280,10 @@ func captureBusiness(ctx context.Context, pool *pgxpool.Pool, metrics map[string
 
 func captureTableStats(ctx context.Context, pool *pgxpool.Pool, prefix string, relations []string,
 	metrics map[string]float64) error {
-	rows, err := pool.Query(ctx, `SELECT relname,n_live_tup,seq_scan,seq_tup_read,idx_scan,idx_tup_fetch
-FROM pg_stat_user_tables WHERE relname = ANY($1::text[]) ORDER BY relname`, relations)
+	// PostgreSQL reports several pg_stat counters as NULL until the relation has
+	// exercised the corresponding access path. Preserve the counter semantics by
+	// normalizing that initial state to zero before scanning into int64.
+	rows, err := pool.Query(ctx, tableStatsSQL, relations)
 	if err != nil {
 		return err
 	}
