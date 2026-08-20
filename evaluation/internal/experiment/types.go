@@ -42,6 +42,9 @@ const (
 var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 var campaignIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+const p68CliffDiagnosisEnv = "TASKGATE_P68_CLIFF_DIAGNOSIS"
+const p68CliffDiagnosisMarker = "DIAGNOSIS-NOT-FOR-PUBLICATION"
+
 type Config struct {
 	SchemaVersion      int        `json:"schema_version"`
 	ProtocolVersion    string     `json:"protocol_version,omitempty"`
@@ -373,7 +376,10 @@ func (config Config) Validate(expectedExperiment string) error {
 				(config.ProtocolProfile != "scale" && config.ProtocolProfile != "scale-extreme" && config.ProtocolProfile != "compiler") {
 				return errors.New("non-profile smoke pilot requires three fresh executions and frozen scale/compiler protocol bindings")
 			}
-		} else if config.Deployments != 1 || config.Samples > 3 {
+		} else if os.Getenv(p68CliffDiagnosisEnv) == p68CliffDiagnosisMarker && !config.isP68CliffDiagnosis() {
+			return errors.New("P68 diagnosis requires the exact reviewed concurrency density and execution shape")
+		} else if os.Getenv(p68CliffDiagnosisEnv) != p68CliffDiagnosisMarker &&
+			(config.Deployments != 1 || config.Samples > 3) {
 			return errors.New("pilot must declare a reviewed pilot kind, use one deployment, and use at most three samples per cell")
 		}
 	} else {
@@ -430,6 +436,14 @@ func (config Config) Validate(expectedExperiment string) error {
 		}
 	}
 	return nil
+}
+
+func (config Config) isP68CliffDiagnosis() bool {
+	return os.Getenv(p68CliffDiagnosisEnv) == p68CliffDiagnosisMarker &&
+		config.CampaignClass == "pilot" && config.PilotKind == "real_system" &&
+		config.ExperimentID == "concurrency" && config.Deployments == 1 &&
+		config.ProcessReplicates == 1 && config.Warmups == 5 && config.Samples == 30 &&
+		config.FreshRootPerSample
 }
 
 type Sample struct {

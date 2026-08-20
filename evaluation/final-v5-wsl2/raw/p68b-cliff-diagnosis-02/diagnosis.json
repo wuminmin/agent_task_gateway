@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p68-diagnosis-v1",
+  "status": "pre_measurement_failure",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p68b-cliff-diagnosis-02",
+  "submission_commit": "9418113249960bfae0efd91c4a761d77d2aab17d",
+  "profiles": [
+    "concurrency-expense-detail"
+  ],
+  "deployments": 1,
+  "warmups_per_cell": 5,
+  "samples_per_cell": 30,
+  "failure_stage": "runner_config_validation",
+  "formal_gateway_built": true,
+  "live_gates_run": false,
+  "runner_started": true,
+  "measurement_started": false,
+  "measured_samples": 0,
+  "migration_records": 0,
+  "observer_snapshots": 1,
+  "acceptance_decisions": 0,
+  "cliff_reproduced": false,
+  "retry_performed": false,
+  "runner_error": "pilot must declare a reviewed pilot kind, use one deployment, and use at most three samples per cell",
+  "cleanup": {
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0
+  }
+}

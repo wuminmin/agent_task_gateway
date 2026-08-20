@@ -19,9 +19,6 @@ import (
 
 var deploymentIDPattern = regexp.MustCompile(`^deployment-([0-9]{2})$`)
 
-const p68CliffDiagnosisEnv = "TASKGATE_P68_CLIFF_DIAGNOSIS"
-const p68CliffDiagnosisMarker = "DIAGNOSIS-NOT-FOR-PUBLICATION"
-
 // AdapterOperation is the versioned, credential-free contract sent to a
 // deployment-specific adapter. The executable reads JSONL operations from
 // stdin and returns one complete Sample JSON object per line on stdout.

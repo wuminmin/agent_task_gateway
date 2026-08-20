@@ -64,3 +64,42 @@ func TestRunnerAcceptsTaskMigrationDiagnosticsOnlyInP68Mode(t *testing.T) {
 		t.Fatal("P68 migration diagnostics were accepted in an ordinary campaign")
 	}
 }
+
+func TestP68DiagnosisConfigUsesOnlyTheExactReviewedDensity(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "p68-diagnosis", ExperimentID: "concurrency",
+		SubmissionCommit: "0123456789abcdef0123456789abcdef01234567",
+		Deployments:      1, ProcessReplicates: 1, Warmups: 5, Samples: 30,
+		RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "shared-root", Scales: []string{"10"}, Modes: []string{"natural_contention"}}},
+	}
+	t.Setenv(p68CliffDiagnosisEnv, p68CliffDiagnosisMarker)
+	if err := config.Validate("concurrency"); err != nil {
+		t.Fatalf("exact P68 diagnosis config was refused: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*Config){
+		"samples_low":        func(value *Config) { value.Samples = 2 },
+		"samples_high":       func(value *Config) { value.Samples = 31 },
+		"warmups":            func(value *Config) { value.Warmups = 4 },
+		"process_replicates": func(value *Config) { value.ProcessReplicates = 2 },
+		"deployments":        func(value *Config) { value.Deployments = 2 },
+		"experiment":         func(value *Config) { value.ExperimentID = "baseline" },
+		"pilot_kind":         func(value *Config) { value.PilotKind = "synthetic_smoke" },
+		"fresh_root":         func(value *Config) { value.FreshRootPerSample = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := config
+			mutate(&mutated)
+			if err := mutated.Validate(""); err == nil {
+				t.Fatal("non-reviewed P68 diagnosis config was accepted")
+			}
+		})
+	}
+
+	t.Setenv(p68CliffDiagnosisEnv, "")
+	if err := config.Validate("concurrency"); err == nil {
+		t.Fatal("30-sample pilot was accepted without the P68 diagnosis marker")
+	}
+}

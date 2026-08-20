@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-fresh-profile-execution-v1",
+  "status": "pass",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p68b-cliff-diagnosis-02",
+  "submission_commit": "9418113249960bfae0efd91c4a761d77d2aab17d",
+  "compose_project": "taskgate-final-v5-deployment-01-499b51197470a76201f2",
+  "profile_alias": "concurrency-expense-detail",
+  "profile_id": "profile-3947f508ef5e9677",
+  "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
+  "repetition": 1,
+  "formal_gateway_built": true,
+  "formal_gateway": {
+    "image_id": "sha256:7c40ee9f1c09a259b09472111e821f94d8c98dfbec06ebbfd1758d1ae4a3375e",
+    "build_manifest_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p68b-cliff-diagnosis-02/source/formal-gateway-build.json",
+    "build_manifest_sha256": "31f96514ec4665aa450dc4bff6eba597a1b8937446ea6b2b2acbfc5b0e3dd1e6",
+    "compose_override_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p68b-cliff-diagnosis-02/source/compose.formal-gateway.yaml",
+    "compose_override_sha256": "69ecf8b288d874dd647a10212a2d30491c4fe0b5382b891b691f39d39f1750f6",
+    "runtime_identity_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p68b-cliff-diagnosis-02/deployments/concurrency-expense-detail/001/formal-gateway-runtime.json",
+    "runtime_identity_sha256": "3c805ae53a5af99dde7dc5ccac6cd2248eae39c7e972adcd7026c3006bc45782",
+    "build_context_sha256": "ca663fd9ba0cad4c4b0484650475ac1b74c4456376154c9ecf9704d985aee41f",
+    "source_manifest_sha256": "c6db39a226eccdf54b083e2626c94c0e3972bbc00fa36dd7c44aed1288f26520",
+    "dataset_binding_sha256": "3bb2771fa07b3cd7b0e0d806cf84af41d05628b958f425310368b854b77b7526",
+    "profile_registry_sha256": "2d7fa108b69ecfaed1464e939a4b2539cf60fcafd87d1e867b56b0a2dc102c66"
+  }
+}
