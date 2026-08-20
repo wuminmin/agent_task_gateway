@@ -606,3 +606,31 @@ oracles, campaigns, or the paper are complete.
     manifest only. It does not approve or install the candidate, authorise a
     deployment or campaign, change a capability, replace frozen bytes, or
     approve a release, publication evidence, tag, or tag movement.
+
+36. **Instrument task migration degradation and run one minimal diagnostic
+    deployment before choosing a repair.** (Taken 2026-08-20 by author
+    wuminmin, answered exactly "A" in the agent conversation to the options
+    reported by ledger row `P67-transition-timeout`.) The evaluation harness
+    first separates and records the two task-state waits, retaining expected
+    state, last observed state, elapsed time, poll count, and the last polling
+    error on timeout. A read-only diagnostic observer periodically records
+    Control, OA, and Business database row counts, relevant table sizes, and
+    key PostgreSQL statistics so accumulated state can be aligned with the
+    per-sample migration timings.
+
+    After zero-deployment implementation and validation, exactly one
+    pilot-class `concurrency-expense-detail` diagnostic deployment is
+    authorised at the frozen 30-sample-per-cell density. Its directory and
+    outputs must be marked `DIAGNOSIS-NOT-FOR-PUBLICATION`; reproducing the
+    order-position 275--315 timeout cliff and failing closed is the intended
+    diagnostic outcome, not a publication-cell pass. The deployment must
+    retain all evidence, correlate both wait timings with the suspected
+    task/grant/audit/draft accumulation surfaces, and clean all residual
+    resources. If the evidence points to an `internal/` repair, implementation
+    stops and presents precise repair options for a new author decision.
+
+    This decision selects observability and diagnosis before changing the
+    mechanism. Options B and C from P67 remain deferred: it does not authorise
+    an `internal/` lifecycle or hotspot repair, a timeout increase, a formal
+    campaign, reuse or relabelling of prior failed samples, a capability flip,
+    frozen-byte change, publication evidence, release, tag, or tag movement.
