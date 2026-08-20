@@ -32,6 +32,10 @@ if [[ -n "$diagnosis_mode" ]]; then
   [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && "$repetitions" == 1 &&
      "$profiles_csv" == concurrency-expense-detail ]] || {
     echo "P68 diagnosis requires pilot class, one repetition, and only concurrency-expense-detail" >&2; exit 2; }
+
+  export TASKGATE_CALLBACK_PHASE_TIMING="$diagnosis_mode"
+else
+  unset TASKGATE_CALLBACK_PHASE_TIMING
 fi
 
 for command in docker git go jq sha256sum curl install; do
@@ -57,7 +61,7 @@ campaign_root="$repo/evaluation/final-v5-wsl2/raw/$TASKGATE_CAMPAIGN_ID"
 mkdir -m 700 -p "$campaign_root/source" "$campaign_root/deployments"
 if [[ -n "$diagnosis_mode" ]]; then
   jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
-    '{schema_version:1,record:"taskgate-final-v5-p68-diagnosis-v1",status:"running",
+    '{schema_version:1,record:"taskgate-final-v5-p69-callback-phase-diagnosis-v1",status:"running",
       classification:"DIAGNOSIS-NOT-FOR-PUBLICATION",campaign_class:"pilot",
       publication_eligible:false,formal_campaign:false,campaign_id:$campaign_id,
       submission_commit:$submission_commit,profiles:["concurrency-expense-detail"],deployments:1,
@@ -703,6 +707,13 @@ for alias in "${selected_profiles[@]}"; do
     current_stage=deployment_binding
     compose_json="$("${current_compose[@]}" config --format json)"
     [[ "$(service_env gateway GATEWAY_ADMIN_TOKEN)" == "$GATEWAY_ADMIN_TOKEN" ]] || { echo "Compose admin-token binding drift" >&2; exit 1; }
+	if [[ -n "$diagnosis_mode" ]]; then
+	  [[ "$(service_env gateway TASKGATE_CALLBACK_PHASE_TIMING)" == "$diagnosis_mode" ]] || {
+	    echo "P69 callback phase timing marker did not reach the Gateway" >&2; exit 1; }
+	else
+	  [[ -z "$(service_env gateway TASKGATE_CALLBACK_PHASE_TIMING)" ]] || {
+	    echo "ordinary deployment unexpectedly enables callback phase timing" >&2; exit 1; }
+	fi
 	configured_connector="$(jq -r '.environment.GATEWAY_CONNECTOR_MAX_CONNECTIONS // empty' "$deployment_configuration")"
 	configured_control="$(jq -r '.environment.GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS // empty' "$deployment_configuration")"
 	configured_http_active="$(jq -r '.environment.GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE // empty' "$deployment_configuration")"
@@ -977,6 +988,8 @@ for alias in "${selected_profiles[@]}"; do
       runner_deployment_id="$profile_execution_id"
       runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")
       cliff_observer_output=""
+	  callback_phase_log=""
+	  callback_phase_scan=""
       if [[ -n "$diagnosis_mode" ]]; then
         current_stage="diagnosis_observer_initial_snapshot"
         cliff_observer_output="$current_dir/cliff-observer.jsonl"
@@ -1000,6 +1013,11 @@ for alias in "${selected_profiles[@]}"; do
         >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
       if [[ -n "$diagnosis_mode" ]]; then
         stop_cliff_observer || { echo "P68 cliff observer failed" >&2; exit 1; }
+		callback_phase_log="$current_dir/callback-phases.gateway.log"
+		callback_phase_scan="$current_dir/callback-phases.credential-scan.json"
+		docker logs "$gateway_container" >"$callback_phase_log" 2>&1
+		chmod 600 "$callback_phase_log"
+		[[ -s "$callback_phase_log" ]] || { echo "P69 Gateway callback phase log is empty" >&2; exit 1; }
       fi
       export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
       export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
@@ -1016,16 +1034,26 @@ for alias in "${selected_profiles[@]}"; do
         echo "$deployment_key/$experiment Adapter stderr failed the credential gate and was removed" >&2
         exit 1
       fi
+	  if [[ -n "$diagnosis_mode" ]]; then
+		if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
+		  -input "$callback_phase_log" -output "$callback_phase_scan" "${adapter_stderr_sensitive_args[@]}" \
+		  "${adapter_stderr_secret_args[@]}"; then
+		  rm -f "$callback_phase_log" "$callback_phase_scan"
+		  echo "$deployment_key/$experiment callback phase log failed the credential gate and was removed" >&2
+		  exit 1
+		fi
+	  fi
       unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
         TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
       if [[ -n "$diagnosis_mode" ]]; then
         diagnosis_status=0
         "$cliff_diagnosis" -samples "$raw" -migration "$adapter_stderr" -observer "$cliff_observer_output" \
+		  -callback-phases "$callback_phase_log" -callback-phase-curve "$current_dir/callback-phase-curve.csv" \
           -summary "$current_dir/$experiment.gate.json" \
           -migration-curve "$current_dir/migration-curve.csv" -state-curve "$current_dir/state-curve.csv" \
           -correlation "$current_dir/correlation.json" || diagnosis_status=$?
-        echo "P68-STAGE: diagnosis deployment=$deployment_key runner_status=$runner_status analyzer_status=$diagnosis_status measured=$(jq -s 'length' "$raw") timeouts=$(jq -r '.migration_timeout_records' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable)"
-        (( runner_status == 0 && diagnosis_status == 0 )) || exit 1
+		echo "P69-STAGE: diagnosis deployment=$deployment_key runner_status=$runner_status analyzer_status=$diagnosis_status measured=$(jq -s 'length' "$raw") timeouts=$(jq -r '.migration_timeout_records' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable) stuck_phase=$(jq -r '.callback_phase_verdict.stuck_phase' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable)"
+		(( runner_status == 1 && diagnosis_status == 0 )) || exit 1
         continue
       fi
       (( runner_status == 0 )) || exit "$runner_status"
@@ -1116,6 +1144,9 @@ for alias in "${selected_profiles[@]}"; do
         add_ref migration_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/migration-curve.csv"
         add_ref state_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/state-curve.csv"
         add_ref correlation "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/correlation.json"
+		add_ref callback_phase_log "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phases.gateway.log"
+		add_ref callback_phase_credential_scan "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phases.credential-scan.json"
+		add_ref callback_phase_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phase-curve.csv"
       fi
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
@@ -1140,17 +1171,23 @@ if [[ -n "$diagnosis_mode" ]]; then
   cleanup_proof="$campaign_root/deployments/concurrency-expense-detail/001/cleanup.json"
   jq -n --slurpfile diagnosis "$diagnosis_gate" --slurpfile cleanup "$cleanup_proof" \
     --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
-    '{schema_version:1,record:"taskgate-final-v5-p68-diagnosis-campaign-v1",status:"complete",
+    '{schema_version:1,record:"taskgate-final-v5-p69-callback-phase-diagnosis-campaign-v1",status:"complete",
       classification:"DIAGNOSIS-NOT-FOR-PUBLICATION",campaign_class:"pilot",publication_eligible:false,
       formal_campaign:false,campaign_id:$campaign_id,submission_commit:$submission_commit,deployments:1,
       cliff_reproduced:$diagnosis[0].cliff_reproduced,migration_timeout_records:$diagnosis[0].migration_timeout_records,
       first_timeout_order_position:$diagnosis[0].first_timeout_order_position,
-      last_timeout_order_position:$diagnosis[0].last_timeout_order_position,cleanup:$cleanup[0]}' >"$manifest"
+      last_timeout_order_position:$diagnosis[0].last_timeout_order_position,
+	  callback_phase_verdict:$diagnosis[0].callback_phase_verdict.verdict,
+	  stuck_phase:$diagnosis[0].callback_phase_verdict.stuck_phase,cleanup:$cleanup[0]}' >"$manifest"
   jq -e '.status == "complete" and .classification == "DIAGNOSIS-NOT-FOR-PUBLICATION" and
     .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false and
-    .deployments == 1 and .cliff_reproduced == true and .cleanup.status == "pass"' "$manifest" >/dev/null
+	.deployments == 1 and .cliff_reproduced == true and
+	.callback_phase_verdict == "callback_phase_cliff_reproduced" and .stuck_phase != "" and
+	.cleanup.status == "pass"' "$manifest" >/dev/null
   diagnosis_tmp="$campaign_root/.diagnosis.json.tmp"
-  jq '.status="complete" | .cliff_reproduced=true' "$campaign_root/diagnosis.json" >"$diagnosis_tmp"
+	jq --slurpfile gate "$diagnosis_gate" '.status="complete" | .cliff_reproduced=true |
+	  .callback_phase_verdict=$gate[0].callback_phase_verdict.verdict |
+	  .stuck_phase=$gate[0].callback_phase_verdict.stuck_phase' "$campaign_root/diagnosis.json" >"$diagnosis_tmp"
   chmod 600 "$diagnosis_tmp"
   mv "$diagnosis_tmp" "$campaign_root/diagnosis.json"
 elif [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then

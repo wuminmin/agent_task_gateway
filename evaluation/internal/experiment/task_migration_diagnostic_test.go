@@ -19,7 +19,8 @@ func TestTaskMigrationWaitDiagnosticV1IsExplicitAndOperationBound(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(encoded, []byte("task-private")) || !bytes.Contains(encoded, []byte(TaskMigrationWaitDiagnosticV1Record)) {
+	if bytes.Contains(encoded, []byte("task-private")) || !bytes.Contains(encoded, []byte(TaskMigrationWaitDiagnosticV1Record)) ||
+		diagnostic.CallbackTaskIDSHA256 == "" {
 		t.Fatalf("diagnostic leaks the task ID or omits its explicit record version: %s", encoded)
 	}
 	mutated := diagnostic
@@ -31,6 +32,16 @@ func TestTaskMigrationWaitDiagnosticV1IsExplicitAndOperationBound(t *testing.T) 
 	mutated.TaskIDHash = "not-a-digest"
 	if err := mutated.Validate(); err == nil {
 		t.Fatal("non-hex task identity hash was accepted")
+	}
+	mutated = diagnostic
+	mutated.CallbackTaskIDSHA256 = "not-a-digest"
+	if err := mutated.Validate(); err == nil {
+		t.Fatal("non-hex callback task identity hash was accepted")
+	}
+	legacy := diagnostic
+	legacy.CallbackTaskIDSHA256 = ""
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("historical P68 diagnostic without the P69 join key was rejected: %v", err)
 	}
 }
 

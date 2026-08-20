@@ -200,7 +200,10 @@ func TestP68DiagnosisModeIsSingleDeploymentAndNonPublication(t *testing.T) {
 		`.warmups=5 | .samples=30`, `final-v5-cliff-observer`, `-interval 30s`, `-oa-container`,
 		`current_stage="diagnosis_observer_initial_snapshot"`,
 		`final-v5-cliff-diagnosis`, `add_ref migration_curve`, `add_ref state_curve`,
-		`add_ref correlation`, `.publication_eligible == false`, `.formal_campaign == false`,
+		`add_ref correlation`, `TASKGATE_CALLBACK_PHASE_TIMING`, `callback-phases.gateway.log`,
+		`callback-phase-curve.csv`, `add_ref callback_phase_log`, `callback_phase_cliff_reproduced`,
+		`runner_status == 1 && diagnosis_status == 0`,
+		`.publication_eligible == false`, `.formal_campaign == false`,
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("P68 launcher mode lacks %q", required)

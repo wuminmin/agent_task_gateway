@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/control"
 )
 
 const PreregisteredConcurrencyMissDiagnosticV1Record = "taskgate-preregistered-concurrency-miss-diagnostic-v1"
@@ -17,25 +19,26 @@ const TaskMigrationWaitDiagnosticV1Record = "taskgate-final-v5-task-migration-wa
 // publication sample contracts remain byte-compatible while a diagnosis can
 // still align every task-state wait with its owning sample.
 type TaskMigrationWaitDiagnosticV1 struct {
-	SchemaVersion int     `json:"schema_version"`
-	Record        string  `json:"record"`
-	CampaignID    string  `json:"campaign_id"`
-	DeploymentID  string  `json:"deployment_id"`
-	ExperimentID  string  `json:"experiment_id"`
-	CellID        string  `json:"cell_id"`
-	SampleID      string  `json:"sample_id"`
-	OrderPosition int     `json:"order_position"`
-	Warmup        bool    `json:"warmup"`
-	TaskOrdinal   int     `json:"task_ordinal"`
-	TaskRole      string  `json:"task_role"`
-	TaskIDHash    string  `json:"task_id_hash"`
-	ExpectedState string  `json:"expected_state"`
-	LastState     string  `json:"last_state"`
-	Status        string  `json:"status"`
-	ElapsedMS     float64 `json:"elapsed_ms"`
-	PollCount     int     `json:"poll_count"`
-	LastError     string  `json:"last_error"`
-	ObservedAt    string  `json:"observed_at"`
+	SchemaVersion        int     `json:"schema_version"`
+	Record               string  `json:"record"`
+	CampaignID           string  `json:"campaign_id"`
+	DeploymentID         string  `json:"deployment_id"`
+	ExperimentID         string  `json:"experiment_id"`
+	CellID               string  `json:"cell_id"`
+	SampleID             string  `json:"sample_id"`
+	OrderPosition        int     `json:"order_position"`
+	Warmup               bool    `json:"warmup"`
+	TaskOrdinal          int     `json:"task_ordinal"`
+	TaskRole             string  `json:"task_role"`
+	TaskIDHash           string  `json:"task_id_hash"`
+	CallbackTaskIDSHA256 string  `json:"callback_task_id_sha256,omitempty"`
+	ExpectedState        string  `json:"expected_state"`
+	LastState            string  `json:"last_state"`
+	Status               string  `json:"status"`
+	ElapsedMS            float64 `json:"elapsed_ms"`
+	PollCount            int     `json:"poll_count"`
+	LastError            string  `json:"last_error"`
+	ObservedAt           string  `json:"observed_at"`
 }
 
 func NewTaskMigrationWaitDiagnosticV1(operation AdapterOperation, taskOrdinal int, taskRole, taskID,
@@ -49,7 +52,8 @@ func NewTaskMigrationWaitDiagnosticV1(operation AdapterOperation, taskOrdinal in
 		ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID,
 		OrderPosition: operation.OrderPosition, Warmup: operation.Warmup,
 		TaskOrdinal: taskOrdinal, TaskRole: taskRole, TaskIDHash: hex.EncodeToString(digest[:]),
-		ExpectedState: expectedState, LastState: lastState, Status: status,
+		CallbackTaskIDSHA256: control.CallbackPhaseTaskIDSHA256(taskID),
+		ExpectedState:        expectedState, LastState: lastState, Status: status,
 		ElapsedMS: float64(elapsed.Microseconds()) / 1000, PollCount: pollCount,
 		LastError: lastError, ObservedAt: observedAt.UTC().Format(time.RFC3339Nano),
 	}
@@ -61,10 +65,15 @@ func (diagnostic TaskMigrationWaitDiagnosticV1) Validate() error {
 	validRole := diagnostic.TaskRole == "root" || diagnostic.TaskRole == "delegated_child"
 	_, timestampErr := time.Parse(time.RFC3339Nano, diagnostic.ObservedAt)
 	decodedHash, hashErr := hex.DecodeString(diagnostic.TaskIDHash)
+	callbackHashValid := diagnostic.CallbackTaskIDSHA256 == ""
+	if diagnostic.CallbackTaskIDSHA256 != "" {
+		decodedCallbackHash, callbackHashErr := hex.DecodeString(diagnostic.CallbackTaskIDSHA256)
+		callbackHashValid = callbackHashErr == nil && len(decodedCallbackHash) == sha256.Size
+	}
 	if diagnostic.SchemaVersion != 1 || diagnostic.Record != TaskMigrationWaitDiagnosticV1Record ||
 		diagnostic.CampaignID == "" || diagnostic.DeploymentID == "" || diagnostic.ExperimentID == "" ||
 		diagnostic.CellID == "" || diagnostic.SampleID == "" || diagnostic.OrderPosition < 1 ||
-		diagnostic.TaskOrdinal < 1 || !validRole || hashErr != nil || len(decodedHash) != sha256.Size || !validExpected ||
+		diagnostic.TaskOrdinal < 1 || !validRole || hashErr != nil || len(decodedHash) != sha256.Size || !callbackHashValid || !validExpected ||
 		diagnostic.LastState == "" || !validStatus || diagnostic.ElapsedMS < 0 || diagnostic.PollCount < 1 ||
 		strings.TrimSpace(diagnostic.LastError) == "" || timestampErr != nil {
 		return errors.New("invalid task migration wait diagnostic")
