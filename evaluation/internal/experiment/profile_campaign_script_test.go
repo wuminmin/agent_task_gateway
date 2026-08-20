@@ -188,6 +188,28 @@ func TestProfileCampaignLauncherKeepsCommitProfileAndEvidenceBoundaries(t *testi
 	}
 }
 
+func TestP68DiagnosisModeIsSingleDeploymentAndNonPublication(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-profile-campaign.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(payload)
+	for _, required := range []string{
+		`TASKGATE_P68_CLIFF_DIAGNOSIS`, `DIAGNOSIS-NOT-FOR-PUBLICATION`,
+		`"$profiles_csv" == concurrency-expense-detail`, `"$repetitions" == 1`,
+		`.warmups=5 | .samples=30`, `final-v5-cliff-observer`, `-interval 30s`, `-oa-container`,
+		`final-v5-cliff-diagnosis`, `add_ref migration_curve`, `add_ref state_curve`,
+		`add_ref correlation`, `.publication_eligible == false`, `.formal_campaign == false`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("P68 launcher mode lacks %q", required)
+		}
+	}
+	if strings.Contains(script, `TASKGATE_P68_CLIFF_DIAGNOSIS:-DIAGNOSIS-NOT-FOR-PUBLICATION`) {
+		t.Fatal("ordinary pilot runs silently default into the P68 diagnosis mode")
+	}
+}
+
 func TestProfileCampaignArtifactRootMatchesMaterializerLayout(t *testing.T) {
 	launcherPath := filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-profile-campaign.sh")
 	launcherPayload, err := os.ReadFile(launcherPath)

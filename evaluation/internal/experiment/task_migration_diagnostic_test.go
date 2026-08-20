@@ -1,0 +1,66 @@
+package experiment
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+	"time"
+)
+
+func TestTaskMigrationWaitDiagnosticV1IsExplicitAndOperationBound(t *testing.T) {
+	operation := AdapterOperation{CampaignID: "p68", DeploymentID: "deployment-01", ExperimentID: "concurrency",
+		CellID: "shared-root/500/natural_contention", SampleID: "sample-0275", OrderPosition: 275}
+	diagnostic := NewTaskMigrationWaitDiagnosticV1(operation, 501, "delegated_child", "task-private",
+		"ACTIVE", "AWAITING_APPROVAL", "timeout", 30*time.Second, 299, "none", time.Now())
+	if err := diagnostic.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("task-private")) || !bytes.Contains(encoded, []byte(TaskMigrationWaitDiagnosticV1Record)) {
+		t.Fatalf("diagnostic leaks the task ID or omits its explicit record version: %s", encoded)
+	}
+	mutated := diagnostic
+	mutated.Status = "reached"
+	if err := mutated.Validate(); err == nil {
+		t.Fatal("reached diagnostic with the wrong last state was accepted")
+	}
+	mutated = diagnostic
+	mutated.TaskIDHash = "not-a-digest"
+	if err := mutated.Validate(); err == nil {
+		t.Fatal("non-hex task identity hash was accepted")
+	}
+}
+
+func TestRunnerAcceptsTaskMigrationDiagnosticsOnlyInP68Mode(t *testing.T) {
+	operations := []AdapterOperation{
+		{CampaignID: "p68", DeploymentID: "deployment-01", ExperimentID: "concurrency", CellID: "serial-control/1/serial", SampleID: "sample-1", OrderPosition: 1},
+		{CampaignID: "p68", DeploymentID: "deployment-01", ExperimentID: "concurrency", CellID: "shared-root/10/forced_queue_safety", SampleID: "sample-2", OrderPosition: 2},
+	}
+	var payload bytes.Buffer
+	for index, operation := range operations {
+		first := NewTaskMigrationWaitDiagnosticV1(operation, 1, "root", "task-"+operation.SampleID,
+			"AWAITING_APPROVAL", "AWAITING_APPROVAL", "reached", time.Millisecond, 1, "none", time.Now())
+		secondStatus, secondLast := "reached", "ACTIVE"
+		if index == 1 {
+			secondStatus, secondLast = "timeout", "AWAITING_APPROVAL"
+		}
+		second := NewTaskMigrationWaitDiagnosticV1(operation, 1, "root", "task-"+operation.SampleID,
+			"ACTIVE", secondLast, secondStatus, 30*time.Second, 300, "none", time.Now())
+		_ = json.NewEncoder(&payload).Encode(first)
+		_ = json.NewEncoder(&payload).Encode(second)
+	}
+	t.Setenv(p68CliffDiagnosisEnv, p68CliffDiagnosisMarker)
+	if err := validateAdapterDiagnostics("concurrency", operations, make([]*Sample, len(operations)), payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateTaskMigrationWaitDiagnostics("concurrency", operations[:1], payload.Bytes()); err == nil {
+		t.Fatal("diagnostics for an unrequested sample were accepted")
+	}
+	t.Setenv(p68CliffDiagnosisEnv, "")
+	if err := validateAdapterDiagnostics("concurrency", operations, make([]*Sample, len(operations)), payload.Bytes()); err == nil {
+		t.Fatal("P68 migration diagnostics were accepted in an ordinary campaign")
+	}
+}

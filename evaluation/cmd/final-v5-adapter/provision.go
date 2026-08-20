@@ -87,7 +87,11 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 	if err := oaAction(ctx, adapter.aliceOA, adapter.oaBase, draftID, "submit", ""); err != nil {
 		return provisionedTask{}, err
 	}
-	if err := adapter.waitTask(ctx, created.TaskID, "AWAITING_APPROVAL"); err != nil {
+	taskRole := "root"
+	if parentTaskID != "" {
+		taskRole = "delegated_child"
+	}
+	if err := adapter.waitTask(ctx, created.TaskID, taskRole, "AWAITING_APPROVAL"); err != nil {
 		return provisionedTask{}, err
 	}
 	var narrowedTTLMS int64
@@ -110,7 +114,7 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 			return provisionedTask{}, err
 		}
 	}
-	if err := adapter.waitTask(ctx, created.TaskID, "ACTIVE"); err != nil {
+	if err := adapter.waitTask(ctx, created.TaskID, taskRole, "ACTIVE"); err != nil {
 		return provisionedTask{}, err
 	}
 	if parentTaskID != "" {

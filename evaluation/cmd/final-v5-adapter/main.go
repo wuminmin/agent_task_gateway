@@ -166,7 +166,8 @@ func main() {
 			}
 			sample = invalidSample(operation, code)
 		} else {
-			sample = adapter.Execute(context.Background(), operation)
+			operationContext := withTaskMigrationOperation(context.Background(), operation)
+			sample = adapter.Execute(operationContext, operation)
 		}
 		sample = bindAdapterOutputSample(operation, sample)
 		if encoder.Encode(sample) != nil {

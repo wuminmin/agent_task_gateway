@@ -19,6 +19,13 @@ func writeAdapterFailureDiagnostic(adapter string, operation experiment.AdapterO
 	if err == nil {
 		return
 	}
+	// The P68 diagnostic channel already contains one strict, versioned record
+	// for a migration timeout. Do not add an unstructured duplicate line: the
+	// runner validates every retained diagnostic record before the credential
+	// scan admits it.
+	if os.Getenv(p68CliffDiagnosisEnv) == p68CliffDiagnosisMarker && isTaskMigrationWaitError(err) {
+		return
+	}
 	fmt.Fprintf(adapterDiagnosticOutput, "%s %s/%s/%s failed: %v\n",
 		adapter, operation.WorkloadID, operation.Scale, operation.Mode, err)
 }

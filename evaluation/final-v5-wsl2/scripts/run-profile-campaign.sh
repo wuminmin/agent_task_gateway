@@ -15,6 +15,9 @@ umask 077
 [[ "$TASKGATE_CAMPAIGN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "campaign ID must be path-safe" >&2; exit 2; }
 
 repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-}"
+diagnosis_mode="${TASKGATE_P68_CLIFF_DIAGNOSIS:-}"
+[[ -z "$diagnosis_mode" || "$diagnosis_mode" == "DIAGNOSIS-NOT-FOR-PUBLICATION" ]] || {
+  echo "unknown P68 diagnosis mode" >&2; exit 2; }
 if [[ -z "$repetitions" ]]; then
   repetitions=1
   [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || repetitions=3
@@ -24,6 +27,11 @@ profiles_csv="${TASKGATE_CAMPAIGN_PROFILES:-}"
 if [[ "$TASKGATE_EXPERIMENT_CLASS" == publication ]]; then
   [[ "$repetitions" == 3 ]] || { echo "publication campaign requires exactly three fresh executions" >&2; exit 2; }
   [[ -z "$profiles_csv" ]] || { echo "publication campaign cannot select a partial profile matrix" >&2; exit 2; }
+fi
+if [[ -n "$diagnosis_mode" ]]; then
+  [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && "$repetitions" == 1 &&
+     "$profiles_csv" == concurrency-expense-detail ]] || {
+    echo "P68 diagnosis requires pilot class, one repetition, and only concurrency-expense-detail" >&2; exit 2; }
 fi
 
 for command in docker git go jq sha256sum curl install; do
@@ -47,6 +55,15 @@ done
 campaign_root="$repo/evaluation/final-v5-wsl2/raw/$TASKGATE_CAMPAIGN_ID"
 [[ ! -e "$campaign_root" ]] || { echo "refusing to overwrite $campaign_root" >&2; exit 2; }
 mkdir -m 700 -p "$campaign_root/source" "$campaign_root/deployments"
+if [[ -n "$diagnosis_mode" ]]; then
+  jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
+    '{schema_version:1,record:"taskgate-final-v5-p68-diagnosis-v1",status:"running",
+      classification:"DIAGNOSIS-NOT-FOR-PUBLICATION",campaign_class:"pilot",
+      publication_eligible:false,formal_campaign:false,campaign_id:$campaign_id,
+      submission_commit:$submission_commit,profiles:["concurrency-expense-detail"],deployments:1,
+      warmups_per_cell:5,samples_per_cell:30}' >"$campaign_root/diagnosis.json"
+  chmod 600 "$campaign_root/diagnosis.json"
+fi
 plan="$campaign_root/campaign-plan.json"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-plan \
   -campaign-class "$TASKGATE_EXPERIMENT_CLASS" -require-ready >"$plan"
@@ -103,7 +120,8 @@ for alias in "${selected_profiles[@]}"; do
     echo "profile is absent or not ready: $alias" >&2; exit 2; }
   selected_seen["$alias"]=1
 done
-if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions" != "$preregistration_rounds" ]]; then
+if [[ -z "$diagnosis_mode" && "$TASKGATE_EXPERIMENT_CLASS" == pilot &&
+   -n "${selected_seen[concurrency-expense-detail]+present}" && "$repetitions" != "$preregistration_rounds" ]]; then
   echo "concurrency-expense-detail requires exactly $preregistration_rounds preregistered repetitions" >&2
   exit 2
 fi
@@ -190,6 +208,10 @@ observer_manifest="$campaign_root/source/final-v5-observer.build.json"
 activator="$campaign_root/source/final-v5-profile-activate"
 rq5_driver="$campaign_root/source/rq5-sequential-driver"
 rq5_manifest="$campaign_root/source/rq5-sequential-driver.build.json"
+cliff_observer="$campaign_root/source/final-v5-cliff-observer"
+cliff_observer_manifest="$campaign_root/source/final-v5-cliff-observer.build.json"
+cliff_diagnosis="$campaign_root/source/final-v5-cliff-diagnosis"
+cliff_diagnosis_manifest="$campaign_root/source/final-v5-cliff-diagnosis.build.json"
 adapter_sha="$(build_sealed ./evaluation/cmd/final-v5-adapter "$adapter" "$adapter_manifest" \
   'go build -buildvcs=false -trimpath -o final-v5-adapter ./evaluation/cmd/final-v5-adapter')"
 observer_sha="$(build_sealed ./evaluation/cmd/final-v5-observer "$observer" "$observer_manifest" \
@@ -198,6 +220,12 @@ GOFLAGS=-buildvcs=false go build -buildvcs=false -trimpath -o "$activator" ./eva
 chmod 700 "$activator"
 rq5_sha="$(build_sealed ./evaluation/cmd/rq5-sequential-driver "$rq5_driver" "$rq5_manifest" \
   'go build -buildvcs=false -trimpath -o rq5-sequential-driver ./evaluation/cmd/rq5-sequential-driver')"
+if [[ -n "$diagnosis_mode" ]]; then
+  build_sealed ./evaluation/cmd/final-v5-cliff-observer "$cliff_observer" "$cliff_observer_manifest" \
+    'go build -buildvcs=false -trimpath -o final-v5-cliff-observer ./evaluation/cmd/final-v5-cliff-observer' >/dev/null
+  build_sealed ./evaluation/cmd/final-v5-cliff-diagnosis "$cliff_diagnosis" "$cliff_diagnosis_manifest" \
+    'go build -buildvcs=false -trimpath -o final-v5-cliff-diagnosis ./evaluation/cmd/final-v5-cliff-diagnosis' >/dev/null
+fi
 
 export TASKGATE_DATASET_BINDINGS="$dataset_binding"
 binding_file_sha="$(sha256sum "$dataset_binding" | awk '{print $1}')"
@@ -309,7 +337,16 @@ current_rq5_secret=""
 current_rq5_project=""
 current_rq5_run_root=""
 current_nonprofile_container=""
+current_cliff_observer_pid=""
 current_stage="preflight"
+stop_cliff_observer() {
+  local status=0
+  [[ -n "$current_cliff_observer_pid" ]] || return 0
+  kill -TERM "$current_cliff_observer_pid" >/dev/null 2>&1 || true
+  wait "$current_cliff_observer_pid" || status=$?
+  current_cliff_observer_pid=""
+  return "$status"
+}
 cleanup_nonprofile_backend() {
   [[ -z "$current_nonprofile_container" ]] || docker container rm --force --volumes "$current_nonprofile_container" >/dev/null 2>&1
   current_nonprofile_container=""
@@ -447,6 +484,7 @@ cleanup_current() {
     failure_formal_campaign=true
   }
   set +e
+  stop_cliff_observer || status=1
   if [[ -n "$current_dir" && "$status" -ne 0 ]]; then
     if [[ ! -e "$current_dir/deployment-failure.json" ]]; then
       jq -n --arg status "fail" --arg failure_stage "$current_stage" \
@@ -914,7 +952,12 @@ for alias in "${selected_profiles[@]}"; do
         gate_mapping_args=(-campaign-selected-cells "$campaign_selected" -rq5-cell-map "$rq5_cell_map_retained")
       fi
       config="$current_dir/config/$experiment.json"
-      if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+      if [[ -n "$diagnosis_mode" ]]; then
+        jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+          '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
+           .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=5 | .samples=30 |
+           .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
+      elif [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
         jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
           '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
            .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=0 | .samples=1 |
@@ -933,10 +976,29 @@ for alias in "${selected_profiles[@]}"; do
       runner_status=0
       runner_deployment_id="$profile_execution_id"
       runner_stderr_args=(-adapter-stderr-output "$adapter_stderr")
+      cliff_observer_output=""
+      if [[ -n "$diagnosis_mode" ]]; then
+        cliff_observer_output="$current_dir/cliff-observer.jsonl"
+        oa_container="$("${current_compose[@]}" ps -q oa-demo)"
+        [[ -n "$oa_container" ]] || { echo "P68 diagnosis cannot resolve the OA container" >&2; exit 1; }
+        "$cliff_observer" -output "$cliff_observer_output" -oa-container "$oa_container" -interval 30s \
+          >"$current_dir/cliff-observer.log" 2>&1 &
+        current_cliff_observer_pid=$!
+        for attempt in $(seq 1 60); do
+          [[ -s "$cliff_observer_output" ]] && break
+          kill -0 "$current_cliff_observer_pid" >/dev/null 2>&1 || {
+            echo "P68 cliff observer exited before its first snapshot" >&2; exit 1; }
+          [[ "$attempt" != 60 ]] || { echo "P68 cliff observer produced no initial snapshot" >&2; exit 1; }
+          sleep 1
+        done
+      fi
       GOFLAGS=-buildvcs=false go run "./evaluation/cmd/$runner" -config "$config" -deployment-id "$runner_deployment_id" \
         -adapter "$adapter" -profile-binding "$operation_profile_binding" -selected-cells "$selected" -output "$raw" \
         -deployment-repetition "$repetition" "${runner_stderr_args[@]}" \
         >"$current_dir/$experiment.log" 2>&1 || runner_status=$?
+      if [[ -n "$diagnosis_mode" ]]; then
+        stop_cliff_observer || { echo "P68 cliff observer failed" >&2; exit 1; }
+      fi
       export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
       export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
       export TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD="$business_admin_password"
@@ -954,6 +1016,16 @@ for alias in "${selected_profiles[@]}"; do
       fi
       unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
         TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
+      if [[ -n "$diagnosis_mode" ]]; then
+        diagnosis_status=0
+        "$cliff_diagnosis" -samples "$raw" -migration "$adapter_stderr" -observer "$cliff_observer_output" \
+          -summary "$current_dir/$experiment.gate.json" \
+          -migration-curve "$current_dir/migration-curve.csv" -state-curve "$current_dir/state-curve.csv" \
+          -correlation "$current_dir/correlation.json" || diagnosis_status=$?
+        echo "P68-STAGE: diagnosis deployment=$deployment_key runner_status=$runner_status analyzer_status=$diagnosis_status measured=$(jq -s 'length' "$raw") timeouts=$(jq -r '.migration_timeout_records' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable)"
+        (( runner_status == 0 && diagnosis_status == 0 )) || exit 1
+        continue
+      fi
       (( runner_status == 0 )) || exit "$runner_status"
       preregistration_gate_args=()
       if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot && "$experiment" == concurrency ]]; then
@@ -1014,6 +1086,13 @@ for alias in "${selected_profiles[@]}"; do
     add_ref formal_gateway_build_log "" "$formal_gateway_build_log"
     add_ref cleanup "" "$cleanup"
     add_ref deployment_configuration "" "$deployment_configuration"
+    if [[ -n "$diagnosis_mode" ]]; then
+      add_ref cliff_observer_binary "" "$cliff_observer"
+      add_ref cliff_observer_build_manifest "" "$cliff_observer_manifest"
+      add_ref cliff_diagnosis_binary "" "$cliff_diagnosis"
+      add_ref cliff_diagnosis_build_manifest "" "$cliff_diagnosis_manifest"
+      add_ref cliff_observer_log "" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/cliff-observer.log"
+    fi
     for experiment in "${experiments[@]}"; do
       add_ref config "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/config/$experiment.json"
       add_ref selected_cells "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/selected-cells/$experiment.json"
@@ -1030,6 +1109,12 @@ for alias in "${selected_profiles[@]}"; do
       add_ref adapter_stderr "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.log"
       add_ref adapter_stderr_credential_scan "$experiment" \
         "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/adapter-stderr/$experiment.credential-scan.json"
+      if [[ -n "$diagnosis_mode" ]]; then
+        add_ref cliff_observer "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/cliff-observer.jsonl"
+        add_ref migration_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/migration-curve.csv"
+        add_ref state_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/state-curve.csv"
+        add_ref correlation "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/correlation.json"
+      fi
     done
     record="$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/deployment-record.json"
     jq -n --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg campaign_class "$TASKGATE_EXPERIMENT_CLASS" \
@@ -1048,7 +1133,25 @@ for alias in "${selected_profiles[@]}"; do
 done
 
 manifest="$campaign_root/campaign-evidence.json"
-if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+if [[ -n "$diagnosis_mode" ]]; then
+  diagnosis_gate="$campaign_root/deployments/concurrency-expense-detail/001/concurrency.gate.json"
+  cleanup_proof="$campaign_root/deployments/concurrency-expense-detail/001/cleanup.json"
+  jq -n --slurpfile diagnosis "$diagnosis_gate" --slurpfile cleanup "$cleanup_proof" \
+    --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" \
+    '{schema_version:1,record:"taskgate-final-v5-p68-diagnosis-campaign-v1",status:"complete",
+      classification:"DIAGNOSIS-NOT-FOR-PUBLICATION",campaign_class:"pilot",publication_eligible:false,
+      formal_campaign:false,campaign_id:$campaign_id,submission_commit:$submission_commit,deployments:1,
+      cliff_reproduced:$diagnosis[0].cliff_reproduced,migration_timeout_records:$diagnosis[0].migration_timeout_records,
+      first_timeout_order_position:$diagnosis[0].first_timeout_order_position,
+      last_timeout_order_position:$diagnosis[0].last_timeout_order_position,cleanup:$cleanup[0]}' >"$manifest"
+  jq -e '.status == "complete" and .classification == "DIAGNOSIS-NOT-FOR-PUBLICATION" and
+    .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false and
+    .deployments == 1 and .cliff_reproduced == true and .cleanup.status == "pass"' "$manifest" >/dev/null
+  diagnosis_tmp="$campaign_root/.diagnosis.json.tmp"
+  jq '.status="complete" | .cliff_reproduced=true' "$campaign_root/diagnosis.json" >"$diagnosis_tmp"
+  chmod 600 "$diagnosis_tmp"
+  mv "$diagnosis_tmp" "$campaign_root/diagnosis.json"
+elif [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
   GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-campaign-evidence -root "$campaign_root" -plan "$plan" \
     -campaign-id "$TASKGATE_CAMPAIGN_ID" -submission-commit "$TASKGATE_SUBMISSION_COMMIT" \
     -repetitions "$repetitions" -profiles "$profiles_csv" -out "$manifest"
@@ -1179,4 +1282,8 @@ else
     .compiler_non_profile_cells == 11 and .total_cells == 178' "$manifest" >/dev/null
 fi
 trap - EXIT
-echo "P30-STAGE: mechanism=pass class=$TASKGATE_EXPERIMENT_CLASS deployments=$deployment_count publication_eligible=$publication_eligible evidence=$manifest"
+if [[ -n "$diagnosis_mode" ]]; then
+  echo "P68-STAGE: diagnostic_campaign=pass class=pilot deployments=$deployment_count publication_eligible=false evidence=$manifest"
+else
+  echo "P30-STAGE: mechanism=pass class=$TASKGATE_EXPERIMENT_CLASS deployments=$deployment_count publication_eligible=$publication_eligible evidence=$manifest"
+fi

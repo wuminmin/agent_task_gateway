@@ -19,6 +19,9 @@ import (
 
 var deploymentIDPattern = regexp.MustCompile(`^deployment-([0-9]{2})$`)
 
+const p68CliffDiagnosisEnv = "TASKGATE_P68_CLIFF_DIAGNOSIS"
+const p68CliffDiagnosisMarker = "DIAGNOSIS-NOT-FOR-PUBLICATION"
+
 // AdapterOperation is the versioned, credential-free contract sent to a
 // deployment-specific adapter. The executable reads JSONL operations from
 // stdin and returns one complete Sample JSON object per line on stdout.
@@ -692,11 +695,122 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation,
 		processErrors = append(processErrors, fmt.Errorf("adapter returned %d lines for %d operations", line, len(operations)))
 	}
 	if stderr.Len() != 0 {
-		if adapterStderr == nil || validatePreregisteredConcurrencyMissDiagnostics(experimentID, operations, samples, stderr.Bytes()) != nil {
+		if adapterStderr == nil || validateAdapterDiagnostics(experimentID, operations, samples, stderr.Bytes()) != nil {
 			processErrors = append(processErrors, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary"))
 		}
 	}
 	return samples, errors.Join(processErrors...)
+}
+
+func validateAdapterDiagnostics(experimentID string, operations []AdapterOperation, samples []*Sample, payload []byte) error {
+	mode := os.Getenv(p68CliffDiagnosisEnv)
+	if mode != "" && mode != p68CliffDiagnosisMarker {
+		return errors.New("unknown task migration diagnostic mode")
+	}
+	var migrationPayload, missPayload bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(payload))
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := append([]byte(nil), scanner.Bytes()...)
+		var members map[string]json.RawMessage
+		if err := StrictJSON(line, &members); err != nil {
+			return err
+		}
+		var record string
+		if err := json.Unmarshal(members["record"], &record); err != nil {
+			return errors.New("adapter diagnostic omits its record identity")
+		}
+		switch record {
+		case TaskMigrationWaitDiagnosticV1Record:
+			migrationPayload.Write(line)
+			migrationPayload.WriteByte('\n')
+		case PreregisteredConcurrencyMissDiagnosticV1Record:
+			missPayload.Write(line)
+			missPayload.WriteByte('\n')
+		default:
+			return fmt.Errorf("unknown adapter diagnostic record %q", record)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	exactMisses := 0
+	for _, sample := range samples {
+		if sample == nil {
+			continue
+		}
+		if observedPass, err := ValidatePreregisteredConcurrencyRound(*sample); err == nil && !observedPass {
+			exactMisses++
+		}
+	}
+	if exactMisses > 0 || missPayload.Len() > 0 {
+		if err := validatePreregisteredConcurrencyMissDiagnostics(experimentID, operations, samples, missPayload.Bytes()); err != nil {
+			return err
+		}
+	}
+	if mode == p68CliffDiagnosisMarker {
+		return validateTaskMigrationWaitDiagnostics(experimentID, operations, migrationPayload.Bytes())
+	}
+	if migrationPayload.Len() != 0 {
+		return errors.New("task migration diagnostics are restricted to the P68 diagnosis mode")
+	}
+	return nil
+}
+
+func validateTaskMigrationWaitDiagnostics(experimentID string, operations []AdapterOperation, payload []byte) error {
+	if experimentID != "concurrency" || len(operations) == 0 || len(payload) == 0 {
+		return errors.New("task migration diagnostics require the P68 concurrency operation set")
+	}
+	operationBySample := make(map[string]AdapterOperation, len(operations))
+	for _, operation := range operations {
+		operationBySample[operation.SampleID] = operation
+	}
+	seen := make(map[string]TaskMigrationWaitDiagnosticV1)
+	perSample := make(map[string]int, len(operations))
+	scanner := bufio.NewScanner(bytes.NewReader(payload))
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	for scanner.Scan() {
+		var diagnostic TaskMigrationWaitDiagnosticV1
+		if err := StrictJSON(scanner.Bytes(), &diagnostic); err != nil {
+			return err
+		}
+		if err := diagnostic.Validate(); err != nil {
+			return err
+		}
+		operation, exists := operationBySample[diagnostic.SampleID]
+		if !exists || diagnostic.CampaignID != operation.CampaignID ||
+			diagnostic.DeploymentID != operation.DeploymentID || diagnostic.ExperimentID != operation.ExperimentID ||
+			diagnostic.CellID != operation.CellID || diagnostic.OrderPosition != operation.OrderPosition ||
+			diagnostic.Warmup != operation.Warmup {
+			return errors.New("task migration diagnostic differs from its requested operation")
+		}
+		key := diagnostic.SampleID + "\x00" + diagnostic.TaskIDHash + "\x00" + diagnostic.ExpectedState
+		if _, duplicate := seen[key]; duplicate {
+			return errors.New("duplicate task migration diagnostic wait")
+		}
+		seen[key] = diagnostic
+		perSample[diagnostic.SampleID]++
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	for _, operation := range operations {
+		if perSample[operation.SampleID] == 0 {
+			return fmt.Errorf("sample %s omits task migration diagnostics", operation.SampleID)
+		}
+	}
+	for key, diagnostic := range seen {
+		if diagnostic.ExpectedState != "ACTIVE" {
+			continue
+		}
+		prefix := diagnostic.SampleID + "\x00" + diagnostic.TaskIDHash + "\x00"
+		first, exists := seen[prefix+"AWAITING_APPROVAL"]
+		if !exists || first.Status != "reached" || first.TaskOrdinal != diagnostic.TaskOrdinal ||
+			first.TaskRole != diagnostic.TaskRole {
+			return fmt.Errorf("active migration wait %q lacks its reached submission wait", key)
+		}
+	}
+	return nil
 }
 
 func validatePreregisteredConcurrencyMissDiagnostics(experimentID string, operations []AdapterOperation,

@@ -1046,18 +1046,38 @@ func (adapter *realAdapter) provisionTask(ctx context.Context, operation experim
 		[]string{"receipt_no", "department"})
 }
 
-func (adapter *realAdapter) waitTask(ctx context.Context, taskID, expected string) error {
-	deadline := time.Now().Add(adapter.timeout)
+func (adapter *realAdapter) waitTask(ctx context.Context, taskID, taskRole, expected string) error {
+	started := time.Now()
+	deadline := started.Add(adapter.timeout)
+	lastState := "UNOBSERVED"
+	var lastErr error
+	polls := 0
 	for time.Now().Before(deadline) {
 		var status struct {
 			State string `json:"state"`
 		}
-		if adapter.alice.call(ctx, "get_task_status", map[string]string{"task_id": taskID}, &status) == nil && status.State == expected {
+		polls++
+		lastErr = adapter.alice.call(ctx, "get_task_status", map[string]string{"task_id": taskID}, &status)
+		if lastErr == nil {
+			lastState = status.State
+		}
+		if lastErr == nil && status.State == expected {
+			recordTaskMigrationWait(ctx, taskID, taskRole, expected, lastState, "reached", time.Since(started), polls, nil)
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			elapsed := time.Since(started)
+			recordTaskMigrationWait(ctx, taskID, taskRole, expected, lastState, "context_cancelled", elapsed, polls, ctx.Err())
+			return &taskMigrationWaitError{expected: expected, lastState: lastState, elapsed: elapsed,
+				polls: polls, lastErr: ctx.Err(), status: "context_cancelled"}
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	return errors.New("task state transition timed out")
+	elapsed := time.Since(started)
+	recordTaskMigrationWait(ctx, taskID, taskRole, expected, lastState, "timeout", elapsed, polls, lastErr)
+	return &taskMigrationWaitError{expected: expected, lastState: lastState, elapsed: elapsed,
+		polls: polls, lastErr: lastErr, status: "timed out"}
 }
 
 func (adapter *realAdapter) rootLedgerSnapshot(ctx context.Context, taskID string) (experiment.RootLedgerSnapshot, error) {

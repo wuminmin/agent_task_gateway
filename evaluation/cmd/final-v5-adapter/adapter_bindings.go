@@ -195,13 +195,13 @@ func (adapter *realAdapter) provisionBoundTask(ctx context.Context, operation ex
 	if err := oaAction(ctx, adapter.aliceOA, adapter.oaBase, draftID, "submit", ""); err != nil {
 		return "", err
 	}
-	if err := adapter.waitTask(ctx, created.TaskID, "AWAITING_APPROVAL"); err != nil {
+	if err := adapter.waitTask(ctx, created.TaskID, "root", "AWAITING_APPROVAL"); err != nil {
 		return "", err
 	}
 	if err := oaAction(ctx, adapter.bobOA, adapter.oaBase, draftID, "decision", "approved"); err != nil {
 		return "", err
 	}
-	if err := adapter.waitTask(ctx, created.TaskID, "ACTIVE"); err != nil {
+	if err := adapter.waitTask(ctx, created.TaskID, "root", "ACTIVE"); err != nil {
 		return "", err
 	}
 	return created.TaskID, nil
