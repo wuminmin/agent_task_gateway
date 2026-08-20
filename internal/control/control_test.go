@@ -190,6 +190,41 @@ func TestApprovalCallbackReplayAndConflict(t *testing.T) {
 	}
 }
 
+func TestApprovalCallbackPhaseTimingIsOffByDefaultAndCompleteWhenEnabled(t *testing.T) {
+	clock := fixedClock{value: time.Date(2026, 8, 21, 1, 2, 3, 0, time.UTC)}
+	expires := clock.value.Add(time.Hour)
+
+	var disabled bytes.Buffer
+	disabledStore := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 44), WithClock(clock))
+	createAwaitingApprovalTask(t, disabledStore, "task_callback_timing_off", expires)
+	approveTask(t, disabledStore, "task_callback_timing_off", expires, BudgetLimits{Queries: 2, Rows: 10, DBMS: 1000})
+	if disabled.Len() != 0 || disabledStore.callbackPhaseTiming != nil {
+		t.Fatalf("default-disabled callback timing emitted output or installed a recorder: bytes=%d recorder=%v", disabled.Len(), disabledStore.callbackPhaseTiming != nil)
+	}
+
+	var enabled bytes.Buffer
+	enabledStore := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 45),
+		WithClock(clock), WithCallbackPhaseTiming(&enabled))
+	createAwaitingApprovalTask(t, enabledStore, "task_callback_timing_on", expires)
+	approveTask(t, enabledStore, "task_callback_timing_on", expires, BudgetLimits{Queries: 2, Rows: 10, DBMS: 1000})
+	var record CallbackPhaseTimingV1
+	if err := json.NewDecoder(&enabled).Decode(&record); err != nil {
+		t.Fatalf("decode callback phase timing: %v", err)
+	}
+	if record.SchemaVersion != 1 || record.Record != CallbackPhaseTimingV1Record ||
+		record.TaskID != "task_callback_timing_on" || record.TaskIDSHA256 != CallbackPhaseTaskIDSHA256(record.TaskID) ||
+		record.EventID != "oa_task_callback_timing_on" || record.FinalResult != "committed" ||
+		record.ErrorClass != "none" || len(record.Phases) != len(callbackPhaseOrder) {
+		t.Fatalf("unexpected callback phase timing record: %+v", record)
+	}
+	for index, phase := range record.Phases {
+		if phase.Name != callbackPhaseOrder[index] || !phase.Attempted || phase.Result != "ok" ||
+			phase.StartedOffsetMS < 0 || phase.FinishedOffsetMS < phase.StartedOffsetMS || phase.DurationMS < 0 {
+			t.Fatalf("callback phase[%d] is incomplete: %+v", index, phase)
+		}
+	}
+}
+
 func TestConcurrentAuditAppendProducesContinuousChain(t *testing.T) {
 	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 8))
 	const count = 24

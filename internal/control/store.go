@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -25,19 +26,21 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now() }
 
 type Store struct {
-	db     *sql.DB
-	cipher ResultCipher
-	clock  Clock
-	closed atomic.Bool
+	db                  *sql.DB
+	cipher              ResultCipher
+	clock               Clock
+	callbackPhaseTiming *callbackPhaseTimingRecorder
+	closed              atomic.Bool
 }
 
 type Option func(*storeOptions)
 
 type storeOptions struct {
-	clock                  Clock
-	recover                bool
-	recoveryReceiptBuilder TerminalReceiptBuilder
-	pool                   PoolConfig
+	clock                     Clock
+	recover                   bool
+	recoveryReceiptBuilder    TerminalReceiptBuilder
+	pool                      PoolConfig
+	callbackPhaseTimingWriter io.Writer
 }
 
 // PoolConfig controls the production Control PostgreSQL connection pool.
@@ -85,6 +88,17 @@ func WithPoolConfig(config PoolConfig) Option {
 	return func(options *storeOptions) { options.pool = config }
 }
 
+// WithCallbackPhaseTiming enables diagnostic-only submitted-callback timing.
+// Ordinary stores do not install this option and therefore take no timing or
+// output path. The Gateway wires it only behind an exact diagnosis marker.
+func WithCallbackPhaseTiming(writer io.Writer) Option {
+	return func(options *storeOptions) {
+		if writer != nil {
+			options.callbackPhaseTimingWriter = writer
+		}
+	}
+}
+
 // Open opens a PostgreSQL control database, applies embedded migrations, and
 // recovers transactions that were in flight when the previous process exited.
 func Open(ctx context.Context, dsn string, cipher ResultCipher, options ...Option) (*Store, error) {
@@ -120,6 +134,9 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 		return nil, opErr("new store", ErrInvalid, err)
 	}
 	store := &Store{db: db, cipher: cipher, clock: config.clock}
+	if config.callbackPhaseTimingWriter != nil {
+		store.callbackPhaseTiming = &callbackPhaseTimingRecorder{writer: config.callbackPhaseTimingWriter}
+	}
 
 	db.SetMaxOpenConns(pool.MaxOpenConns)
 	db.SetMaxIdleConns(pool.MaxIdleConns)

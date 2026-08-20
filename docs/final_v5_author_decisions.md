@@ -634,3 +634,33 @@ oracles, campaigns, or the paper are complete.
     an `internal/` lifecycle or hotspot repair, a timeout increase, a formal
     campaign, reuse or relabelling of prior failed samples, a capability flip,
     frozen-byte change, publication evidence, release, tag, or tag movement.
+
+37. **Instrument the submitted-callback transaction's four phases and run one
+    replacement diagnostic deployment before repairing it.** (Taken
+    2026-08-21 by author wuminmin, answered exactly "a" in the agent
+    conversation to the P68d stop options.) The three options were: **A**,
+    "先授权最小 internal/ **计时插桩**(P58 探针同先例):给回调事务四相位(claim /
+    task 行锁 / audit 头获取 / commit)打点,一轮诊断部署实证定位卡死相位,再定点修"
+    (`~1 天;修的是实证真凶`); **B**, "跳过取证,直接按嫌疑改(audit 链头串行化有界化 +
+    回调事务瘦身),改完重启正式 campaign" (`省半天;猜错则 8 小时正式轮白烧、回原点`);
+    and **C**, "改主张适配证据:调低 concurrency 密度避开断崖区"
+    (`动冻结 v1.10 协议,弱化论文并发主张,审稿人会问\"为何恰停在此规模\"`).
+
+    The selected option A authorises only monotonic timing observation of
+    callback claim, task-row lock acquisition, audit-chain-head acquisition,
+    and commit on the submitted-callback transaction. It must be activated
+    only by an exact diagnostic environment marker/token, emit one structured
+    record per callback with task/order correlation material and the commit
+    outcome, and remain completely disabled by default. It must not change the
+    transaction boundary, SQL, lock order, callback semantics, or ordinary
+    formal-campaign behavior.
+
+    After focused zero-deployment validation, exactly one replacement
+    pilot-class `concurrency-expense-detail` deployment is authorised with one
+    deployment, the `DIAGNOSIS-NOT-FOR-PUBLICATION` marker, and the P68c
+    density of five warmups plus thirty measured samples across nine cells.
+    The formal Gateway must be rebuilt from the new pushed tree. The run must
+    retain phase curves and identify the phase that wedges at the reproduced
+    cliff. This does not authorise the repair itself, a formal campaign,
+    capability flip, frozen-byte change, publication evidence, release, tag,
+    or tag movement.

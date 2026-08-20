@@ -239,8 +239,11 @@ type ApprovalCallback struct {
 	Response      []byte
 }
 
-func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCallback) (CallbackClaim, error) {
+func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCallback) (claimResult CallbackClaim, resultErr error) {
 	const op = "apply approval callback"
+	trace := s.newCallbackPhaseTrace(callback.Event.TaskID, callback.EventID)
+	defer func() { trace.finish(resultErr, claimResult.Replay) }()
+	ctx = withCallbackPhaseTrace(ctx, trace)
 	if err := s.checkOpen(op); err != nil {
 		return CallbackClaim{}, err
 	}
@@ -269,18 +272,26 @@ func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCall
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
+	finishClaim := trace.begin(callbackPhaseClaim)
 	claim, err := claimCallbackTx(ctx, tx, callback.EventID, callbackPayloadHash(callback.RawPayload), now)
+	finishClaim(err)
 	if err != nil {
 		return CallbackClaim{}, err
 	}
 	if claim.Replay {
-		if err := tx.Commit(); err != nil {
+		finishCommit := trace.begin(callbackPhaseCommit)
+		err = tx.Commit()
+		finishCommit(err)
+		if err != nil {
 			return CallbackClaim{}, opErr(op, ErrConflict, err)
 		}
 		return claim, nil
 	}
 	var current TaskState
-	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=$1 FOR UPDATE`, callback.Event.TaskID).Scan(&current); err != nil {
+	finishTaskLock := trace.begin(callbackPhaseTaskRowLock)
+	err = tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=$1 FOR UPDATE`, callback.Event.TaskID).Scan(&current)
+	finishTaskLock(err)
+	if err != nil {
 		if isNoRows(err) {
 			return CallbackClaim{}, opErr(op, ErrNotFound, err)
 		}
@@ -351,7 +362,10 @@ UPDATE tasks SET state=$1, terminal_reason=$2, updated_at=$3, expires_at=COALESC
 	if err := completeCallbackTx(ctx, tx, callback.EventID, callback.Response, now); err != nil {
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
 	}
-	if err := tx.Commit(); err != nil {
+	finishCommit := trace.begin(callbackPhaseCommit)
+	err = tx.Commit()
+	finishCommit(err)
+	if err != nil {
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
 	}
 	claim.Status = CallbackCompleted

@@ -319,6 +319,8 @@ services:
       # Opens the read-only profile activation diagnostic on the authenticated
       # admin interface. Empty in ordinary deployments.
       TASKGATE_EXPERIMENT_CLASS: ${TASKGATE_EXPERIMENT_CLASS:-}
+      # Exact non-publication marker only; empty keeps callback timing disabled.
+      TASKGATE_CALLBACK_PHASE_TIMING: ${TASKGATE_CALLBACK_PHASE_TIMING:-}
       GATEWAY_RESULT_RETENTION_TTL: ${GATEWAY_RESULT_RETENTION_TTL:-}
       GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL: ${GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL:-1h}
       GATEWAY_OBJECT_STORE_ENDPOINT: ${GATEWAY_OBJECT_STORE_ENDPOINT:-http://result-object-store:9000}

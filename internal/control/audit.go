@@ -38,11 +38,13 @@ func appendAuditTx(ctx context.Context, tx *sql.Tx, event AuditEvent) (AuditEven
 	event.Payload = payload
 	var sequence int64
 	previous := auditchain.GenesisHash
+	finishAuditHead := callbackPhaseTraceFromContext(ctx).begin(callbackPhaseAuditChainHead)
 	err = tx.QueryRowContext(ctx, `
 SELECT last_sequence, last_hash
 FROM audit_chain_head
 WHERE singleton=TRUE
 FOR UPDATE`).Scan(&sequence, &previous)
+	finishAuditHead(err)
 	if err != nil {
 		return AuditEvent{}, err
 	}

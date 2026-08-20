@@ -28,6 +28,23 @@ import (
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
+func TestCallbackPhaseTimingOptionIsExactAndDefaultOff(t *testing.T) {
+	var output bytes.Buffer
+	option, err := callbackPhaseTimingOption("", &output)
+	if err != nil || option != nil || output.Len() != 0 {
+		t.Fatalf("default-off timing option = %v, err=%v, bytes=%d", option != nil, err, output.Len())
+	}
+	option, err = callbackPhaseTimingOption(callbackPhaseTimingMarker, &output)
+	if err != nil || option == nil || output.Len() != 0 {
+		t.Fatalf("exact timing option = %v, err=%v, bytes=%d", option != nil, err, output.Len())
+	}
+	for _, marker := range []string{"diagnosis-not-for-publication", callbackPhaseTimingMarker + " ", "enabled"} {
+		if option, err = callbackPhaseTimingOption(marker, &output); err == nil || option != nil {
+			t.Fatalf("non-exact marker %q was accepted", marker)
+		}
+	}
+}
+
 func TestApprovalReceiptVerifierFromEnvLoadsKeyring(t *testing.T) {
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x6a}, ed25519.SeedSize))
 	publicKey := privateKey.Public().(ed25519.PublicKey)

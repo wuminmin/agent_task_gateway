@@ -39,6 +39,8 @@ import (
 
 const defaultGatewayConnectorMaxRows int64 = 1_200_000
 
+const callbackPhaseTimingMarker = "DIAGNOSIS-NOT-FOR-PUBLICATION"
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -116,14 +118,24 @@ func main() {
 		logger.Error("invalid Control PostgreSQL connection lifetime", "error", err)
 		os.Exit(1)
 	}
-	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher,
+	storeOptions := []control.Option{
 		control.WithPoolConfig(control.PoolConfig{
 			MaxOpenConns: int(controlMaxOpen), MaxIdleConns: int(controlMaxIdle),
 			ConnMaxLifetime: controlConnMaxLifetime,
 		}),
 		control.WithRecoveryReceiptBuilder(func(evidence control.QueryReceipt) (control.SaveQueryReceiptRequest, error) {
 			return gatewayapp.BuildQueryReceiptRequest(evidence, queryReceiptSigner, time.Now().UTC())
-		}))
+		}),
+	}
+	callbackTimingOption, err := callbackPhaseTimingOption(os.Getenv("TASKGATE_CALLBACK_PHASE_TIMING"), os.Stdout)
+	if err != nil {
+		logger.Error("invalid callback phase timing marker", "error", err)
+		os.Exit(1)
+	}
+	if callbackTimingOption != nil {
+		storeOptions = append(storeOptions, callbackTimingOption)
+	}
+	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher, storeOptions...)
 	if err != nil {
 		logger.Error("open control store", "error", err)
 		os.Exit(1)
@@ -355,6 +367,16 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func callbackPhaseTimingOption(marker string, writer io.Writer) (control.Option, error) {
+	if marker == "" {
+		return nil, nil
+	}
+	if marker != callbackPhaseTimingMarker || writer == nil {
+		return nil, errors.New("callback phase timing requires the exact non-publication diagnosis marker and an output writer")
+	}
+	return control.WithCallbackPhaseTiming(writer), nil
 }
 
 func sweepPendingResultArtifacts(ctx context.Context, service *gatewayapp.Service, logger *slog.Logger) {
