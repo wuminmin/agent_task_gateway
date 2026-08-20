@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p68-diagnosis-post-measurement-failure-v1",
+  "status": "post_measurement_analyzer_failure",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p68c-cliff-diagnosis-03",
+  "submission_commit": "0faa14a9d654fe45723f5aae314fbe5c5893ea37",
+  "formal_gateway_built": true,
+  "runner_started": true,
+  "runner_status": 1,
+  "measurement_started": true,
+  "measured_samples": 270,
+  "raw_records": 271,
+  "retained_warmup_records": 1,
+  "sample_status_counts": {
+    "pass": 221,
+    "fail": 48,
+    "invalid": 2
+  },
+  "measured_sample_status_counts": {
+    "pass": 221,
+    "fail": 48,
+    "invalid": 1
+  },
+  "migration_wait_records": 79342,
+  "migration_operations": 315,
+  "migration_reached_records": 79294,
+  "migration_timeout_records": 48,
+  "observed_cliff": {
+    "present_in_diagnostic_records": true,
+    "first_timeout_order_position": 268,
+    "last_timeout_order_position": 315,
+    "timeout_positions_consecutive": true,
+    "expected_state": "AWAITING_APPROVAL",
+    "last_state": "AWAITING_SUBMISSION",
+    "task_role": "root",
+    "elapsed_ms_min": 30002.611,
+    "elapsed_ms_max": 30101.164
+  },
+  "observer_snapshots": 1006,
+  "observer_maxima": {
+    "control_tasks": 39695,
+    "tasks_awaiting_submission": 48,
+    "lock_waiters": 5,
+    "audit_lock_waiters": 4,
+    "deadlocks": 0,
+    "oa_rss_bytes": 350433280
+  },
+  "analyzer_status": 1,
+  "analyzer_error": "diagnosis samples are not measured non-publication concurrency records",
+  "analyzer_failure_cause": "one retained invalid warmup record violates the analyzer measured-only input contract",
+  "analyzer_closure": false,
+  "analyzer_verdict": "none",
+  "acceptance_verdict": "none",
+  "retry_performed": false,
+  "compose_project": "taskgate-final-v5-deployment-01-a813d7f99e7c8c4b91b6",
+  "cleanup": {
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0
+  },
+  "local_evidence": {
+    "raw_samples": {
+      "bytes": 92651596,
+      "sha256": "4622365ea19d1d7170404e0301d78187fc4021d3360895b743608ab1bb6e4622"
+    },
+    "adapter_stderr": {
+      "bytes": 49913108,
+      "sha256": "b710a6b90867c075b3a6096e6af338e1975d802e52db52b4dd1d912e45b4a27b"
+    },
+    "cliff_observer": {
+      "bytes": 3306407,
+      "sha256": "d62c1eb9ce883c4dfa081ba6c8a6bc726ec21950b3d2eabcee2912a116b3f2a4"
+    },
+    "adapter_stderr_credential_scan_sha256": "3a349de24ef503b69a08b0e74b52f3461b9fd490fde3fe72ec162ac78a08551b"
+  }
+}

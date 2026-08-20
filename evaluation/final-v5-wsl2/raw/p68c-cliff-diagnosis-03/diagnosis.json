@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p68-diagnosis-v1",
+  "status": "running",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p68c-cliff-diagnosis-03",
+  "submission_commit": "0faa14a9d654fe45723f5aae314fbe5c5893ea37",
+  "profiles": [
+    "concurrency-expense-detail"
+  ],
+  "deployments": 1,
+  "warmups_per_cell": 5,
+  "samples_per_cell": 30
+}

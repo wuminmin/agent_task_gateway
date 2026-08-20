@@ -1,0 +1,864 @@
+oa-demo-1                        | {"time":"2026-08-20T08:00:57.713437461Z","level":"INFO","msg":"oa demo listening","address":":8092"}
+snapshot-index-result-heavy-1    | publication_dir=/data/snapshot-index/final-v5-result-heavy-v1
+result-object-store-1            | INFO: Formatting 1st pool, 1 set(s), 1 drives per set.
+snapshot-index-result-heavy-1    | manifest_digest=80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd
+snapshot-index-result-heavy-1    | dictionary_digest=9d014210da03effded9c72f42fe1af370c9a563fbee6315c298c10560a7254c0
+snapshot-index-result-heavy-1    | sidecar_digest=f50d45943e4388bc9cbc897be0ff337bf76cf004cd55e553fdab8695b567a1fc
+snapshot-index-result-heavy-1    | cold_payload_digest=26221cfb1471aa58851849a9ef0e04c0752e8b48e49a063c545d045a494f1f4e
+snapshot-index-result-heavy-1    | hot_index_digest=ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8
+result-object-store-1            | INFO: WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.
+result-object-store-1            | MinIO Object Storage Server
+result-object-store-1            | Copyright: 2015-2026 MinIO, Inc.
+result-object-store-1            | License: GNU AGPLv3 - https://www.gnu.org/licenses/agpl-3.0.html
+result-object-store-1            | Version: RELEASE.2025-04-22T22-12-26Z (go1.24.2 linux/amd64)
+result-object-store-1            | 
+result-object-store-1            | API: http://172.24.0.2:9000  http://172.26.0.2:9000  http://127.0.0.1:9000 
+gateway-1                        | {"time":"2026-08-20T12:49:36.794291462Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+control-postgres-1               | waiting for server to shut down....2026-08-20 07:57:07.649 UTC [48] LOG:  received fast shutdown request
+snapshot-sidecar-install-1       | installed_publication=expense-detail-v1 row_count=10 manifest_digest=f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915 sidecar=taskgate_ordinal.expense_detail_v1
+control-postgres-1               | 2026-08-20 07:57:07.673 UTC [48] LOG:  aborting any active transactions
+gateway-1                        | {"time":"2026-08-20T12:54:21.480105121Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_71aefe5289589a48176faf8712b5b665","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+control-postgres-1               | 2026-08-20 07:57:07.675 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+snapshot-index-detail-1          | publication_dir=/data/snapshot-index/expense-detail-v1
+control-postgres-1               | 2026-08-20 07:57:07.675 UTC [49] LOG:  shutting down
+control-postgres-1               | 2026-08-20 07:57:07.705 UTC [49] LOG:  checkpoint starting: shutdown immediate
+snapshot-index-detail-1          | manifest_digest=f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915
+snapshot-sidecar-install-1       | installed_publication=expense-summary-v1 row_count=10 manifest_digest=fab914ec7a73ca135d53b510e9699ceb11766c54aeacc01ce8468a0ab933ca9c sidecar=taskgate_ordinal.expense_summary_v1
+control-postgres-1               | .2026-08-20 07:57:08.894 UTC [49] LOG:  checkpoint complete: wrote 931 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.062 s, sync=1.069 s, total=1.219 s; sync files=308, longest=0.110 s, average=0.004 s; distance=4260 kB, estimate=4260 kB; lsn=0/19132B0, redo lsn=0/19132B0
+control-postgres-1               | 2026-08-20 07:57:08.900 UTC [48] LOG:  database system is shut down
+snapshot-sidecar-install-1       | installed_publication=provsql-orders-v1 row_count=50000 manifest_digest=e79cda20623ec8904f834273800f466918578072d336bdfaef160974ae155909 sidecar=taskgate_ordinal.provsql_orders_v1
+control-postgres-1               |  done
+snapshot-sidecar-install-1       | installed_publication=provsql-lineitem-v1 row_count=250000 manifest_digest=4be0601c8b909e89051e4018c430542e9d1c1827460b82a3f0cd7eff66e25ab5 sidecar=taskgate_ordinal.provsql_lineitem_v1
+snapshot-sidecar-install-1       | installed_publication=provsql-nonce-v1 row_count=1000 manifest_digest=0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb sidecar=taskgate_ordinal.provsql_nonce_v1
+snapshot-sidecar-install-1       | installed_publication=final-v5-result-heavy-v1 row_count=100000 manifest_digest=80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd sidecar=taskgate_ordinal.final_v5_result_heavy_v1
+snapshot-sidecar-install-1       | installed_publication=final-v5-exposure-scale-v1 row_count=414000 manifest_digest=3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff sidecar=taskgate_ordinal.final_v5_exposure_scale_v1
+result-object-store-1            | WebUI: http://172.24.0.2:9001 http://172.26.0.2:9001 http://127.0.0.1:9001  
+result-object-store-1            | 
+result-object-store-1            | Docs: https://docs.min.io
+result-object-store-1            | INFO: 
+result-object-store-1            |  You are running an older version of MinIO released 4 months before the latest release 
+result-object-store-1            |  Update: Run `mc admin update ALIAS` 
+result-object-store-1            | 
+result-object-store-1            | 
+gateway-1                        | {"time":"2026-08-20T12:54:42.669471319Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_f70f1d14908fc3cd710f7f3566b75b39","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:54:56.198518889Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T12:55:04.346868558Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7f0d89fbcba1fb96f4ea93018c23f17d","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:55:51.776606613Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_340b1c56e9435b8d5b2e882c5ef46123","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:56:17.048650061Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T12:56:38.262466808Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_535ccf3b407fa76efc3c19609fc4a169","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:56:42.980463086Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_fa6e120d6aeb9d1b9cbccd687084cf16","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:56:47.673631172Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_405ecd2d942959fcc9158c9977b398ab","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T12:58:39.053428397Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T12:58:44.176919073Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T12:58:49.133518595Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+control-postgres-1               | server stopped
+control-postgres-1               | 
+control-postgres-1               | PostgreSQL init process complete; ready for start up.
+control-postgres-1               | 
+control-postgres-1               | 2026-08-20 07:57:09.013 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+control-postgres-1               | 2026-08-20 07:57:09.014 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+control-postgres-1               | 2026-08-20 07:57:09.014 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+control-postgres-1               | 2026-08-20 07:57:09.037 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+control-postgres-1               | 2026-08-20 07:57:09.056 UTC [75] LOG:  database system was shut down at 2026-08-20 07:57:08 UTC
+control-postgres-1               | 2026-08-20 07:57:09.068 UTC [1] LOG:  database system is ready to accept connections
+control-postgres-1               | 2026-08-20 08:02:09.152 UTC [73] LOG:  checkpoint starting: time
+final-v5-direct-postgres-1       | The files belonging to this database system will be owned by user "postgres".
+control-postgres-1               | 2026-08-20 08:04:31.969 UTC [73] LOG:  checkpoint complete: wrote 1426 buffers (8.7%); 0 WAL file(s) added, 0 removed, 1 recycled; write=142.411 s, sync=0.344 s, total=142.817 s; sync files=366, longest=0.009 s, average=0.001 s; distance=11229 kB, estimate=11229 kB; lsn=0/429A028, redo lsn=0/240AA80
+control-postgres-1               | 2026-08-20 08:12:10.160 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 08:16:41.876 UTC [73] LOG:  checkpoint complete: wrote 6074 buffers (37.1%); 0 WAL file(s) added, 0 removed, 3 recycled; write=269.861 s, sync=1.669 s, total=271.716 s; sync files=138, longest=0.035 s, average=0.013 s; distance=60640 kB, estimate=60640 kB; lsn=0/7FFDCD0, redo lsn=0/5F42B98
+control-postgres-1               | 2026-08-20 08:17:10.904 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 08:21:40.211 UTC [73] LOG:  checkpoint complete: wrote 4335 buffers (26.5%); 0 WAL file(s) added, 0 removed, 3 recycled; write=269.097 s, sync=0.143 s, total=269.307 s; sync files=135, longest=0.010 s, average=0.002 s; distance=36315 kB, estimate=58207 kB; lsn=0/B06AD30, redo lsn=0/82B9A70
+control-postgres-1               | 2026-08-20 08:22:10.242 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 08:26:40.190 UTC [73] LOG:  checkpoint complete: wrote 4199 buffers (25.6%); 0 WAL file(s) added, 0 removed, 3 recycled; write=269.807 s, sync=0.073 s, total=269.949 s; sync files=95, longest=0.008 s, average=0.001 s; distance=46789 kB, estimate=57066 kB; lsn=0/DBC6778, redo lsn=0/B06B1E0
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/expense-summary-v1
+final-v5-direct-postgres-1       | This user must also own the server process.
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | The database cluster will be initialized with locale "en_US.utf8".
+final-v5-direct-postgres-1       | The default database encoding has accordingly been set to "UTF8".
+final-v5-direct-postgres-1       | The default text search configuration will be set to "english".
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | Data page checksums are disabled.
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+final-v5-direct-postgres-1       | creating subdirectories ... ok
+final-v5-direct-postgres-1       | selecting dynamic shared memory implementation ... posix
+final-v5-direct-postgres-1       | selecting default max_connections ... 100
+final-v5-direct-postgres-1       | selecting default shared_buffers ... 128MB
+final-v5-direct-postgres-1       | selecting default time zone ... Etc/UTC
+final-v5-direct-postgres-1       | creating configuration files ... ok
+final-v5-direct-postgres-1       | running bootstrap script ... ok
+final-v5-direct-postgres-1       | performing post-bootstrap initialization ... ok
+final-v5-direct-postgres-1       | syncing data to disk ... ok
+control-postgres-1               | 2026-08-20 08:32:10.281 UTC [73] LOG:  checkpoint starting: time
+snapshot-index-detail-1          | dictionary_digest=315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
+snapshot-index-detail-1          | sidecar_digest=bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
+snapshot-index-detail-1          | cold_payload_digest=6ae1f688f5bafac44723624a6df5e72cc636c68aca213e92d62a47d97fa88cd6
+control-postgres-1               | 2026-08-20 08:36:40.167 UTC [73] LOG:  checkpoint complete: wrote 7268 buffers (44.4%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.711 s, sync=0.093 s, total=269.887 s; sync files=138, longest=0.008 s, average=0.001 s; distance=65821 kB, estimate=65821 kB; lsn=0/11A02EA0, redo lsn=0/F0B28F0
+snapshot-index-summary-1         | manifest_digest=fab914ec7a73ca135d53b510e9699ceb11766c54aeacc01ce8468a0ab933ca9c
+gateway-1                        | {"time":"2026-08-20T12:58:54.232958905Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+final-v5-provsql-postgres-1      | The files belonging to this database system will be owned by user "postgres".
+snapshot-index-summary-1         | dictionary_digest=ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
+snapshot-index-summary-1         | sidecar_digest=2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
+result-object-store-init-1       | Added `taskgate` successfully.
+snapshot-index-summary-1         | cold_payload_digest=5c829b553fabc808791d74240b8a43bba6f38e14950b9bd630aa016b8c5e590e
+final-v5-direct-postgres-1       | 
+snapshot-index-summary-1         | hot_index_digest=d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-orders-v1
+gateway-1                        | {"time":"2026-08-20T13:03:38.039628664Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_bb323a98853e839f5573d6104fca6d37","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+snapshot-index-summary-1         | manifest_digest=e79cda20623ec8904f834273800f466918578072d336bdfaef160974ae155909
+final-v5-provsql-postgres-1      | This user must also own the server process.
+snapshot-index-summary-1         | dictionary_digest=af304d7670eb00a84f671690df5bea26815edf9e53e6c2c2b1878e3153d8e975
+final-v5-provsql-postgres-1      | 
+snapshot-index-summary-1         | sidecar_digest=a75e4a6aa2f9b6cf724c295e7b9ec2e75460015f31a21e87b6791223d52aba18
+final-v5-provsql-postgres-1      | The database cluster will be initialized with locale "en_US.utf8".
+snapshot-index-summary-1         | cold_payload_digest=57bd85b7ffdcf3fdb725356e1ceff6785a0abfa2934d2c84a50933a87e1e4131
+snapshot-index-exposure-scale-1  | publication_dir=/data/snapshot-index/final-v5-exposure-scale-v1
+snapshot-index-summary-1         | hot_index_digest=80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-lineitem-v1
+snapshot-index-summary-1         | manifest_digest=4be0601c8b909e89051e4018c430542e9d1c1827460b82a3f0cd7eff66e25ab5
+snapshot-index-summary-1         | dictionary_digest=e718bc8f0d9eeb92069cbb7df26b8041e6ebc13ca8ef0943ba77e280cfd9895d
+snapshot-index-summary-1         | sidecar_digest=f8b90a24a69fe0fdcc0423462fd9920e44860eb38b881d8e803622d89285cfa2
+control-postgres-1               | 2026-08-20 08:42:10.297 UTC [73] LOG:  checkpoint starting: time
+snapshot-index-summary-1         | cold_payload_digest=09348d31b4c5f2a05a92908ee69f4b16b7b27f771dfd07208b41b16027a7f17f
+snapshot-index-exposure-scale-1  | manifest_digest=3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff
+final-v5-provsql-postgres-1      | The default database encoding has accordingly been set to "UTF8".
+final-v5-provsql-postgres-1      | The default text search configuration will be set to "english".
+snapshot-index-detail-1          | hot_index_digest=ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675
+snapshot-index-exposure-scale-1  | dictionary_digest=2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5
+snapshot-index-exposure-scale-1  | sidecar_digest=8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df
+snapshot-index-exposure-scale-1  | cold_payload_digest=c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c
+snapshot-index-exposure-scale-1  | hot_index_digest=43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f
+result-object-store-init-1       | Bucket created successfully `taskgate/taskgate-results`.
+result-object-store-init-1       | Access permission for `taskgate/taskgate-results` is set to `private`
+result-object-store-init-1       | Added user `taskgate-gateway` successfully.
+result-object-store-init-1       | Created policy `taskgate-result-artifacts` successfully.
+result-object-store-init-1       | Attached Policies: [taskgate-result-artifacts]
+result-object-store-init-1       | To User: taskgate-gateway
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | Success. You can now start the database server using:
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | initdb: warning: enabling "trust" authentication for local connections
+final-v5-direct-postgres-1       | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+final-v5-direct-postgres-1       | waiting for server to start....2026-08-20 07:57:07.152 UTC [48] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-direct-postgres-1       | 2026-08-20 07:57:07.166 UTC [48] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-direct-postgres-1       | 2026-08-20 07:57:07.207 UTC [51] LOG:  database system was shut down at 2026-08-20 07:57:04 UTC
+final-v5-direct-postgres-1       | 2026-08-20 07:57:07.228 UTC [48] LOG:  database system is ready to accept connections
+final-v5-direct-postgres-1       |  done
+final-v5-direct-postgres-1       | server started
+final-v5-direct-postgres-1       | CREATE DATABASE
+snapshot-index-summary-1         | hot_index_digest=65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1
+snapshot-index-summary-1         | publication_dir=/data/snapshot-index/provsql-nonce-v1
+snapshot-index-summary-1         | manifest_digest=0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb
+control-postgres-1               | 2026-08-20 08:46:40.338 UTC [73] LOG:  checkpoint complete: wrote 8907 buffers (54.4%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.691 s, sync=0.262 s, total=270.042 s; sync files=133, longest=0.016 s, average=0.002 s; distance=75838 kB, estimate=75838 kB; lsn=0/15D38418, redo lsn=0/13AC21E0
+gateway-1                        | {"time":"2026-08-20T13:05:29.394876064Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T13:05:34.477485328Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+snapshot-index-summary-1         | dictionary_digest=8f44bdcadfe186a39533be51b885f02b195095830acaaf57330acc0e7ab102de
+gateway-1                        | {"time":"2026-08-20T13:05:40.003648197Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+snapshot-index-summary-1         | sidecar_digest=be22806ef83c069ae6da1fc08983b503e59fadb0acf45ce4a7417d12dfdbd9dd
+control-postgres-1               | 2026-08-20 08:47:10.368 UTC [73] LOG:  checkpoint starting: time
+snapshot-index-summary-1         | cold_payload_digest=7c2e49619a3fd7782e4279943534db748ddcc08ed4c7fd396c7d854f63703718
+snapshot-index-summary-1         | hot_index_digest=12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530
+control-postgres-1               | 2026-08-20 08:51:40.307 UTC [73] LOG:  checkpoint complete: wrote 6937 buffers (42.3%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.613 s, sync=0.242 s, total=269.939 s; sync files=113, longest=0.014 s, average=0.003 s; distance=57625 kB, estimate=74016 kB; lsn=0/181CC088, redo lsn=0/17308710
+control-postgres-1               | 2026-08-20 08:52:10.336 UTC [73] LOG:  checkpoint starting: time
+final-v5-direct-postgres-1       | 
+control-postgres-1               | 2026-08-20 08:56:31.268 UTC [73] LOG:  checkpoint complete: wrote 2323 buffers (14.2%); 0 WAL file(s) added, 0 removed, 1 recycled; write=260.797 s, sync=0.097 s, total=260.933 s; sync files=120, longest=0.008 s, average=0.001 s; distance=20202 kB, estimate=68635 kB; lsn=0/1B75A320, redo lsn=0/186C3308
+final-v5-direct-postgres-1       | 
+final-v5-direct-postgres-1       | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql
+business-postgres-1              | INSERT 0 10
+final-v5-direct-postgres-1       | BEGIN
+final-v5-direct-postgres-1       | CREATE SCHEMA
+control-postgres-1               | 2026-08-20 09:02:10.772 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 09:06:40.391 UTC [73] LOG:  checkpoint complete: wrote 7208 buffers (44.0%); 0 WAL file(s) added, 0 removed, 6 recycled; write=269.228 s, sync=0.290 s, total=269.619 s; sync files=137, longest=0.011 s, average=0.003 s; distance=101984 kB, estimate=101984 kB; lsn=0/1FE22E60, redo lsn=0/1EA5B528
+final-v5-direct-postgres-1       | CREATE SCHEMA
+control-postgres-1               | 2026-08-20 09:07:10.421 UTC [73] LOG:  checkpoint starting: time
+gateway-1                        | {"time":"2026-08-20T13:05:44.949620709Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+control-postgres-1               | 2026-08-20 09:11:15.573 UTC [73] LOG:  checkpoint complete: wrote 1913 buffers (11.7%); 0 WAL file(s) added, 0 removed, 2 recycled; write=245.033 s, sync=0.071 s, total=245.152 s; sync files=107, longest=0.005 s, average=0.001 s; distance=26671 kB, estimate=94453 kB; lsn=0/23DE27C0, redo lsn=0/20467458
+control-postgres-1               | 2026-08-20 09:12:10.625 UTC [73] LOG:  checkpoint starting: time
+gateway-1                        | {"time":"2026-08-20T13:10:29.165059517Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_93165f9c896d3789bc03d46567fb7eaf","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+business-postgres-1              | SELECT 10
+control-postgres-1               | 2026-08-20 09:16:40.230 UTC [73] LOG:  checkpoint complete: wrote 2629 buffers (16.0%); 0 WAL file(s) added, 0 removed, 3 recycled; write=269.362 s, sync=0.188 s, total=269.606 s; sync files=102, longest=0.011 s, average=0.002 s; distance=58865 kB, estimate=90894 kB; lsn=0/27738970, redo lsn=0/23DE3920
+control-postgres-1               | 2026-08-20 09:17:10.260 UTC [73] LOG:  checkpoint starting: time
+gateway-1                        | {"time":"2026-08-20T13:10:30.664570819Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_65f4883a0e880a1c527d6e01fa5c4772","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+control-postgres-1               | 2026-08-20 09:21:40.196 UTC [73] LOG:  checkpoint complete: wrote 2799 buffers (17.1%); 0 WAL file(s) added, 0 removed, 5 recycled; write=269.754 s, sync=0.090 s, total=269.936 s; sync files=125, longest=0.008 s, average=0.001 s; distance=79933 kB, estimate=89798 kB; lsn=0/28CC6980, redo lsn=0/28BF2FE8
+gateway-1                        | {"time":"2026-08-20T13:10:54.386592024Z","level":"INFO","msg":"pending Parquet results recovered","count":2}
+gateway-1                        | {"time":"2026-08-20T13:11:20.435120603Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7a061ac5907d6e0015e24b06144bf215","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:11:45.449344583Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:12:07.34890806Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_f5e9fef0e6e744938eb98219a8ffde18","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:12:20.859927618Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T13:12:29.405519034Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_1a6b287d907e78d80ee14fac1818b0ab","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:12:52.132727888Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7a57436f074e3a59f9ad25bbcd965743","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:12:56.979629802Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_19a31a7e7e7c33ea705aef7293d0cdb8","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:13:01.77368602Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_404a70b2ea1444c0da9a7703a689649b","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:14:57.75922719Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:15:02.803585253Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:15:07.853158843Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:20:00.501371165Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_6591d9b98f3de371c049718e8c72164d","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:21:53.710244156Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:21:58.676921142Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:22:03.685870097Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:26:53.671582031Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_2132d860acc933c7825ce98ced4d2b79","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:27:16.000978875Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_197d160d79598fa5c784320744e672f1","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:27:28.657671353Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:27:38.398912991Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_a07b2c648092e5feceb1e5156a02c8d0","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:28:04.177659753Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:28:25.770409394Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_8213c9a987466d0dd4fd8ed228232c8b","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:28:50.150428838Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T13:29:13.751066791Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_86592b05957d66e6c6e9e67a139d424f","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:29:18.605261269Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_f174c4e733a360032811b7938d1cebc6","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+business-postgres-1              | SELECT 10
+business-postgres-1              | SELECT 10
+control-postgres-1               | 2026-08-20 09:22:10.224 UTC [73] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | 
+gateway-1                        | {"time":"2026-08-20T13:29:23.471030413Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_265067c865cf9d6ec5fa04d82a8775e4","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:29:24.978647705Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_17bcec2c8be09f26b6f7ce53dbe8e211","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:29:26.456469831Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_d24cd67c4764b143f454138249d82526","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:29:31.478207405Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7c59b197ab79af032466e8e9b3202eaa","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:29:36.371488714Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_e91c0a49bf12ae34cfa10e5104e16541","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+business-postgres-1              | SELECT 10
+gateway-1                        | {"time":"2026-08-20T13:29:58.878387875Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_45bd48a2f1ee6a260832e8e1790a13c4","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:30:11.161288437Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:30:21.070327398Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_ceca681a24a03dc42f2b4343b085999c","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:32:13.093736084Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:32:18.116562341Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:32:23.094386007Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T13:37:22.624119238Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_0fca47f502afbb08ce8d9613eb9468f7","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:39:14.87080185Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+final-v5-provsql-postgres-1      | Data page checksums are disabled.
+control-postgres-1               | 2026-08-20 09:25:28.844 UTC [73] LOG:  checkpoint complete: wrote 1463 buffers (8.9%); 0 WAL file(s) added, 0 removed, 1 recycled; write=198.456 s, sync=0.118 s, total=198.620 s; sync files=119, longest=0.007 s, average=0.001 s; distance=11200 kB, estimate=81938 kB; lsn=0/2D37ABA0, redo lsn=0/296E31A0
+control-postgres-1               | 2026-08-20 09:27:10.940 UTC [73] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | 
+control-postgres-1               | 2026-08-20 09:31:40.327 UTC [73] LOG:  checkpoint complete: wrote 2530 buffers (15.4%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.062 s, sync=0.254 s, total=269.387 s; sync files=122, longest=0.009 s, average=0.003 s; distance=62062 kB, estimate=79951 kB; lsn=0/31636740, redo lsn=0/2D37ED60
+final-v5-provsql-postgres-1      | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+business-postgres-1              | REVOKE
+final-v5-provsql-postgres-1      | creating subdirectories ... ok
+business-postgres-1              | REVOKE
+final-v5-provsql-postgres-1      | selecting dynamic shared memory implementation ... posix
+final-v5-direct-postgres-1       | CREATE TABLE
+final-v5-provsql-postgres-1      | selecting default max_connections ... 100
+gateway-1                        | {"time":"2026-08-20T13:39:20.007859327Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+final-v5-provsql-postgres-1      | selecting default shared_buffers ... 128MB
+final-v5-direct-postgres-1       | CREATE TABLE
+gateway-1                        | {"time":"2026-08-20T13:39:25.116367447Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+final-v5-provsql-postgres-1      | selecting default time zone ... Etc/UTC
+final-v5-direct-postgres-1       | CREATE TABLE
+final-v5-provsql-postgres-1      | creating configuration files ... ok
+business-postgres-1              | REVOKE
+final-v5-direct-postgres-1       | INSERT 0 50000
+final-v5-provsql-postgres-1      | running bootstrap script ... ok
+business-postgres-1              | REVOKE
+final-v5-direct-postgres-1       | INSERT 0 250000
+final-v5-provsql-postgres-1      | performing post-bootstrap initialization ... ok
+business-postgres-1              | COMMIT
+final-v5-direct-postgres-1       | INSERT 0 1000
+final-v5-provsql-postgres-1      | syncing data to disk ... ok
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | Success. You can now start the database server using:
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | initdb: warning: enabling "trust" authentication for local connections
+final-v5-provsql-postgres-1      | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+final-v5-provsql-postgres-1      | waiting for server to start....2026-08-20 07:57:07.280 UTC [54] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-direct-postgres-1       | CREATE INDEX
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:07.295 UTC [54] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:07.349 UTC [57] LOG:  database system was shut down at 2026-08-20 07:57:04 UTC
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:07.350 UTC [59] LOG:  ProvSQL: ProvSQL MMap Worker initialized
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:07.366 UTC [54] LOG:  database system is ready to accept connections
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-provsql-postgres-1      |  done
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-provsql-postgres-1      | server started
+final-v5-direct-postgres-1       | ANALYZE
+final-v5-provsql-postgres-1      | CREATE DATABASE
+final-v5-direct-postgres-1       | SELECT 50000
+final-v5-direct-postgres-1       | SELECT 250000
+final-v5-provsql-postgres-1      | 
+control-postgres-1               | 2026-08-20 09:32:10.342 UTC [73] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | 
+business-postgres-1              | 
+final-v5-provsql-postgres-1      | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql
+business-postgres-1              | 
+final-v5-direct-postgres-1       | SELECT 1000
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql
+final-v5-direct-postgres-1       | REVOKE
+business-postgres-1              | BEGIN
+final-v5-direct-postgres-1       | REVOKE
+business-postgres-1              | CREATE SCHEMA
+final-v5-direct-postgres-1       | REVOKE
+business-postgres-1              | psql:/docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql:5: NOTICE:  schema "reporting" already exists, skipping
+final-v5-direct-postgres-1       | COMMIT
+business-postgres-1              | CREATE SCHEMA
+final-v5-direct-postgres-1       | 
+business-postgres-1              | CREATE TABLE
+final-v5-direct-postgres-1       | 
+business-postgres-1              | CREATE TABLE
+final-v5-direct-postgres-1       | waiting for server to shut down....2026-08-20 07:57:09.499 UTC [48] LOG:  received fast shutdown request
+business-postgres-1              | CREATE TABLE
+final-v5-direct-postgres-1       | 2026-08-20 07:57:09.508 UTC [48] LOG:  aborting any active transactions
+business-postgres-1              | INSERT 0 50000
+final-v5-direct-postgres-1       | 2026-08-20 07:57:09.509 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+business-postgres-1              | INSERT 0 250000
+final-v5-direct-postgres-1       | 2026-08-20 07:57:09.509 UTC [49] LOG:  shutting down
+business-postgres-1              | INSERT 0 1000
+final-v5-direct-postgres-1       | 2026-08-20 07:57:09.524 UTC [49] LOG:  checkpoint starting: shutdown immediate
+business-postgres-1              | CREATE INDEX
+final-v5-direct-postgres-1       | .2026-08-20 07:57:10.945 UTC [49] LOG:  checkpoint complete: wrote 6259 buffers (38.2%); 0 WAL file(s) added, 0 removed, 5 recycled; write=0.111 s, sync=1.169 s, total=1.436 s; sync files=314, longest=0.248 s, average=0.004 s; distance=81984 kB, estimate=81984 kB; lsn=0/64FA260, redo lsn=0/64FA260
+gateway-1                        | {"time":"2026-08-20T13:39:29.969404355Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+final-v5-direct-postgres-1       | 2026-08-20 07:57:10.952 UTC [48] LOG:  database system is shut down
+final-v5-direct-postgres-1       |  done
+gateway-1                        | {"time":"2026-08-20T13:44:19.774143637Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_60273b55f8eae033b6bc12c49b0cf72a","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:44:45.452587369Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+final-v5-direct-postgres-1       | server stopped
+gateway-1                        | {"time":"2026-08-20T13:45:08.352779635Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9c4056376ae2868d449df9035e96f3b5","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+final-v5-direct-postgres-1       | 
+gateway-1                        | {"time":"2026-08-20T13:45:56.224815891Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_c1cf6da281f31b6269b5d80c93e2932b","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:46:22.179320709Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+final-v5-direct-postgres-1       | PostgreSQL init process complete; ready for start up.
+gateway-1                        | {"time":"2026-08-20T13:46:44.880518231Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_c59138acefe917b0dc9a270eae33df46","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+final-v5-direct-postgres-1       | 
+gateway-1                        | {"time":"2026-08-20T13:47:32.828560882Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_b29931fa6a629ca542a71cf1efc3b396","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:47:37.748371742Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_0daf7ffcda16dd8b896d3a1a89cd52c4","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.030 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+gateway-1                        | {"time":"2026-08-20T13:47:42.682398421Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_84cf0bba322ee9e6895756704e25adb2","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:48:05.355376401Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_35feea5e6505b3da93d6a77caa5128b3","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.030 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+gateway-1                        | {"time":"2026-08-20T13:48:18.837641718Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T13:48:27.969362015Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_259bcbd3b01d07706ae6d354cdf7e04a","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:50:20.770522892Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:50:25.729437041Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T13:50:30.793139904Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T13:55:42.652722968Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_bcb24d1e0a9484e18f005733e55cc4a5","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T13:57:36.682710462Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:57:41.645334289Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T13:57:46.641087325Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:02:49.344306618Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_de2fabf4b52f469ac675165388cbcf31","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:02:50.937904474Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_e60f563da2673e4861be0688602f2760","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:02:55.915501907Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_cdb745da8b89e3ab208bb56f0d20e640","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:03:00.957375749Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_89dad09b1f5fd40db0238beac61efbeb","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:03:23.980142356Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_4c39c844e1c48f7741d2e934104362fb","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:03:46.471037306Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5408e8637752c3d29ccdd54dfb73e835","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:05:42.010146945Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:05:47.532821177Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:05:52.527473376Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T14:11:00.269919721Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_13e435fe911e5307f25b6b149b98662e","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:12:52.938288471Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:12:58.393712079Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T14:13:03.392396578Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+final-v5-provsql-postgres-1      | BEGIN
+final-v5-provsql-postgres-1      | CREATE SCHEMA
+final-v5-provsql-postgres-1      | CREATE SCHEMA
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | CREATE TABLE
+final-v5-provsql-postgres-1      | INSERT 0 50000
+final-v5-provsql-postgres-1      | INSERT 0 250000
+final-v5-provsql-postgres-1      | INSERT 0 1000
+final-v5-provsql-postgres-1      | CREATE INDEX
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | ANALYZE
+final-v5-provsql-postgres-1      | SELECT 50000
+final-v5-provsql-postgres-1      | SELECT 250000
+final-v5-provsql-postgres-1      | SELECT 1000
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | REVOKE
+final-v5-provsql-postgres-1      | COMMIT
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  installing required extension "uuid-ossp"
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.030 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.049 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.064 UTC [81] LOG:  database system was shut down at 2026-08-20 07:57:10 UTC
+final-v5-direct-postgres-1       | 2026-08-20 07:57:11.074 UTC [1] LOG:  database system is ready to accept connections
+final-v5-direct-postgres-1       | 2026-08-20 08:02:11.154 UTC [79] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  ProvSQL: schema "provsql" is not in your default search_path (currently: "$user", public).
+final-v5-direct-postgres-1       | 2026-08-20 08:05:31.575 UTC [79] LOG:  checkpoint complete: wrote 2002 buffers (12.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=200.339 s, sync=0.036 s, total=200.422 s; sync files=35, longest=0.009 s, average=0.002 s; distance=560 kB, estimate=560 kB; lsn=0/6586398, redo lsn=0/6586360
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:3: NOTICE:  ProvSQL operators and functions are resolved through search_path. Run "SELECT provsql.setup_search_path();" to add it, or set it manually (e.g. ALTER DATABASE final_v5_provsql SET search_path = "$user", public, provsql).
+final-v5-provsql-postgres-1      | CREATE EXTENSION
+final-v5-provsql-postgres-1      | psql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:4: NOTICE:  ProvSQL: set search_path = "$user", public, provsql for database "final_v5_provsql" (no previous database-level setting). Only new sessions are affected.
+gateway-1                        | {"time":"2026-08-20T14:18:09.836794743Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_d2263d729a87761e2d662558b1bf738d","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:18:33.430482809Z","level":"INFO","msg":"pending Parquet results recovered","count":7}
+gateway-1                        | {"time":"2026-08-20T14:18:58.800767725Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_dd368a35c13d311043b91ca8ade7bdcf","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:19:23.403979438Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:19:47.519591608Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_f1fdbc5ff106a01a2a1924a8f5f18b66","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:19:49.053859148Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_185c877a111751dd72d2dafd45555250","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:20:13.36554727Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T14:20:37.603496402Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_d253f2d92a089c6d1aa31f23e005361c","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:21:03.341754664Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T14:21:26.364586059Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_42916e83b7126244ec0f25a91961ef79","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+final-v5-provsql-postgres-1      |     setup_search_path     
+final-v5-provsql-postgres-1      | --------------------------
+final-v5-provsql-postgres-1      |  "$user", public, provsql
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      |  add_provenance 
+final-v5-provsql-postgres-1      | ----------------
+final-v5-provsql-postgres-1      |  
+final-v5-provsql-postgres-1      | (1 row)
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | DO
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | waiting for server to shut down....2026-08-20 07:57:12.834 UTC [54] LOG:  received fast shutdown request
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.841 UTC [54] LOG:  aborting any active transactions
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.841 UTC [59] FATAL:  terminating background worker "ProvSQL MMap" due to administrator command
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.842 UTC [54] LOG:  background worker "logical replication launcher" (PID 62) exited with exit code 1
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.843 UTC [54] LOG:  background worker "ProvSQL MMap" (PID 59) exited with exit code 1
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.843 UTC [55] LOG:  shutting down
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:12.850 UTC [55] LOG:  checkpoint starting: shutdown immediate
+final-v5-provsql-postgres-1      | ..2026-08-20 07:57:14.854 UTC [55] LOG:  checkpoint complete: wrote 10277 buffers (62.7%); 0 WAL file(s) added, 0 removed, 11 recycled; write=0.081 s, sync=1.574 s, total=2.011 s; sync files=329, longest=0.168 s, average=0.005 s; distance=186879 kB, estimate=186879 kB; lsn=0/CB69FC8, redo lsn=0/CB69FC8
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:14.863 UTC [54] LOG:  database system is shut down
+final-v5-provsql-postgres-1      |  done
+gateway-1                        | {"time":"2026-08-20T14:21:31.456390925Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_cd3400634b9268d7718ffd9124901627","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:21:36.541045989Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_561ca0c70e49d9da97226c678cfb2eb0","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:23:28.38396404Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:23:33.390985928Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:23:38.380083941Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T14:29:08.657703595Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_563b6ac3eb91cb39bc4f7c199ea988f0","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:31:04.604441381Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T14:31:09.478213818Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:31:14.472052361Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:31:19.35093465Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T14:36:34.668629775Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_ee0ec433aab31a6981525afd637eec72","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:36:36.257550849Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5f2c45f7eed61962f1aa92cfdd3fe769","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:36:59.528114076Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5f1b086aa85dc84592bde32b75d6ca2c","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:37:22.656694614Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_51e009e6e486682af4001ae180592cf2","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:38:12.378942136Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_8593457dc7daa4014296dfbe3ca9dad6","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:39:03.558289749Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9b1ec54f52b76402ae964d675a8bef07","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:40:57.233912664Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T14:41:02.272466322Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T14:41:07.259354033Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T14:46:08.610633178Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_c9c79323fcb83d7c2c60579271302d55","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:48:02.743293616Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T14:48:07.730119739Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:48:12.723797816Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T14:53:12.325759863Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5bbbe819f4a58374aea42968b8c7059f","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:53:17.511791372Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_fc1af96f5797c17a6f4c0d084bf219db","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:53:22.652855411Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_5262650d6c2c6f2dc92f341445414cf2","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:53:24.237522497Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_c33c98b64e25dbcb8367610911c69be7","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:53:37.094197395Z","level":"INFO","msg":"pending Parquet results recovered","count":2}
+gateway-1                        | {"time":"2026-08-20T14:53:47.460870558Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_50884f637385e2a0eb06d4bc1b33f72d","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:54:10.402417773Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_19b4f03de71e717ee0b003ac77d3189e","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T14:56:02.99773601Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T14:56:08.002607022Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T14:56:12.981216457Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:01:44.658398555Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_45acddda52aae6f7f49bf1ad982a2823","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:03:38.032185093Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:03:42.957953008Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T15:03:47.92840693Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T15:08:48.86109615Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_cd69057990c40142db688d77a24576e1","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:09:12.961270726Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:09:39.047428383Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_848b1cffa23dfc352bd9e14706ba5a29","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:10:02.966348301Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:10:30.555063302Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_04fb759f2afe6e54e716f1a9fc90bdcb","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:10:32.185732318Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_59d975ac465d8db2b8a15fc8315cc84d","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:10:37.482501976Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_dfda8fbd76e87174b16cc83c1954eabc","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:10:42.692211368Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_27f3a7d391d2aab86c2f05f3ad79ca93","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:11:06.222608521Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_56c12569f1c464806e4eb9cb26cc0032","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:11:29.741559724Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_81014db3fab2cf5980354f09712f7a8a","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:13:23.00442069Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:13:27.969532048Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+final-v5-provsql-postgres-1      | server stopped
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | PostgreSQL init process complete; ready for start up.
+final-v5-provsql-postgres-1      | 
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:14.983 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+business-postgres-1              | ANALYZE
+business-postgres-1              | ANALYZE
+business-postgres-1              | ANALYZE
+business-postgres-1              | SELECT 50000
+business-postgres-1              | SELECT 250000
+business-postgres-1              | SELECT 1000
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMIT
+control-postgres-1               | 2026-08-20 09:36:40.234 UTC [73] LOG:  checkpoint complete: wrote 1860 buffers (11.4%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.639 s, sync=0.157 s, total=269.893 s; sync files=135, longest=0.009 s, average=0.002 s; distance=74524 kB, estimate=79408 kB; lsn=0/36338398, redo lsn=0/31C45F48
+control-postgres-1               | 2026-08-20 09:37:10.252 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 09:41:01.903 UTC [73] LOG:  checkpoint complete: wrote 2124 buffers (13.0%); 0 WAL file(s) added, 0 removed, 5 recycled; write=231.375 s, sync=0.190 s, total=231.652 s; sync files=72, longest=0.013 s, average=0.003 s; distance=72650 kB, estimate=78732 kB; lsn=0/37F27F90, redo lsn=0/363389C0
+control-postgres-1               | 2026-08-20 09:42:10.418 UTC [73] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:14.983 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+control-postgres-1               | 2026-08-20 09:45:49.933 UTC [73] LOG:  checkpoint complete: wrote 1589 buffers (9.7%); 0 WAL file(s) added, 0 removed, 4 recycled; write=219.344 s, sync=0.102 s, total=219.515 s; sync files=118, longest=0.008 s, average=0.001 s; distance=69910 kB, estimate=77850 kB; lsn=0/3A80EB78, redo lsn=0/3A77E420
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:14.983 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:15.014 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:15.040 UTC [92] LOG:  database system was shut down at 2026-08-20 07:57:14 UTC
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:15.040 UTC [94] LOG:  ProvSQL: ProvSQL MMap Worker initialized
+final-v5-provsql-postgres-1      | 2026-08-20 07:57:15.063 UTC [1] LOG:  database system is ready to accept connections
+final-v5-provsql-postgres-1      | 2026-08-20 08:02:15.137 UTC [90] LOG:  checkpoint starting: time
+final-v5-provsql-postgres-1      | 2026-08-20 08:06:45.155 UTC [90] LOG:  checkpoint complete: wrote 4833 buffers (29.5%); 0 WAL file(s) added, 1 removed, 0 recycled; write=269.898 s, sync=0.059 s, total=270.019 s; sync files=57, longest=0.004 s, average=0.002 s; distance=16669 kB, estimate=16669 kB; lsn=0/DBB1580, redo lsn=0/DBB1548
+gateway-1                        | {"time":"2026-08-20T15:13:33.000319767Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T15:18:35.490750615Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7bb7c74a059afa8b0de6aaa1536a6572","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:20:27.964254623Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T15:20:32.969865234Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:20:37.919596702Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T15:25:44.684165161Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_45400f058a3dd7c838e721f9dc96d338","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:25:46.352080037Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7256e49440c99712f243d1b22b95d77f","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:25:57.844293015Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T15:26:10.049488053Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9078eaa2a0cb7af4c413f836dca1f874","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:26:22.953725322Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:26:33.858811484Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_f728195bc1db524c2060c8ebea483134","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:26:39.344021242Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_97115648b041b90fc5a4ad912a6aa4b7","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:26:42.942642476Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T15:26:44.663229126Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_936e0302a201539f4dc75f363afc4e90","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:27:35.732001204Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_02d0942491c56c86047b35012b58dfbc","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:28:27.083978969Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9664f501045f26aae902390274a1599e","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:28:50.718761958Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_1f4d4d6b5a72e3bdfa0398657054fa0c","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:29:14.625458959Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_26ef516d5ced873956016ba42ac8c90b","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:29:37.91646398Z","level":"INFO","msg":"pending Parquet results recovered","count":1}
+gateway-1                        | {"time":"2026-08-20T15:30:08.709643211Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9e4f106ad1293616bcb762e90d906f88","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:30:33.024017064Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:30:59.177962862Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_3203101b8bb81266f2e8094edf959779","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:31:02.976071761Z","level":"INFO","msg":"pending Parquet results recovered","count":7}
+gateway-1                        | {"time":"2026-08-20T15:31:04.660308519Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9a57dcd1a51330540b38e7df4cd8d2a6","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:31:10.079122619Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_7e35214825d8de717cb64d73e7641242","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:31:11.741892492Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_8e9310413cbb924be166d32ee11b4085","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:33:02.976129953Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:33:07.959485971Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T15:33:12.938201705Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:33:17.911369646Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T15:38:26.257676684Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_0966bf1678e41ead47fe9a3702f4dd96","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:40:17.944723421Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:40:23.040419426Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T15:40:27.954956586Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T15:45:40.896337093Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_a3aa81e75e5b369747a74cf7f12e40f6","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:45:46.253855909Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_be0acc742df060ecaddd0eeadd1205b1","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:45:51.659719106Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_983b582fdd017f5c995875b391c05c62","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:45:53.347239791Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_d1598bf2f3b99e73293b76f322b580b0","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:47:48.004750995Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:47:52.998068943Z","level":"INFO","msg":"pending Parquet results recovered","count":6}
+gateway-1                        | {"time":"2026-08-20T15:47:58.111960145Z","level":"INFO","msg":"pending Parquet results recovered","count":3}
+gateway-1                        | {"time":"2026-08-20T15:53:32.035749078Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_8afc3d4e1b6a1664e366005bd35f1fd2","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T15:55:27.95148858Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:55:32.988161914Z","level":"INFO","msg":"pending Parquet results recovered","count":4}
+gateway-1                        | {"time":"2026-08-20T15:55:38.040051753Z","level":"INFO","msg":"pending Parquet results recovered","count":5}
+gateway-1                        | {"time":"2026-08-20T16:01:01.207460994Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9442b14ab8cba3199b95388e803f4bcb","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+gateway-1                        | {"time":"2026-08-20T16:01:25.082350665Z","level":"WARN","msg":"MCP tool failed","trace_id":"trace_9724346315aa10d8e89f7e17fe92d6f7","tool":"query_sql","subject":"alice","code":"EXPOSURE_BUDGET_EXHAUSTED","error":"EXPOSURE_BUDGET_EXHAUSTED: 查询结果会超过根任务的数据暴露预算，因此未释放"}
+business-postgres-1              | 
+control-postgres-1               | 2026-08-20 09:47:11.012 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 09:50:56.089 UTC [73] LOG:  checkpoint complete: wrote 544 buffers (3.3%); 0 WAL file(s) added, 0 removed, 2 recycled; write=224.820 s, sync=0.201 s, total=225.077 s; sync files=132, longest=0.011 s, average=0.002 s; distance=33091 kB, estimate=73374 kB; lsn=0/41080578, redo lsn=0/3C7CF100
+control-postgres-1               | 2026-08-20 09:52:11.164 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 09:53:40.792 UTC [73] LOG:  checkpoint complete: wrote 737 buffers (4.5%); 0 WAL file(s) added, 0 removed, 5 recycled; write=89.485 s, sync=0.064 s, total=89.628 s; sync files=48, longest=0.014 s, average=0.002 s; distance=74477 kB, estimate=74477 kB; lsn=0/4108A910, redo lsn=0/4108A8D8
+control-postgres-1               | 2026-08-20 09:57:11.665 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:00:44.993 UTC [73] LOG:  checkpoint complete: wrote 1728 buffers (10.5%); 0 WAL file(s) added, 0 removed, 4 recycled; write=213.025 s, sync=0.222 s, total=213.328 s; sync files=132, longest=0.009 s, average=0.002 s; distance=76011 kB, estimate=76011 kB; lsn=0/45CD6EA8, redo lsn=0/45AC5638
+control-postgres-1               | 2026-08-20 10:02:11.126 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:04:44.234 UTC [73] LOG:  checkpoint complete: wrote 1169 buffers (7.1%); 0 WAL file(s) added, 0 removed, 4 recycled; write=152.802 s, sync=0.217 s, total=153.108 s; sync files=132, longest=0.012 s, average=0.002 s; distance=55115 kB, estimate=73921 kB; lsn=0/4DDEE8E0, redo lsn=0/490985E0
+control-postgres-1               | 2026-08-20 10:07:11.332 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:08:38.890 UTC [73] LOG:  checkpoint complete: wrote 794 buffers (4.8%); 0 WAL file(s) added, 0 removed, 4 recycled; write=87.401 s, sync=0.085 s, total=87.558 s; sync files=51, longest=0.008 s, average=0.002 s; distance=79206 kB, estimate=79206 kB; lsn=0/4ED6E940, redo lsn=0/4DDF1E38
+control-postgres-1               | 2026-08-20 10:12:11.912 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:15:47.214 UTC [73] LOG:  checkpoint complete: wrote 1218 buffers (7.4%); 0 WAL file(s) added, 0 removed, 6 recycled; write=214.774 s, sync=0.425 s, total=215.303 s; sync files=126, longest=0.014 s, average=0.004 s; distance=84765 kB, estimate=84765 kB; lsn=0/549F4D78, redo lsn=0/530B93F0
+control-postgres-1               | 2026-08-20 10:17:11.937 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:19:46.947 UTC [73] LOG:  checkpoint complete: wrote 279 buffers (1.7%); 0 WAL file(s) added, 0 removed, 4 recycled; write=154.688 s, sync=0.242 s, total=155.010 s; sync files=131, longest=0.013 s, average=0.002 s; distance=74154 kB, estimate=83704 kB; lsn=0/5B901838, redo lsn=0/57923F10
+control-postgres-1               | 2026-08-20 10:22:11.423 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:25:26.734 UTC [73] LOG:  checkpoint complete: wrote 765 buffers (4.7%); 0 WAL file(s) added, 0 removed, 6 recycled; write=194.939 s, sync=0.260 s, total=195.312 s; sync files=122, longest=0.010 s, average=0.003 s; distance=104014 kB, estimate=104014 kB; lsn=0/5F36B3F8, redo lsn=0/5DEB7738
+control-postgres-1               | 2026-08-20 10:27:11.832 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:31:41.280 UTC [73] LOG:  checkpoint complete: wrote 1127 buffers (6.9%); 0 WAL file(s) added, 0 removed, 5 recycled; write=269.115 s, sync=0.183 s, total=269.448 s; sync files=124, longest=0.023 s, average=0.002 s; distance=74868 kB, estimate=101099 kB; lsn=0/65922F78, redo lsn=0/627D4A68
+control-postgres-1               | 2026-08-20 10:32:11.311 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:34:05.978 UTC [73] LOG:  checkpoint complete: wrote 78 buffers (0.5%); 0 WAL file(s) added, 0 removed, 4 recycled; write=114.375 s, sync=0.220 s, total=114.668 s; sync files=122, longest=0.012 s, average=0.002 s; distance=58974 kB, estimate=96886 kB; lsn=0/688D8BD0, redo lsn=0/6616C2F8
+control-postgres-1               | 2026-08-20 10:37:12.048 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:37:31.432 UTC [73] LOG:  checkpoint complete: wrote 170 buffers (1.0%); 0 WAL file(s) added, 0 removed, 5 recycled; write=19.163 s, sync=0.132 s, total=19.384 s; sync files=125, longest=0.018 s, average=0.002 s; distance=86160 kB, estimate=95814 kB; lsn=0/6B591C88, redo lsn=0/6B5903D0
+control-postgres-1               | 2026-08-20 10:42:12.526 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:42:57.774 UTC [73] LOG:  checkpoint complete: wrote 402 buffers (2.5%); 0 WAL file(s) added, 0 removed, 5 recycled; write=45.071 s, sync=0.105 s, total=45.249 s; sync files=128, longest=0.008 s, average=0.001 s; distance=91621 kB, estimate=95395 kB; lsn=0/70F30728, redo lsn=0/70F099D0
+control-postgres-1               | 2026-08-20 10:47:12.392 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:49:42.628 UTC [73] LOG:  checkpoint complete: wrote 132 buffers (0.8%); 0 WAL file(s) added, 0 removed, 3 recycled; write=149.958 s, sync=0.217 s, total=150.236 s; sync files=126, longest=0.011 s, average=0.002 s; distance=48291 kB, estimate=90684 kB; lsn=0/77DC9D18, redo lsn=0/73E325F8
+control-postgres-1               | 2026-08-20 10:52:12.081 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 10:53:44.463 UTC [73] LOG:  checkpoint complete: wrote 422 buffers (2.6%); 0 WAL file(s) added, 0 removed, 8 recycled; write=92.044 s, sync=0.113 s, total=92.383 s; sync files=125, longest=0.013 s, average=0.001 s; distance=120882 kB, estimate=120882 kB; lsn=0/7B43F0B8, redo lsn=0/7B43F080
+control-postgres-1               | 2026-08-20 10:57:12.520 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:01:42.255 UTC [73] LOG:  checkpoint complete: wrote 801 buffers (4.9%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.460 s, sync=0.222 s, total=269.735 s; sync files=119, longest=0.110 s, average=0.002 s; distance=33109 kB, estimate=112105 kB; lsn=0/8250E640, redo lsn=0/7D494640
+control-postgres-1               | 2026-08-20 11:02:12.284 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:02:17.391 UTC [73] LOG:  checkpoint complete: wrote 58 buffers (0.4%); 0 WAL file(s) added, 0 removed, 5 recycled; write=4.843 s, sync=0.191 s, total=5.107 s; sync files=12, longest=0.130 s, average=0.016 s; distance=82410 kB, estimate=109135 kB; lsn=0/82518388, redo lsn=0/8250F0E8
+control-postgres-1               | 2026-08-20 11:07:12.164 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:08:05.412 UTC [73] LOG:  checkpoint complete: wrote 201 buffers (1.2%); 0 WAL file(s) added, 0 removed, 7 recycled; write=53.036 s, sync=0.110 s, total=53.248 s; sync files=138, longest=0.007 s, average=0.001 s; distance=124359 kB, estimate=124359 kB; lsn=0/89EE87C0, redo lsn=0/89E810D0
+control-postgres-1               | 2026-08-20 11:12:12.466 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:16:42.294 UTC [73] LOG:  checkpoint complete: wrote 790 buffers (4.8%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.607 s, sync=0.167 s, total=269.829 s; sync files=121, longest=0.054 s, average=0.002 s; distance=18911 kB, estimate=113815 kB; lsn=0/90D19140, redo lsn=0/8B0F8DE0
+control-postgres-1               | 2026-08-20 11:22:12.990 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:26:30.780 UTC [73] LOG:  checkpoint complete: wrote 890 buffers (5.4%); 0 WAL file(s) added, 0 removed, 8 recycled; write=257.540 s, sync=0.119 s, total=257.790 s; sync files=129, longest=0.013 s, average=0.001 s; distance=145528 kB, estimate=145528 kB; lsn=0/98D19AB0, redo lsn=0/93F171B8
+control-postgres-1               | 2026-08-20 11:27:12.801 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:27:13.564 UTC [73] LOG:  checkpoint complete: wrote 16 buffers (0.1%); 0 WAL file(s) added, 0 removed, 5 recycled; write=0.629 s, sync=0.056 s, total=0.763 s; sync files=11, longest=0.013 s, average=0.006 s; distance=79882 kB, estimate=138964 kB; lsn=0/98D19C10, redo lsn=0/98D19BD8
+control-postgres-1               | 2026-08-20 11:32:12.678 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:32:29.778 UTC [73] LOG:  checkpoint complete: wrote 178 buffers (1.1%); 0 WAL file(s) added, 0 removed, 6 recycled; write=16.876 s, sync=0.131 s, total=17.101 s; sync files=123, longest=0.008 s, average=0.002 s; distance=93165 kB, estimate=134384 kB; lsn=0/9E8272E8, redo lsn=0/9E8152F8
+control-postgres-1               | 2026-08-20 11:37:12.388 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:40:09.979 UTC [73] LOG:  checkpoint complete: wrote 129 buffers (0.8%); 0 WAL file(s) added, 0 removed, 4 recycled; write=177.204 s, sync=0.305 s, total=177.591 s; sync files=131, longest=0.052 s, average=0.003 s; distance=71400 kB, estimate=128086 kB; lsn=0/A8CC5320, redo lsn=0/A2DCF4D0
+control-postgres-1               | 2026-08-20 11:42:12.693 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:42:16.891 UTC [73] LOG:  checkpoint complete: wrote 50 buffers (0.3%); 0 WAL file(s) added, 0 removed, 9 recycled; write=3.939 s, sync=0.130 s, total=4.198 s; sync files=129, longest=0.007 s, average=0.001 s; distance=135053 kB, estimate=135053 kB; lsn=0/AB1B2908, redo lsn=0/AB1B28D0
+control-postgres-1               | 2026-08-20 11:47:12.917 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 11:51:42.205 UTC [73] LOG:  checkpoint complete: wrote 985 buffers (6.0%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.144 s, sync=0.098 s, total=269.288 s; sync files=125, longest=0.008 s, average=0.001 s; distance=35187 kB, estimate=125066 kB; lsn=0/B3B81D68, redo lsn=0/AD40F748
+control-postgres-1               | 2026-08-20 11:57:12.948 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:01:28.283 UTC [73] LOG:  checkpoint complete: wrote 116 buffers (0.7%); 0 WAL file(s) added, 0 removed, 11 recycled; write=255.003 s, sync=0.174 s, total=255.335 s; sync files=130, longest=0.008 s, average=0.002 s; distance=181960 kB, estimate=181960 kB; lsn=0/B8F24B18, redo lsn=0/B85C17B0
+control-postgres-1               | 2026-08-20 12:02:12.324 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:06:42.263 UTC [73] LOG:  checkpoint complete: wrote 1185 buffers (7.2%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.683 s, sync=0.187 s, total=269.940 s; sync files=118, longest=0.015 s, average=0.002 s; distance=34154 kB, estimate=167179 kB; lsn=0/BFBFD008, redo lsn=0/BA71C270
+control-postgres-1               | 2026-08-20 12:07:12.292 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:07:14.962 UTC [73] LOG:  checkpoint complete: wrote 34 buffers (0.2%); 0 WAL file(s) added, 0 removed, 5 recycled; write=2.528 s, sync=0.060 s, total=2.670 s; sync files=13, longest=0.009 s, average=0.005 s; distance=86917 kB, estimate=159153 kB; lsn=0/BFBFF1E8, redo lsn=0/BFBFD930
+control-postgres-1               | 2026-08-20 12:12:12.937 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:12:15.810 UTC [73] LOG:  checkpoint complete: wrote 38 buffers (0.2%); 0 WAL file(s) added, 0 removed, 8 recycled; write=2.631 s, sync=0.147 s, total=2.873 s; sync files=125, longest=0.012 s, average=0.002 s; distance=123569 kB, estimate=155595 kB; lsn=0/C74AA110, redo lsn=0/C74AA0D8
+control-postgres-1               | 2026-08-20 12:17:12.885 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:21:42.219 UTC [73] LOG:  checkpoint complete: wrote 660 buffers (4.0%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.189 s, sync=0.092 s, total=269.334 s; sync files=118, longest=0.013 s, average=0.001 s; distance=41870 kB, estimate=144222 kB; lsn=0/CFECD1D0, redo lsn=0/C9D8DAA0
+control-postgres-1               | 2026-08-20 12:27:12.683 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:28:07.412 UTC [73] LOG:  checkpoint complete: wrote 77 buffers (0.5%); 0 WAL file(s) added, 0 removed, 11 recycled; write=54.459 s, sync=0.111 s, total=54.729 s; sync files=125, longest=0.008 s, average=0.001 s; distance=175350 kB, estimate=175350 kB; lsn=0/D48E5B18, redo lsn=0/D48CB4D8
+control-postgres-1               | 2026-08-20 12:32:12.509 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:36:42.214 UTC [73] LOG:  checkpoint complete: wrote 913 buffers (5.6%); 0 WAL file(s) added, 0 removed, 1 recycled; write=269.551 s, sync=0.109 s, total=269.705 s; sync files=123, longest=0.008 s, average=0.001 s; distance=23545 kB, estimate=160170 kB; lsn=0/DCF352D8, redo lsn=0/D5FC9C48
+control-postgres-1               | 2026-08-20 12:42:12.783 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:46:42.299 UTC [73] LOG:  checkpoint complete: wrote 486 buffers (3.0%); 0 WAL file(s) added, 0 removed, 11 recycled; write=269.234 s, sync=0.151 s, total=269.517 s; sync files=141, longest=0.008 s, average=0.002 s; distance=166464 kB, estimate=166464 kB; lsn=0/E52BDC88, redo lsn=0/E0259DD8
+control-postgres-1               | 2026-08-20 12:47:12.787 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:47:23.304 UTC [73] LOG:  checkpoint complete: wrote 103 buffers (0.6%); 0 WAL file(s) added, 0 removed, 5 recycled; write=10.347 s, sync=0.086 s, total=10.518 s; sync files=28, longest=0.009 s, average=0.004 s; distance=82343 kB, estimate=158052 kB; lsn=0/E5690870, redo lsn=0/E52C3DC0
+control-postgres-1               | 2026-08-20 12:52:14.675 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 12:52:20.532 UTC [73] LOG:  checkpoint complete: wrote 46 buffers (0.3%); 0 WAL file(s) added, 0 removed, 7 recycled; write=5.633 s, sync=0.133 s, total=5.858 s; sync files=130, longest=0.010 s, average=0.002 s; distance=119753 kB, estimate=154222 kB; lsn=0/EC7B6208, redo lsn=0/EC7B61D0
+control-postgres-1               | 2026-08-20 12:57:14.577 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:00:39.871 UTC [73] LOG:  checkpoint complete: wrote 706 buffers (4.3%); 0 WAL file(s) added, 0 removed, 6 recycled; write=205.076 s, sync=0.137 s, total=205.294 s; sync files=128, longest=0.013 s, average=0.002 s; distance=101128 kB, estimate=148913 kB; lsn=0/F8A2EC20, redo lsn=0/F2A78598
+control-postgres-1               | 2026-08-20 13:02:16.281 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:02:18.590 UTC [73] LOG:  checkpoint complete: wrote 31 buffers (0.2%); 0 WAL file(s) added, 0 removed, 6 recycled; write=2.124 s, sync=0.103 s, total=2.309 s; sync files=24, longest=0.014 s, average=0.005 s; distance=98009 kB, estimate=143822 kB; lsn=0/F8C34188, redo lsn=0/F8A2ED10
+control-postgres-1               | 2026-08-20 13:07:18.457 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:07:20.412 UTC [73] LOG:  checkpoint complete: wrote 28 buffers (0.2%); 0 WAL file(s) added, 0 removed, 8 recycled; write=1.724 s, sync=0.113 s, total=1.956 s; sync files=122, longest=0.008 s, average=0.001 s; distance=127636 kB, estimate=142204 kB; lsn=1/6D3DC8, redo lsn=1/6D3D90
+control-postgres-1               | 2026-08-20 13:12:18.855 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:13:52.587 UTC [73] LOG:  checkpoint complete: wrote 60 buffers (0.4%); 0 WAL file(s) added, 0 removed, 5 recycled; write=93.420 s, sync=0.230 s, total=93.733 s; sync files=124, longest=0.012 s, average=0.002 s; distance=83346 kB, estimate=136318 kB; lsn=1/8CDD998, redo lsn=1/5838848
+control-postgres-1               | 2026-08-20 13:17:18.833 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:17:32.899 UTC [73] LOG:  checkpoint complete: wrote 107 buffers (0.7%); 0 WAL file(s) added, 0 removed, 8 recycled; write=13.846 s, sync=0.101 s, total=14.067 s; sync files=109, longest=0.008 s, average=0.001 s; distance=123366 kB, estimate=135023 kB; lsn=1/D0CD418, redo lsn=1/D0B2298
+control-postgres-1               | 2026-08-20 13:22:18.182 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:23:21.633 UTC [73] LOG:  checkpoint complete: wrote 58 buffers (0.4%); 0 WAL file(s) added, 0 removed, 7 recycled; write=63.240 s, sync=0.108 s, total=63.451 s; sync files=118, longest=0.008 s, average=0.001 s; distance=121763 kB, estimate=133697 kB; lsn=1/148999A0, redo lsn=1/1479B180
+control-postgres-1               | 2026-08-20 13:27:22.182 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:28:24.246 UTC [73] LOG:  checkpoint complete: wrote 92 buffers (0.6%); 0 WAL file(s) added, 0 removed, 1 recycled; write=61.608 s, sync=0.414 s, total=62.064 s; sync files=120, longest=0.013 s, average=0.004 s; distance=21857 kB, estimate=122513 kB; lsn=1/191F2DB8, redo lsn=1/15CF3668
+control-postgres-1               | 2026-08-20 13:32:22.616 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:36:52.217 UTC [73] LOG:  checkpoint complete: wrote 412 buffers (2.5%); 0 WAL file(s) added, 0 removed, 9 recycled; write=269.289 s, sync=0.135 s, total=269.602 s; sync files=129, longest=0.008 s, average=0.002 s; distance=147305 kB, estimate=147305 kB; lsn=1/2258A3D8, redo lsn=1/1ECCDAF8
+control-postgres-1               | 2026-08-20 13:37:22.246 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:38:19.219 UTC [73] LOG:  checkpoint complete: wrote 358 buffers (2.2%); 0 WAL file(s) added, 0 removed, 4 recycled; write=56.696 s, sync=0.211 s, total=56.974 s; sync files=81, longest=0.012 s, average=0.003 s; distance=60811 kB, estimate=138655 kB; lsn=1/2456D6E0, redo lsn=1/22830710
+control-postgres-1               | 2026-08-20 13:42:25.509 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:42:26.543 UTC [73] LOG:  checkpoint complete: wrote 19 buffers (0.1%); 0 WAL file(s) added, 0 removed, 9 recycled; write=0.824 s, sync=0.110 s, total=1.034 s; sync files=110, longest=0.009 s, average=0.001 s; distance=144785 kB, estimate=144785 kB; lsn=1/2B594C70, redo lsn=1/2B594C38
+control-postgres-1               | 2026-08-20 13:47:26.143 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:47:28.242 UTC [73] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 6 recycled; write=1.734 s, sync=0.282 s, total=2.099 s; sync files=124, longest=0.011 s, average=0.003 s; distance=105571 kB, estimate=140863 kB; lsn=1/31CADA38, redo lsn=1/31CADA00
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/05-ordinal-sidecars.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/07-freeze-publications.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | DO
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | CREATE FUNCTION
+business-postgres-1              | REVOKE
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+control-postgres-1               | 2026-08-20 13:52:26.316 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 13:52:47.003 UTC [73] LOG:  checkpoint complete: wrote 93 buffers (0.6%); 0 WAL file(s) added, 0 removed, 8 recycled; write=20.404 s, sync=0.180 s, total=20.687 s; sync files=123, longest=0.009 s, average=0.002 s; distance=120270 kB, estimate=138804 kB; lsn=1/394D2038, redo lsn=1/39221390
+control-postgres-1               | 2026-08-20 13:57:27.086 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:01:57.148 UTC [73] LOG:  checkpoint complete: wrote 640 buffers (3.9%); 0 WAL file(s) added, 0 removed, 4 recycled; write=269.893 s, sync=0.104 s, total=270.062 s; sync files=127, longest=0.007 s, average=0.001 s; distance=71353 kB, estimate=132059 kB; lsn=1/42FFAC50, redo lsn=1/3D7CFA88
+control-postgres-1               | 2026-08-20 14:07:28.486 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:07:39.188 UTC [73] LOG:  checkpoint complete: wrote 102 buffers (0.6%); 0 WAL file(s) added, 0 removed, 11 recycled; write=10.441 s, sync=0.139 s, total=10.702 s; sync files=131, longest=0.008 s, average=0.002 s; distance=177904 kB, estimate=177904 kB; lsn=1/4858BE18, redo lsn=1/4858BDA8
+control-postgres-1               | 2026-08-20 14:12:29.340 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:13:51.379 UTC [73] LOG:  checkpoint complete: wrote 300 buffers (1.8%); 0 WAL file(s) added, 0 removed, 3 recycled; write=81.813 s, sync=0.161 s, total=82.040 s; sync files=129, longest=0.009 s, average=0.002 s; distance=54563 kB, estimate=165570 kB; lsn=1/50C890A8, redo lsn=1/4BAD4B38
+control-postgres-1               | 2026-08-20 14:17:29.478 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:17:55.820 UTC [73] LOG:  checkpoint complete: wrote 265 buffers (1.6%); 0 WAL file(s) added, 0 removed, 6 recycled; write=26.144 s, sync=0.091 s, total=26.343 s; sync files=39, longest=0.008 s, average=0.003 s; distance=94210 kB, estimate=158434 kB; lsn=1/516D94F0, redo lsn=1/516D5710
+control-postgres-1               | 2026-08-20 14:22:29.199 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:23:19.815 UTC [73] LOG:  checkpoint complete: wrote 283 buffers (1.7%); 0 WAL file(s) added, 0 removed, 6 recycled; write=50.295 s, sync=0.226 s, total=50.616 s; sync files=126, longest=0.013 s, average=0.002 s; distance=106599 kB, estimate=153251 kB; lsn=1/59D33028, redo lsn=1/57EEF410
+control-postgres-1               | 2026-08-20 14:27:31.674 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:27:48.991 UTC [73] LOG:  checkpoint complete: wrote 174 buffers (1.1%); 0 WAL file(s) added, 0 removed, 8 recycled; write=17.059 s, sync=0.117 s, total=17.317 s; sync files=110, longest=0.014 s, average=0.002 s; distance=127816 kB, estimate=150707 kB; lsn=1/5FBC1820, redo lsn=1/5FBC17E8
+control-postgres-1               | 2026-08-20 14:32:32.262 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:32:53.269 UTC [73] LOG:  checkpoint complete: wrote 96 buffers (0.6%); 0 WAL file(s) added, 0 removed, 8 recycled; write=20.757 s, sync=0.148 s, total=21.008 s; sync files=119, longest=0.013 s, average=0.002 s; distance=125216 kB, estimate=148158 kB; lsn=1/67610078, redo lsn=1/67609800
+control-postgres-1               | 2026-08-20 14:37:32.783 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:39:13.557 UTC [73] LOG:  checkpoint complete: wrote 131 buffers (0.8%); 0 WAL file(s) added, 0 removed, 2 recycled; write=100.455 s, sync=0.266 s, total=100.774 s; sync files=120, longest=0.013 s, average=0.003 s; distance=38213 kB, estimate=137164 kB; lsn=1/6DA737B0, redo lsn=1/69B5AC78
+control-postgres-1               | 2026-08-20 14:42:32.790 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:42:38.084 UTC [73] LOG:  checkpoint complete: wrote 64 buffers (0.4%); 0 WAL file(s) added, 0 removed, 10 recycled; write=5.036 s, sync=0.140 s, total=5.294 s; sync files=112, longest=0.014 s, average=0.002 s; distance=166530 kB, estimate=166530 kB; lsn=1/73DFB810, redo lsn=1/73DFB7D8
+control-postgres-1               | 2026-08-20 14:47:32.226 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:50:55.780 UTC [73] LOG:  checkpoint complete: wrote 263 buffers (1.6%); 0 WAL file(s) added, 0 removed, 3 recycled; write=203.391 s, sync=0.098 s, total=203.555 s; sync files=120, longest=0.008 s, average=0.001 s; distance=48047 kB, estimate=154682 kB; lsn=1/7C8B7640, redo lsn=1/76CE75C8
+control-postgres-1               | 2026-08-20 14:52:34.203 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:52:34.660 UTC [73] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 6 recycled; write=0.323 s, sync=0.050 s, total=0.458 s; sync files=11, longest=0.009 s, average=0.005 s; distance=94027 kB, estimate=148616 kB; lsn=1/7C8BBC08, redo lsn=1/7C8BA378
+control-postgres-1               | 2026-08-20 14:57:34.326 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 14:57:58.863 UTC [73] LOG:  checkpoint complete: wrote 186 buffers (1.1%); 0 WAL file(s) added, 0 removed, 10 recycled; write=24.272 s, sync=0.144 s, total=24.538 s; sync files=122, longest=0.009 s, average=0.002 s; distance=168800 kB, estimate=168800 kB; lsn=1/86DB0F18, redo lsn=1/86D92658
+control-postgres-1               | 2026-08-20 15:02:34.903 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:06:35.397 UTC [73] LOG:  checkpoint complete: wrote 724 buffers (4.4%); 0 WAL file(s) added, 0 removed, 2 recycled; write=240.324 s, sync=0.118 s, total=240.494 s; sync files=123, longest=0.009 s, average=0.001 s; distance=29566 kB, estimate=154877 kB; lsn=1/8FD4AE80, redo lsn=1/88A72158
+control-postgres-1               | 2026-08-20 15:07:34.455 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:07:51.459 UTC [73] LOG:  checkpoint complete: wrote 91 buffers (0.6%); 0 WAL file(s) added, 0 removed, 7 recycled; write=16.852 s, sync=0.061 s, total=17.005 s; sync files=14, longest=0.009 s, average=0.005 s; distance=117607 kB, estimate=151150 kB; lsn=1/8FD5E398, redo lsn=1/8FD4BE18
+control-postgres-1               | 2026-08-20 15:12:34.049 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:16:00.184 UTC [73] LOG:  checkpoint complete: wrote 637 buffers (3.9%); 0 WAL file(s) added, 0 removed, 9 recycled; write=205.905 s, sync=0.108 s, total=206.135 s; sync files=129, longest=0.008 s, average=0.001 s; distance=141133 kB, estimate=150148 kB; lsn=1/9F43F818, redo lsn=1/9871F4E0
+control-postgres-1               | 2026-08-20 15:22:34.963 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:22:45.172 UTC [73] LOG:  checkpoint complete: wrote 84 buffers (0.5%); 0 WAL file(s) added, 0 removed, 11 recycled; write=9.942 s, sync=0.133 s, total=10.210 s; sync files=117, longest=0.013 s, average=0.002 s; distance=183863 kB, estimate=183863 kB; lsn=1/A3AAD3E0, redo lsn=1/A3AAD3A8
+control-postgres-1               | 2026-08-20 15:27:34.227 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:27:42.459 UTC [73] LOG:  checkpoint complete: wrote 20 buffers (0.1%); 0 WAL file(s) added, 0 removed, 4 recycled; write=7.943 s, sync=0.208 s, total=8.233 s; sync files=126, longest=0.009 s, average=0.002 s; distance=70067 kB, estimate=172484 kB; lsn=1/A82FB1C8, redo lsn=1/A7F1A380
+control-postgres-1               | 2026-08-20 15:32:34.698 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:35:19.554 UTC [73] LOG:  checkpoint complete: wrote 313 buffers (1.9%); 0 WAL file(s) added, 0 removed, 11 recycled; write=164.596 s, sync=0.125 s, total=164.857 s; sync files=131, longest=0.008 s, average=0.001 s; distance=172562 kB, estimate=172562 kB; lsn=1/B8311FF8, redo lsn=1/B279EE90
+control-postgres-1               | 2026-08-20 15:37:34.651 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:38:12.026 UTC [73] LOG:  checkpoint complete: wrote 214 buffers (1.3%); 0 WAL file(s) added, 0 removed, 7 recycled; write=37.211 s, sync=0.073 s, total=37.376 s; sync files=30, longest=0.009 s, average=0.003 s; distance=109145 kB, estimate=166221 kB; lsn=1/B92446A8, redo lsn=1/B9235390
+control-postgres-1               | 2026-08-20 15:42:34.762 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:42:56.470 UTC [73] LOG:  checkpoint complete: wrote 150 buffers (0.9%); 0 WAL file(s) added, 0 removed, 7 recycled; write=21.466 s, sync=0.128 s, total=21.709 s; sync files=122, longest=0.011 s, average=0.002 s; distance=117484 kB, estimate=161347 kB; lsn=1/C04F1E70, redo lsn=1/C04F03C0
+control-postgres-1               | 2026-08-20 15:47:34.226 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:49:36.492 UTC [73] LOG:  checkpoint complete: wrote 193 buffers (1.2%); 0 WAL file(s) added, 0 removed, 4 recycled; write=122.096 s, sync=0.101 s, total=122.266 s; sync files=131, longest=0.004 s, average=0.001 s; distance=62383 kB, estimate=151450 kB; lsn=1/CA089A00, redo lsn=1/C41DC188
+control-postgres-1               | 2026-08-20 15:52:34.592 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:52:57.015 UTC [73] LOG:  checkpoint complete: wrote 189 buffers (1.2%); 0 WAL file(s) added, 0 removed, 6 recycled; write=22.280 s, sync=0.052 s, total=22.424 s; sync files=14, longest=0.009 s, average=0.004 s; distance=96951 kB, estimate=146000 kB; lsn=1/CA089E00, redo lsn=1/CA089DC8
+control-postgres-1               | 2026-08-20 15:57:34.186 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 15:57:51.352 UTC [73] LOG:  checkpoint complete: wrote 114 buffers (0.7%); 0 WAL file(s) added, 0 removed, 7 recycled; write=16.957 s, sync=0.119 s, total=17.166 s; sync files=123, longest=0.008 s, average=0.001 s; distance=120769 kB, estimate=143477 kB; lsn=1/D167F048, redo lsn=1/D167A540
+control-postgres-1               | 2026-08-20 16:02:34.451 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 16:02:41.772 UTC [73] LOG:  checkpoint complete: wrote 73 buffers (0.4%); 0 WAL file(s) added, 0 removed, 1 recycled; write=7.146 s, sync=0.135 s, total=7.322 s; sync files=117, longest=0.013 s, average=0.002 s; distance=17554 kB, estimate=130885 kB; lsn=1/D2A46948, redo lsn=1/D279EEC8
+control-postgres-1               | 2026-08-20 16:07:34.838 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 16:07:36.235 UTC [73] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=1.312 s, sync=0.035 s, total=1.398 s; sync files=19, longest=0.010 s, average=0.002 s; distance=21648 kB, estimate=119961 kB; lsn=1/D3CC3008, redo lsn=1/D3CC2FD0
+control-postgres-1               | 2026-08-20 16:12:34.257 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 16:12:35.637 UTC [73] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 1 removed, 0 recycled; write=1.313 s, sync=0.023 s, total=1.380 s; sync files=18, longest=0.009 s, average=0.002 s; distance=15304 kB, estimate=109496 kB; lsn=1/D4BB5298, redo lsn=1/D4BB5260
+control-postgres-1               | 2026-08-20 16:17:34.737 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 16:17:36.113 UTC [73] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.313 s, sync=0.026 s, total=1.377 s; sync files=15, longest=0.009 s, average=0.002 s; distance=381 kB, estimate=98584 kB; lsn=1/D4C14A70, redo lsn=1/D4C14A38
+control-postgres-1               | 2026-08-20 16:22:34.422 UTC [73] LOG:  checkpoint starting: time
+control-postgres-1               | 2026-08-20 16:22:36.236 UTC [73] LOG:  checkpoint complete: wrote 19 buffers (0.1%); 0 WAL file(s) added, 3 removed, 0 recycled; write=1.722 s, sync=0.034 s, total=1.814 s; sync files=22, longest=0.008 s, average=0.002 s; distance=50429 kB, estimate=93769 kB; lsn=1/D7D540E0, redo lsn=1/D7D540A8
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER FUNCTION
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/08-final-v5-compiler-fixture.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | DO
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/09-final-v5-pg-stat-statements.sql
+business-postgres-1              | CREATE EXTENSION
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/09-final-v5-rls-fixture.sql
+business-postgres-1              | BEGIN
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 10
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | CREATE POLICY
+business-postgres-1              | SELECT 10
+business-postgres-1              | SELECT 10
+business-postgres-1              | DO
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-reader.sh
+business-postgres-1              | CREATE ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | ALTER ROLE
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | GRANT
+business-postgres-1              | 
+business-postgres-1              | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-final-v5-benchmark-dataset.sh
+business-postgres-1              | BEGIN
+business-postgres-1              | DO
+business-postgres-1              | CREATE SCHEMA
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 414000
+business-postgres-1              | CREATE TABLE
+business-postgres-1              | INSERT 0 100000
+business-postgres-1              | ANALYZE
+business-postgres-1              | ANALYZE
+business-postgres-1              | SELECT 414000
+business-postgres-1              | CREATE INDEX
+business-postgres-1              | SELECT 100000
+business-postgres-1              | CREATE INDEX
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | CREATE VIEW
+business-postgres-1              | DO
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | CREATE TRIGGER
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | COMMENT
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | REVOKE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER TABLE
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER MATERIALIZED VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER VIEW
+business-postgres-1              | ALTER SCHEMA
+business-postgres-1              | DO
+business-postgres-1              | COMMIT
+business-postgres-1              | 
+business-postgres-1              | waiting for server to shut down...2026-08-20 07:57:13.395 UTC [48] LOG:  received fast shutdown request
+business-postgres-1              | .2026-08-20 07:57:13.403 UTC [48] LOG:  aborting any active transactions
+business-postgres-1              | 2026-08-20 07:57:13.404 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+business-postgres-1              | 2026-08-20 07:57:13.405 UTC [49] LOG:  shutting down
+business-postgres-1              | 2026-08-20 07:57:13.417 UTC [49] LOG:  checkpoint starting: shutdown immediate
+business-postgres-1              | ..2026-08-20 07:57:15.620 UTC [49] LOG:  checkpoint complete: wrote 15510 buffers (94.7%); 0 WAL file(s) added, 0 removed, 14 recycled; write=0.085 s, sync=1.946 s, total=2.216 s; sync files=407, longest=0.259 s, average=0.005 s; distance=227055 kB, estimate=227055 kB; lsn=0/F2A6168, redo lsn=0/F2A6168
+business-postgres-1              | 2026-08-20 07:57:15.647 UTC [48] LOG:  database system is shut down
+business-postgres-1              |  done
+business-postgres-1              | server stopped
+business-postgres-1              | 
+business-postgres-1              | PostgreSQL init process complete; ready for start up.
+business-postgres-1              | 
+business-postgres-1              | 2026-08-20 07:57:15.727 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+business-postgres-1              | 2026-08-20 07:57:15.728 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+business-postgres-1              | 2026-08-20 07:57:15.728 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+business-postgres-1              | 2026-08-20 07:57:15.744 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+business-postgres-1              | 2026-08-20 07:57:15.760 UTC [112] LOG:  database system was shut down at 2026-08-20 07:57:15 UTC
+business-postgres-1              | 2026-08-20 07:57:15.769 UTC [1] LOG:  database system is ready to accept connections
+business-postgres-1              | 2026-08-20 08:02:15.777 UTC [110] LOG:  checkpoint starting: time
+business-postgres-1              | 2026-08-20 08:06:45.384 UTC [110] LOG:  checkpoint complete: wrote 8272 buffers (50.5%); 0 WAL file(s) added, 0 removed, 21 recycled; write=269.222 s, sync=0.155 s, total=269.608 s; sync files=145, longest=0.008 s, average=0.002 s; distance=348899 kB, estimate=348899 kB; lsn=0/2475F080, redo lsn=0/2475F048
