@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p69-callback-phase-diagnosis-v1",
+  "status": "pre_measurement_failure",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p69-callback-phase-diagnosis-05",
+  "submission_commit": "c2f4451642d8e4a0cdc8e05b6f98051ab3448dd4",
+  "profiles": [
+    "concurrency-expense-detail"
+  ],
+  "deployments": 1,
+  "warmups_per_cell": 5,
+  "samples_per_cell": 30,
+  "failure_stage": "phase1_bringup",
+  "formal_gateway_built": true,
+  "live_gates_run": false,
+  "measurement_started": false,
+  "measured_samples": 0,
+  "operations": 0,
+  "observer_snapshots": 0,
+  "acceptance_decisions": 0,
+  "acceptance_verdict": "none",
+  "cliff_reproduced": false,
+  "retry_performed": false,
+  "failure_error": "failed to fetch metadata: fork/exec /usr/local/lib/docker/cli-plugins/docker-buildx: no such file or directory",
+  "formal_gateway": {
+    "image_id": "sha256:63278ef53370c685e436a8f095477dd666658bc1f3e02ff734e11815b9380357",
+    "build_manifest_sha256": "2646e7710edf49d735f52a79b4a4968c20dbb7d4a3d758528923c6969d1f4f5f"
+  },
+  "cleanup": {
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0
+  }
+}

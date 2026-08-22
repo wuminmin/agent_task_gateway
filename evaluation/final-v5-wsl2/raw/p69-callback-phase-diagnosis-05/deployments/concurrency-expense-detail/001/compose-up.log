@@ -1,0 +1,9 @@
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-snapshot-index-exposure-scale Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-snapshot-index-result-heavy Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-snapshot-sidecar-install Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-oa-demo Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-snapshot-index-detail Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-snapshot-index-summary Building 
+ Image taskgate-final-v5-deployment-01-97811df0b1e2dd7c08c4-final-v5-provsql-postgres Building 
+failed to fetch metadata: fork/exec /usr/local/lib/docker/cli-plugins/docker-buildx: no such file or directory
+NAME      IMAGE     COMMAND   SERVICE   CREATED   STATUS    PORTS

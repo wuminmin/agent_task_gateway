@@ -1,0 +1,435 @@
+{
+  "contract_release": "final-v5-contracts-v1.10",
+  "deployments": [
+    {
+      "profile_id": "profile-f60ec5752f501da0",
+      "alias": "analytics-orders",
+      "catalog_path": "config/profiles/analytics-orders.catalog.yaml",
+      "catalog_sha256": "b6a5aaf7c03d82f820b57f49d27363677049966b001efde2972aa3f4d3485325",
+      "experiments": [
+        "baseline"
+      ],
+      "cells": [
+        "baseline/S1/SF1/direct",
+        "baseline/S1/SF1/idempotent_replay",
+        "baseline/S1/SF1/normalized_rewrite_replay",
+        "baseline/S1/SF1/novel",
+        "baseline/S1/SF1/semantic_replay",
+        "baseline/S1/SF10/direct",
+        "baseline/S1/SF10/idempotent_replay",
+        "baseline/S1/SF10/normalized_rewrite_replay",
+        "baseline/S1/SF10/novel",
+        "baseline/S1/SF10/semantic_replay",
+        "baseline/S5/SF1/direct",
+        "baseline/S5/SF1/idempotent_replay",
+        "baseline/S5/SF1/novel",
+        "baseline/S5/SF1/semantic_replay",
+        "baseline/S5/SF10/direct",
+        "baseline/S5/SF10/idempotent_replay",
+        "baseline/S5/SF10/novel",
+        "baseline/S5/SF10/semantic_replay"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-5b48ad2a02c5446d",
+      "alias": "analytics-orders-lineitem",
+      "catalog_path": "config/profiles/analytics-orders-lineitem.catalog.yaml",
+      "catalog_sha256": "4764a69897d79cd283a1d5044bf858fb31047a51dbf1877273648e75e4688733",
+      "experiments": [
+        "baseline"
+      ],
+      "cells": [
+        "baseline/S2/SF1/direct",
+        "baseline/S2/SF1/idempotent_replay",
+        "baseline/S2/SF1/normalized_rewrite_replay",
+        "baseline/S2/SF1/novel",
+        "baseline/S2/SF1/semantic_replay",
+        "baseline/S2/SF10/direct",
+        "baseline/S2/SF10/idempotent_replay",
+        "baseline/S2/SF10/normalized_rewrite_replay",
+        "baseline/S2/SF10/novel",
+        "baseline/S2/SF10/semantic_replay"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-158c6ffcccef2383",
+      "alias": "attack-expense-detail",
+      "catalog_path": "config/profiles/attack-expense-detail.catalog.yaml",
+      "catalog_sha256": "c02407c16495d2f627b66cc91f5fe3feba0274e3f0748eb08f224ba0da57caeb",
+      "experiments": [
+        "attack"
+      ],
+      "cells": [
+        "attack/A-pagination/complete-to-pages/direct",
+        "attack/A-pagination/complete-to-pages/novel",
+        "attack/A-pagination/pages-to-complete/direct",
+        "attack/A-pagination/pages-to-complete/novel",
+        "attack/B-equivalent-sql/variants-v1/direct",
+        "attack/B-equivalent-sql/variants-v1/novel",
+        "attack/C-request-id/same-and-different/idempotent_replay",
+        "attack/C-request-id/same-and-different/novel",
+        "attack/C-request-id/same-and-different/semantic_replay",
+        "attack/D-split-union/complete-to-split/direct",
+        "attack/D-split-union/complete-to-split/novel",
+        "attack/D-split-union/split-to-complete/direct",
+        "attack/D-split-union/split-to-complete/novel"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-3947f508ef5e9677",
+      "alias": "concurrency-expense-detail",
+      "catalog_path": "config/profiles/concurrency-expense-detail.catalog.yaml",
+      "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
+      "experiments": [
+        "concurrency"
+      ],
+      "cells": [
+        "concurrency/serial-control/1/serial",
+        "concurrency/shared-root/10/forced_queue_safety",
+        "concurrency/shared-root/10/natural_contention",
+        "concurrency/shared-root/100/forced_queue_safety",
+        "concurrency/shared-root/100/natural_contention",
+        "concurrency/shared-root/50/forced_queue_safety",
+        "concurrency/shared-root/50/natural_contention",
+        "concurrency/shared-root/500/forced_queue_safety",
+        "concurrency/shared-root/500/natural_contention"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-46b22367d1386567",
+      "alias": "depth4-semantic-view",
+      "catalog_path": "config/profiles/depth4-semantic-view.catalog.yaml",
+      "catalog_sha256": "9ccc84b22033ccba2f9e5281c69ee37b97296c5eb4a0162a6150ed65caaebb27",
+      "experiments": [
+        "baseline"
+      ],
+      "cells": [
+        "baseline/S4/depth-4/direct",
+        "baseline/S4/depth-4/novel",
+        "baseline/S4/depth-4/semantic_replay"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-0d88c4e9d8b7561b",
+      "alias": "expense-detail",
+      "catalog_path": "config/profiles/expense-detail.catalog.yaml",
+      "catalog_sha256": "924d385e6561fedb4b865702f1a049eb2677f3022448947ab15446871175879d",
+      "experiments": [
+        "attack",
+        "rq5"
+      ],
+      "cells": [
+        "attack/E-threshold/preregistered-v1/direct",
+        "attack/E-threshold/preregistered-v1/novel",
+        "rq5/online-transition-v1/single/build",
+        "rq5/online-transition-v1/single/retained"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-794efc2159ffaa5f",
+      "alias": "exposure-scale",
+      "catalog_path": "config/profiles/exposure-scale.catalog.yaml",
+      "catalog_sha256": "beb1822adb70c48ed7cc37d6bc6ebedf3085eb04a4b79685d0168c77bfbe8027",
+      "experiments": [
+        "baseline",
+        "scale"
+      ],
+      "cells": [
+        "baseline/S3/10k-50k/direct",
+        "baseline/S3/10k-50k/idempotent_replay",
+        "baseline/S3/10k-50k/normalized_rewrite_replay",
+        "baseline/S3/10k-50k/novel",
+        "baseline/S3/10k-50k/semantic_replay",
+        "baseline/S3/1k-5k/direct",
+        "baseline/S3/1k-5k/idempotent_replay",
+        "baseline/S3/1k-5k/normalized_rewrite_replay",
+        "baseline/S3/1k-5k/novel",
+        "baseline/S3/1k-5k/semantic_replay",
+        "baseline/S3/45k-225k/direct",
+        "baseline/S3/45k-225k/idempotent_replay",
+        "baseline/S3/45k-225k/normalized_rewrite_replay",
+        "baseline/S3/45k-225k/novel",
+        "baseline/S3/45k-225k/semantic_replay",
+        "scale/dependency-e2e/100k-overlap-0/novel",
+        "scale/dependency-e2e/100k-overlap-0/semantic_replay",
+        "scale/dependency-e2e/100k-overlap-100/novel",
+        "scale/dependency-e2e/100k-overlap-100/semantic_replay",
+        "scale/dependency-e2e/100k-overlap-50/novel",
+        "scale/dependency-e2e/100k-overlap-50/semantic_replay",
+        "scale/dependency-e2e/100k-overlap-90/novel",
+        "scale/dependency-e2e/100k-overlap-90/semantic_replay",
+        "scale/dependency-e2e/1035000-overlap-0/novel",
+        "scale/dependency-e2e/1035000-overlap-0/semantic_replay",
+        "scale/dependency-e2e/1035000-overlap-100/novel",
+        "scale/dependency-e2e/1035000-overlap-100/semantic_replay",
+        "scale/dependency-e2e/1035000-overlap-50/novel",
+        "scale/dependency-e2e/1035000-overlap-50/semantic_replay",
+        "scale/dependency-e2e/1035000-overlap-90/novel",
+        "scale/dependency-e2e/1035000-overlap-90/semantic_replay",
+        "scale/dependency-e2e/10k-overlap-0/novel",
+        "scale/dependency-e2e/10k-overlap-0/semantic_replay",
+        "scale/dependency-e2e/10k-overlap-100/novel",
+        "scale/dependency-e2e/10k-overlap-100/semantic_replay",
+        "scale/dependency-e2e/10k-overlap-50/novel",
+        "scale/dependency-e2e/10k-overlap-50/semantic_replay",
+        "scale/dependency-e2e/10k-overlap-90/novel",
+        "scale/dependency-e2e/10k-overlap-90/semantic_replay"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-a60a787c64c95451",
+      "alias": "provsql-nonce-join",
+      "catalog_path": "config/profiles/provsql-nonce-join.catalog.yaml",
+      "catalog_sha256": "ad5838887e571aa1451a670acdc4486f646b63e4a00d676412be5c3148752317",
+      "experiments": [
+        "provsql"
+      ],
+      "cells": [
+        "provsql/nonce-join-group/10k/direct",
+        "provsql/nonce-join-group/10k/provsql",
+        "provsql/nonce-join-group/10k/taskgate",
+        "provsql/nonce-join-group/1k/direct",
+        "provsql/nonce-join-group/1k/provsql",
+        "provsql/nonce-join-group/1k/taskgate",
+        "provsql/nonce-join-group/45k/direct",
+        "provsql/nonce-join-group/45k/provsql",
+        "provsql/nonce-join-group/45k/taskgate"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-a86cd4df5cad6e26",
+      "alias": "result-heavy",
+      "catalog_path": "config/profiles/result-heavy.catalog.yaml",
+      "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+      "experiments": [
+        "artifact",
+        "baseline"
+      ],
+      "cells": [
+        "artifact/result-heavy/100k-x16/novel",
+        "artifact/result-heavy/100k-x4/novel",
+        "artifact/result-heavy/100x16/novel",
+        "artifact/result-heavy/100x4/novel",
+        "artifact/result-heavy/10k-x16/novel",
+        "artifact/result-heavy/10k-x4/novel",
+        "baseline/S6/100k-x16/direct",
+        "baseline/S6/100k-x16/novel",
+        "baseline/S6/100k-x4/direct",
+        "baseline/S6/100k-x4/novel",
+        "baseline/S6/100x16/direct",
+        "baseline/S6/100x16/novel",
+        "baseline/S6/100x4/direct",
+        "baseline/S6/100x4/novel",
+        "baseline/S6/10k-x16/direct",
+        "baseline/S6/10k-x16/novel",
+        "baseline/S6/10k-x4/direct",
+        "baseline/S6/10k-x4/novel"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-18c12d9c4dc04fc5",
+      "alias": "rls-bounded",
+      "catalog_path": "config/profiles/rls-bounded.catalog.yaml",
+      "catalog_sha256": "9f81bad7373630fcebd6f95dbef9f5feff2fe9c775c7658f10c3d2c4f94299be",
+      "experiments": [
+        "rls"
+      ],
+      "cells": [
+        "rls/adaptive-100-v1/100-queries/bounded",
+        "rls/policy-denied-control/single/bounded"
+      ],
+      "ready": true
+    },
+    {
+      "profile_id": "profile-00bc8f7d5633f596",
+      "alias": "rls-unlimited",
+      "catalog_path": "config/profiles/rls-unlimited.catalog.yaml",
+      "catalog_sha256": "4ea11563ac1e1433115bd27e24395dab72e2cb6635baa00b20bae16c48d5dbb9",
+      "experiments": [
+        "rls"
+      ],
+      "cells": [
+        "rls/adaptive-100-v1/100-queries/rls",
+        "rls/adaptive-100-v1/100-queries/unlimited",
+        "rls/policy-denied-control/single/rls",
+        "rls/policy-denied-control/single/unlimited"
+      ],
+      "ready": true
+    }
+  ],
+  "non_profile_cells": null,
+  "non_profile_campaigns": null,
+  "coverage": {
+    "artifact": [
+      "artifact/result-heavy/100k-x16/novel",
+      "artifact/result-heavy/100k-x4/novel",
+      "artifact/result-heavy/100x16/novel",
+      "artifact/result-heavy/100x4/novel",
+      "artifact/result-heavy/10k-x16/novel",
+      "artifact/result-heavy/10k-x4/novel"
+    ],
+    "attack": [
+      "attack/A-pagination/complete-to-pages/direct",
+      "attack/A-pagination/complete-to-pages/novel",
+      "attack/A-pagination/pages-to-complete/direct",
+      "attack/A-pagination/pages-to-complete/novel",
+      "attack/B-equivalent-sql/variants-v1/direct",
+      "attack/B-equivalent-sql/variants-v1/novel",
+      "attack/C-request-id/same-and-different/idempotent_replay",
+      "attack/C-request-id/same-and-different/novel",
+      "attack/C-request-id/same-and-different/semantic_replay",
+      "attack/D-split-union/complete-to-split/direct",
+      "attack/D-split-union/complete-to-split/novel",
+      "attack/D-split-union/split-to-complete/direct",
+      "attack/D-split-union/split-to-complete/novel",
+      "attack/E-threshold/preregistered-v1/direct",
+      "attack/E-threshold/preregistered-v1/novel"
+    ],
+    "baseline": [
+      "baseline/S1/SF1/direct",
+      "baseline/S1/SF1/idempotent_replay",
+      "baseline/S1/SF1/normalized_rewrite_replay",
+      "baseline/S1/SF1/novel",
+      "baseline/S1/SF1/semantic_replay",
+      "baseline/S1/SF10/direct",
+      "baseline/S1/SF10/idempotent_replay",
+      "baseline/S1/SF10/normalized_rewrite_replay",
+      "baseline/S1/SF10/novel",
+      "baseline/S1/SF10/semantic_replay",
+      "baseline/S2/SF1/direct",
+      "baseline/S2/SF1/idempotent_replay",
+      "baseline/S2/SF1/normalized_rewrite_replay",
+      "baseline/S2/SF1/novel",
+      "baseline/S2/SF1/semantic_replay",
+      "baseline/S2/SF10/direct",
+      "baseline/S2/SF10/idempotent_replay",
+      "baseline/S2/SF10/normalized_rewrite_replay",
+      "baseline/S2/SF10/novel",
+      "baseline/S2/SF10/semantic_replay",
+      "baseline/S3/10k-50k/direct",
+      "baseline/S3/10k-50k/idempotent_replay",
+      "baseline/S3/10k-50k/normalized_rewrite_replay",
+      "baseline/S3/10k-50k/novel",
+      "baseline/S3/10k-50k/semantic_replay",
+      "baseline/S3/1k-5k/direct",
+      "baseline/S3/1k-5k/idempotent_replay",
+      "baseline/S3/1k-5k/normalized_rewrite_replay",
+      "baseline/S3/1k-5k/novel",
+      "baseline/S3/1k-5k/semantic_replay",
+      "baseline/S3/45k-225k/direct",
+      "baseline/S3/45k-225k/idempotent_replay",
+      "baseline/S3/45k-225k/normalized_rewrite_replay",
+      "baseline/S3/45k-225k/novel",
+      "baseline/S3/45k-225k/semantic_replay",
+      "baseline/S4/depth-4/direct",
+      "baseline/S4/depth-4/novel",
+      "baseline/S4/depth-4/semantic_replay",
+      "baseline/S5/SF1/direct",
+      "baseline/S5/SF1/idempotent_replay",
+      "baseline/S5/SF1/novel",
+      "baseline/S5/SF1/semantic_replay",
+      "baseline/S5/SF10/direct",
+      "baseline/S5/SF10/idempotent_replay",
+      "baseline/S5/SF10/novel",
+      "baseline/S5/SF10/semantic_replay",
+      "baseline/S6/100k-x16/direct",
+      "baseline/S6/100k-x16/novel",
+      "baseline/S6/100k-x4/direct",
+      "baseline/S6/100k-x4/novel",
+      "baseline/S6/100x16/direct",
+      "baseline/S6/100x16/novel",
+      "baseline/S6/100x4/direct",
+      "baseline/S6/100x4/novel",
+      "baseline/S6/10k-x16/direct",
+      "baseline/S6/10k-x16/novel",
+      "baseline/S6/10k-x4/direct",
+      "baseline/S6/10k-x4/novel"
+    ],
+    "concurrency": [
+      "concurrency/serial-control/1/serial",
+      "concurrency/shared-root/10/forced_queue_safety",
+      "concurrency/shared-root/10/natural_contention",
+      "concurrency/shared-root/100/forced_queue_safety",
+      "concurrency/shared-root/100/natural_contention",
+      "concurrency/shared-root/50/forced_queue_safety",
+      "concurrency/shared-root/50/natural_contention",
+      "concurrency/shared-root/500/forced_queue_safety",
+      "concurrency/shared-root/500/natural_contention"
+    ],
+    "provsql": [
+      "provsql/nonce-join-group/10k/direct",
+      "provsql/nonce-join-group/10k/provsql",
+      "provsql/nonce-join-group/10k/taskgate",
+      "provsql/nonce-join-group/1k/direct",
+      "provsql/nonce-join-group/1k/provsql",
+      "provsql/nonce-join-group/1k/taskgate",
+      "provsql/nonce-join-group/45k/direct",
+      "provsql/nonce-join-group/45k/provsql",
+      "provsql/nonce-join-group/45k/taskgate"
+    ],
+    "rls": [
+      "rls/adaptive-100-v1/100-queries/bounded",
+      "rls/adaptive-100-v1/100-queries/rls",
+      "rls/adaptive-100-v1/100-queries/unlimited",
+      "rls/policy-denied-control/single/bounded",
+      "rls/policy-denied-control/single/rls",
+      "rls/policy-denied-control/single/unlimited"
+    ],
+    "rq5": [
+      "rq5/online-transition-v1/single/build",
+      "rq5/online-transition-v1/single/retained"
+    ],
+    "scale": [
+      "scale/dependency-e2e/100k-overlap-0/novel",
+      "scale/dependency-e2e/100k-overlap-0/semantic_replay",
+      "scale/dependency-e2e/100k-overlap-100/novel",
+      "scale/dependency-e2e/100k-overlap-100/semantic_replay",
+      "scale/dependency-e2e/100k-overlap-50/novel",
+      "scale/dependency-e2e/100k-overlap-50/semantic_replay",
+      "scale/dependency-e2e/100k-overlap-90/novel",
+      "scale/dependency-e2e/100k-overlap-90/semantic_replay",
+      "scale/dependency-e2e/1035000-overlap-0/novel",
+      "scale/dependency-e2e/1035000-overlap-0/semantic_replay",
+      "scale/dependency-e2e/1035000-overlap-100/novel",
+      "scale/dependency-e2e/1035000-overlap-100/semantic_replay",
+      "scale/dependency-e2e/1035000-overlap-50/novel",
+      "scale/dependency-e2e/1035000-overlap-50/semantic_replay",
+      "scale/dependency-e2e/1035000-overlap-90/novel",
+      "scale/dependency-e2e/1035000-overlap-90/semantic_replay",
+      "scale/dependency-e2e/10k-overlap-0/novel",
+      "scale/dependency-e2e/10k-overlap-0/semantic_replay",
+      "scale/dependency-e2e/10k-overlap-100/novel",
+      "scale/dependency-e2e/10k-overlap-100/semantic_replay",
+      "scale/dependency-e2e/10k-overlap-50/novel",
+      "scale/dependency-e2e/10k-overlap-50/semantic_replay",
+      "scale/dependency-e2e/10k-overlap-90/novel",
+      "scale/dependency-e2e/10k-overlap-90/semantic_replay"
+    ]
+  },
+  "preregistered_aggregates": [
+    {
+      "source_path": "config/profiles/concurrency-preregistration-v1.json",
+      "retained_path": "source/concurrency-preregistration-v1.json",
+      "source_sha256": "fc51165e2203d6df913894698bc6acb1b6b239dafa0f53602fabc804c4f08c8a",
+      "profile_alias": "concurrency-expense-detail",
+      "cell": "concurrency/shared-root/50/natural_contention",
+      "rounds": 11,
+      "successes_required": 1,
+      "success_status": "pass",
+      "miss_status": "invalid",
+      "miss_error_code": "offered_concurrency_not_observed",
+      "round_identity_scope": "fresh_profile_deployment",
+      "retain_all_rounds": true,
+      "early_stop": false
+    }
+  ]
+}
