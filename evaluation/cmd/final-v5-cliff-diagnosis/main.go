@@ -65,27 +65,92 @@ type callbackPhaseAggregate struct {
 	Errors int
 	SumMS  float64
 	MaxMS  float64
+	// InFlightMaxMS is the longest elapsed time an in-flight snapshot reported
+	// for this phase while it was still in progress. Completed aggregates above
+	// never include it; the verdict uses it to attribute a hung callback.
+	InFlightMaxMS float64
+}
+
+// inFlightObservation is the latest in-flight snapshot seen for one task.
+type inFlightObservation struct {
+	CurrentPhase string
+	AgeMS        float64
+	SnapshotAt   time.Time
 }
 
 type operationCallbackPhases struct {
-	SampleID      string
-	CellID        string
-	OrderPosition int
-	Warmup        bool
-	CallbackCount int
-	FinalErrors   int
-	ObservedAt    time.Time
-	Phases        map[string]callbackPhaseAggregate
+	SampleID         string
+	CellID           string
+	OrderPosition    int
+	Warmup           bool
+	CallbackCount    int
+	FinalErrors      int
+	ObservedAt       time.Time
+	Phases           map[string]callbackPhaseAggregate
+	InFlightRecords  int
+	InFlightMaxAgeMS float64
+	InFlight         map[string]inFlightObservation
 }
+
+// inFlightCurrentPhase is the modal current phase over the latest in-flight
+// snapshot of every task in the operation, or "" when none is in flight.
+func (operation operationCallbackPhases) inFlightCurrentPhase() string {
+	counts := make(map[string]int, len(operation.InFlight))
+	for _, observation := range operation.InFlight {
+		counts[observation.CurrentPhase]++
+	}
+	best, bestCount := "", 0
+	for _, name := range callbackPhaseNames {
+		if counts[name] > bestCount {
+			best, bestCount = name, counts[name]
+		}
+	}
+	for name, count := range counts {
+		if count > bestCount {
+			best, bestCount = name, count
+		}
+	}
+	return best
+}
+
+const (
+	callbackPhaseVerdictReproduced    = "callback_phase_cliff_reproduced"
+	callbackPhaseVerdictNotAttributed = "callback_phase_cliff_not_attributed"
+	// callbackPhaseVerdictNotObserved means every timed-out operation has no
+	// phase record at all, completed or in flight: the Gateway never started a
+	// submitted-callback transaction for those tasks while the stall timing was
+	// armed, so the wedge sits before ApplyApprovalCallback or outside the Gateway.
+	callbackPhaseVerdictNotObserved = "callback_not_observed_at_gateway"
+	stuckPhaseNotObserved           = "not_observed_at_gateway"
+)
 
 type callbackPhaseVerdict struct {
 	Verdict                      string  `json:"verdict"`
 	StuckPhase                   string  `json:"stuck_phase"`
+	Attribution                  string  `json:"attribution"`
 	FirstTimeoutOrderPosition    int     `json:"first_timeout_order_position"`
 	LastTimeoutOrderPosition     int     `json:"last_timeout_order_position"`
 	PreCliffP95MS                float64 `json:"pre_cliff_p95_ms"`
 	TimeoutTailMaxMS             float64 `json:"timeout_tail_max_ms"`
 	TimeoutTailStalledOperations int     `json:"timeout_tail_stalled_operations"`
+	TimeoutOperations            int     `json:"timeout_operations"`
+	InFlightTailOperations       int     `json:"in_flight_timeout_operations"`
+	InFlightMaxAgeMS             float64 `json:"in_flight_max_age_ms"`
+	UnobservedTimeoutOperations  int     `json:"unobserved_timeout_operations"`
+}
+
+// poolSnapshotSummary is the condensed view of the periodic Control pool
+// snapshots on the Gateway diagnostic stream.
+type poolSnapshotSummary struct {
+	Snapshots           int     `json:"snapshots"`
+	PoolMaxOpen         int     `json:"pool_max_open"`
+	MaxInUse            int     `json:"max_in_use"`
+	MaxWaitCount        int64   `json:"max_wait_count"`
+	MaxWaitDurationMS   float64 `json:"max_wait_duration_ms"`
+	MaxInFlight         int     `json:"max_in_flight_callbacks"`
+	MaxStalledInFlight  int     `json:"max_stalled_in_flight"`
+	MaxOldestInFlightMS float64 `json:"max_oldest_in_flight_age_ms"`
+	PoolExhaustedSnaps  int     `json:"pool_exhausted_snapshots"`
 }
 
 type correlation struct {
@@ -105,6 +170,7 @@ func main() {
 	correlationPath := flags.String("correlation", "", "create-exclusive correlation JSON")
 	callbackPhasesPath := flags.String("callback-phases", "", "retained Gateway callback phase JSONL")
 	callbackPhaseCSV := flags.String("callback-phase-curve", "", "create-exclusive per-operation callback phase curve CSV")
+	poolCurveCSV := flags.String("pool-curve", "", "create-exclusive Control pool snapshot curve CSV (optional, needs -callback-phases)")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
@@ -118,8 +184,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "callback phase input and output must be supplied together")
 		os.Exit(2)
 	}
+	if *poolCurveCSV != "" && *callbackPhasesPath == "" {
+		fmt.Fprintln(os.Stderr, "pool curve output requires the callback phase input")
+		os.Exit(2)
+	}
 	reproduced, err := diagnose(*samplesPath, *migrationPath, *observerPath, *summaryPath, *migrationCSV, *stateCSV,
-		*correlationPath, *callbackPhasesPath, *callbackPhaseCSV)
+		*correlationPath, *callbackPhasesPath, *callbackPhaseCSV, *poolCurveCSV)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -131,7 +201,7 @@ func main() {
 }
 
 func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCSV, stateCSV,
-	correlationPath, callbackPhasesPath, callbackPhaseCSV string) (bool, error) {
+	correlationPath, callbackPhasesPath, callbackPhaseCSV, poolCurveCSV string) (bool, error) {
 	records, err := experiment.ReadProfileCampaignSamples(samplesPath)
 	if err != nil {
 		return false, err
@@ -152,14 +222,26 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 		return false, fmt.Errorf("diagnosis retained %d measured samples, want frozen density 270", len(samples))
 	}
 	var phaseVerdict *callbackPhaseVerdict
+	var poolSummary *poolSnapshotSummary
 	callbackPhaseRecords := 0
 	if callbackPhasesPath != "" {
 		phaseCurve, phaseRecords, err := readCallbackPhases(callbackPhasesPath, migrationTasks)
 		if err != nil {
 			return false, err
 		}
-		if len(phaseCurve) != len(migrations) {
-			return false, fmt.Errorf("callback phase data covers %d operations, want %d", len(phaseCurve), len(migrations))
+		// Every operation must be covered unless its callbacks timed out: a
+		// hung callback that never reached the Gateway leaves no record by
+		// construction, and that absence is itself reported by the verdict.
+		// Missing records for an operation that completed are still data loss.
+		covered := make(map[int]bool, len(phaseCurve))
+		for _, operation := range phaseCurve {
+			covered[operation.OrderPosition] = true
+		}
+		for _, migration := range migrations {
+			if !covered[migration.OrderPosition] && migration.Submission.Timeouts+migration.Activation.Timeouts == 0 {
+				return false, fmt.Errorf("callback phase data covers %d operations, want %d: completed operation %d has no record",
+					len(phaseCurve), len(migrations), migration.OrderPosition)
+			}
 		}
 		if err := writeCallbackPhaseCSV(callbackPhaseCSV, phaseCurve); err != nil {
 			return false, err
@@ -167,6 +249,18 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 		verdict := diagnoseCallbackPhaseCliff(phaseCurve, migrations)
 		phaseVerdict = &verdict
 		callbackPhaseRecords = phaseRecords
+		pools, poolRecords, err := readPoolSnapshots(callbackPhasesPath)
+		if err != nil {
+			return false, err
+		}
+		if poolCurveCSV != "" {
+			if err := writePoolCurveCSV(poolCurveCSV, pools); err != nil {
+				return false, err
+			}
+		}
+		summary := summarizePoolSnapshots(pools)
+		summary.Snapshots = poolRecords
+		poolSummary = &summary
 	}
 	if err := writeMigrationCSV(migrationCSV, migrations); err != nil {
 		return false, err
@@ -208,12 +302,22 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 		"correlation": filepath.Base(correlationPath),
 	}
 	if phaseVerdict != nil {
-		summary["schema_version"] = 2
-		summary["record"] = "taskgate-final-v5-callback-phase-diagnosis-v2"
+		summary["schema_version"] = 3
+		summary["record"] = "taskgate-final-v5-callback-phase-diagnosis-v3"
 		summary["callback_phase_records"] = callbackPhaseRecords
 		summary["callback_phase_curve"] = filepath.Base(callbackPhaseCSV)
 		summary["callback_phase_verdict"] = phaseVerdict
-		reproduced = reproduced && phaseVerdict.Verdict == "callback_phase_cliff_reproduced"
+		if poolSummary != nil {
+			summary["control_pool_snapshots"] = poolSummary
+			if poolCurveCSV != "" {
+				summary["pool_curve"] = filepath.Base(poolCurveCSV)
+			}
+		}
+		// Both attributed outcomes close the diagnosis: the hung phase is named,
+		// or the Gateway provably never saw the timed-out callbacks. Only an
+		// unattributed cliff leaves the question open.
+		reproduced = reproduced && (phaseVerdict.Verdict == callbackPhaseVerdictReproduced ||
+			phaseVerdict.Verdict == callbackPhaseVerdictNotObserved)
 		summary["cliff_reproduced"] = reproduced
 	}
 	if err := writeJSONExclusive(summaryPath, summary); err != nil {
@@ -373,10 +477,37 @@ func readCallbackPhases(path string, tasks map[string]migrationTask) ([]operatio
 		if operation == nil {
 			operation = &operationCallbackPhases{SampleID: task.SampleID, CellID: task.CellID,
 				OrderPosition: task.OrderPosition, Warmup: task.Warmup,
-				Phases: make(map[string]callbackPhaseAggregate, len(callbackPhaseNames))}
+				Phases:   make(map[string]callbackPhaseAggregate, len(callbackPhaseNames)),
+				InFlight: make(map[string]inFlightObservation)}
 			byOrder[task.OrderPosition] = operation
 		} else if operation.SampleID != task.SampleID || operation.CellID != task.CellID || operation.Warmup != task.Warmup {
 			return nil, 0, errors.New("callback phase order joins different operations")
+		}
+		if record.FinalResult == callbackPhaseFinalInFlight {
+			// A snapshot of a callback that has not finished: keep the latest
+			// observation per task and fold the in-progress elapsed time into
+			// the phase it is stuck in, separately from completed durations.
+			snapshotAt, _ := time.Parse(time.RFC3339Nano, record.SnapshotAt)
+			operation.InFlightRecords++
+			linkedRecords++
+			if record.InFlightAgeMS > operation.InFlightMaxAgeMS {
+				operation.InFlightMaxAgeMS = record.InFlightAgeMS
+			}
+			if previous, seen := operation.InFlight[record.TaskIDSHA256]; !seen || snapshotAt.After(previous.SnapshotAt) {
+				operation.InFlight[record.TaskIDSHA256] = inFlightObservation{CurrentPhase: record.CurrentPhase,
+					AgeMS: record.InFlightAgeMS, SnapshotAt: snapshotAt}
+			}
+			for _, phase := range record.Phases {
+				if phase.Attempted && phase.Result == callbackPhaseResultInProgress {
+					aggregate := operation.Phases[phase.Name]
+					aggregate.InFlightMaxMS = math.Max(aggregate.InFlightMaxMS, phase.DurationMS)
+					operation.Phases[phase.Name] = aggregate
+				}
+			}
+			if snapshotAt.After(operation.ObservedAt) {
+				operation.ObservedAt = snapshotAt
+			}
+			continue
 		}
 		operation.CallbackCount++
 		if record.FinalResult == "error" {
@@ -411,9 +542,18 @@ func readCallbackPhases(path string, tasks map[string]migrationTask) ([]operatio
 	return result, linkedRecords, nil
 }
 
+const (
+	callbackPhaseFinalInFlight    = "in_flight"
+	callbackPhaseResultInProgress = "in_progress"
+)
+
+var inFlightSnapshotReasons = map[string]bool{"stall_threshold": true, "shutdown": true, "store_close": true}
+
 func validateCallbackPhaseRecord(record control.CallbackPhaseTimingV1) (time.Time, error) {
 	observedAt, timestampErr := time.Parse(time.RFC3339Nano, record.ObservedAt)
-	validFinal := record.FinalResult == "committed" || record.FinalResult == "replay_committed" || record.FinalResult == "error"
+	inFlight := record.FinalResult == callbackPhaseFinalInFlight
+	validFinal := record.FinalResult == "committed" || record.FinalResult == "replay_committed" ||
+		record.FinalResult == "error" || inFlight
 	validErrorClass := record.ErrorClass == "none" || record.ErrorClass == "context_deadline_exceeded" ||
 		record.ErrorClass == "context_cancelled" || record.ErrorClass == "other"
 	if record.SchemaVersion != 1 || record.Record != control.CallbackPhaseTimingV1Record ||
@@ -423,13 +563,35 @@ func validateCallbackPhaseRecord(record control.CallbackPhaseTimingV1) (time.Tim
 		(record.FinalResult == "error") != (record.ErrorClass != "none") {
 		return time.Time{}, errors.New("invalid submitted-callback phase timing record")
 	}
+	if inFlight {
+		_, snapshotErr := time.Parse(time.RFC3339Nano, record.SnapshotAt)
+		validCurrent := record.CurrentPhase == "before_first_phase" || record.CurrentPhase == "between_phases"
+		for _, name := range callbackPhaseNames {
+			validCurrent = validCurrent || record.CurrentPhase == name
+		}
+		if !inFlightSnapshotReasons[record.SnapshotReason] || snapshotErr != nil || record.InFlightAgeMS < 0 ||
+			!validCurrent || record.SnapshotIndex < 1 {
+			return time.Time{}, errors.New("invalid in-flight callback phase snapshot")
+		}
+	} else if record.SnapshotReason != "" || record.SnapshotAt != "" || record.InFlightAgeMS != 0 ||
+		record.CurrentPhase != "" || record.SnapshotIndex != 0 {
+		return time.Time{}, errors.New("finished callback phase record carries snapshot fields")
+	}
+	inProgress := 0
 	for index, phase := range record.Phases {
 		if phase.Name != callbackPhaseNames[index] || phase.StartedOffsetMS < 0 || phase.FinishedOffsetMS < 0 ||
 			phase.DurationMS < 0 || phase.FinishedOffsetMS < phase.StartedOffsetMS {
 			return time.Time{}, errors.New("invalid submitted-callback phase member")
 		}
 		if phase.Attempted {
-			if phase.Result != "ok" && phase.Result != "error" {
+			switch phase.Result {
+			case "ok", "error":
+			case callbackPhaseResultInProgress:
+				inProgress++
+				if !inFlight || phase.Name != record.CurrentPhase {
+					return time.Time{}, errors.New("in-progress callback phase outside an in-flight snapshot or not the current phase")
+				}
+			default:
 				return time.Time{}, errors.New("attempted callback phase has an invalid result")
 			}
 		} else if phase.Result != "not_attempted" || phase.StartedOffsetMS != 0 ||
@@ -437,7 +599,105 @@ func validateCallbackPhaseRecord(record control.CallbackPhaseTimingV1) (time.Tim
 			return time.Time{}, errors.New("unattempted callback phase carries timing")
 		}
 	}
+	if inProgress > 1 {
+		return time.Time{}, errors.New("in-flight snapshot reports more than one phase in progress")
+	}
 	return observedAt, nil
+}
+
+// readPoolSnapshots collects the periodic Control pool snapshots emitted on the
+// same diagnostic stream. Unknown lines are skipped exactly as the phase reader
+// does; a malformed pool snapshot fails closed.
+func readPoolSnapshots(path string) ([]control.CallbackPoolSnapshotV1, int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+	var pools []control.CallbackPoolSnapshotV1
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 4<<20)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var members map[string]json.RawMessage
+		if err := experiment.StrictJSON(line, &members); err != nil {
+			return nil, 0, err
+		}
+		var recordName string
+		_ = json.Unmarshal(members["record"], &recordName)
+		if recordName != control.CallbackPoolSnapshotV1Record {
+			continue
+		}
+		var record control.CallbackPoolSnapshotV1
+		if err := experiment.StrictJSON(line, &record); err != nil {
+			return nil, 0, err
+		}
+		if _, err := time.Parse(time.RFC3339Nano, record.ObservedAt); err != nil || record.SchemaVersion != 1 ||
+			record.PoolMaxOpen < 0 || record.PoolInUse < 0 || record.InFlightCallbacks < 0 {
+			return nil, 0, errors.New("invalid Control pool snapshot record")
+		}
+		pools = append(pools, record)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, 0, err
+	}
+	return pools, len(pools), nil
+}
+
+func summarizePoolSnapshots(pools []control.CallbackPoolSnapshotV1) poolSnapshotSummary {
+	var summary poolSnapshotSummary
+	for _, pool := range pools {
+		summary.PoolMaxOpen = pool.PoolMaxOpen
+		if pool.PoolInUse > summary.MaxInUse {
+			summary.MaxInUse = pool.PoolInUse
+		}
+		if pool.PoolWaitCount > summary.MaxWaitCount {
+			summary.MaxWaitCount = pool.PoolWaitCount
+		}
+		summary.MaxWaitDurationMS = math.Max(summary.MaxWaitDurationMS, pool.PoolWaitDurationMS)
+		if pool.InFlightCallbacks > summary.MaxInFlight {
+			summary.MaxInFlight = pool.InFlightCallbacks
+		}
+		if pool.StalledInFlight > summary.MaxStalledInFlight {
+			summary.MaxStalledInFlight = pool.StalledInFlight
+		}
+		summary.MaxOldestInFlightMS = math.Max(summary.MaxOldestInFlightMS, pool.OldestInFlightAgeMS)
+		if pool.PoolMaxOpen > 0 && pool.PoolInUse >= pool.PoolMaxOpen {
+			summary.PoolExhaustedSnaps++
+		}
+	}
+	return summary
+}
+
+func writePoolCurveCSV(path string, pools []control.CallbackPoolSnapshotV1) error {
+	file, err := exclusiveFile(path)
+	if err != nil {
+		return err
+	}
+	writer := csv.NewWriter(file)
+	_ = writer.Write([]string{"observed_at", "reason", "pool_max_open", "pool_open", "pool_in_use", "pool_idle",
+		"pool_wait_count", "pool_wait_duration_ms", "in_flight_callbacks", "stalled_in_flight", "oldest_in_flight_age_ms",
+		"in_flight_current_phase"})
+	for _, pool := range pools {
+		phases := make([]string, 0, len(pool.InFlightCurrentPhase))
+		for name, count := range pool.InFlightCurrentPhase {
+			phases = append(phases, name+"="+strconv.Itoa(count))
+		}
+		sort.Strings(phases)
+		_ = writer.Write([]string{pool.ObservedAt, pool.Reason, strconv.Itoa(pool.PoolMaxOpen), strconv.Itoa(pool.PoolOpen),
+			strconv.Itoa(pool.PoolInUse), strconv.Itoa(pool.PoolIdle), strconv.FormatInt(pool.PoolWaitCount, 10),
+			formatFloat(pool.PoolWaitDurationMS), strconv.Itoa(pool.InFlightCallbacks), strconv.Itoa(pool.StalledInFlight),
+			formatFloat(pool.OldestInFlightAgeMS), strings.Join(phases, ";")})
+	}
+	writer.Flush()
+	closeErr := file.Close()
+	if err := writer.Error(); err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func diagnoseCallbackPhaseCliff(phases []operationCallbackPhases, migrations []sampleMigration) callbackPhaseVerdict {
@@ -455,21 +715,49 @@ func diagnoseCallbackPhaseCliff(phases []operationCallbackPhases, migrations []s
 			lastTimeout = migration.OrderPosition
 		}
 	}
-	verdict := callbackPhaseVerdict{Verdict: "callback_phase_cliff_not_attributed",
-		FirstTimeoutOrderPosition: firstTimeout, LastTimeoutOrderPosition: lastTimeout}
+	verdict := callbackPhaseVerdict{Verdict: callbackPhaseVerdictNotAttributed, Attribution: "none",
+		FirstTimeoutOrderPosition: firstTimeout, LastTimeoutOrderPosition: lastTimeout, TimeoutOperations: len(timeoutOrders)}
+	// Tail coverage: a timed-out operation is observed when any completed or
+	// in-flight record joined it; the rest never reached ApplyApprovalCallback.
+	observedTail := make(map[int]bool, len(timeoutOrders))
+	for _, operation := range phases {
+		if !timeoutOrders[operation.OrderPosition] {
+			continue
+		}
+		observed := operation.CallbackCount > 0 || operation.InFlightRecords > 0
+		for _, aggregate := range operation.Phases {
+			observed = observed || aggregate.Count > 0 || aggregate.InFlightMaxMS > 0
+		}
+		if observed {
+			observedTail[operation.OrderPosition] = true
+		}
+		if operation.InFlightRecords > 0 {
+			verdict.InFlightTailOperations++
+			verdict.InFlightMaxAgeMS = math.Max(verdict.InFlightMaxAgeMS, operation.InFlightMaxAgeMS)
+		}
+	}
+	verdict.UnobservedTimeoutOperations = len(timeoutOrders) - len(observedTail)
 	bestDelta := math.Inf(-1)
+	bestInFlight := false
 	for _, phaseName := range callbackPhaseNames {
 		var preCliff, timeoutTail []float64
+		tailInFlight := false
 		for _, operation := range phases {
 			aggregate := operation.Phases[phaseName]
-			if aggregate.Count == 0 {
-				continue
-			}
-			if operation.OrderPosition < firstTimeout {
+			if operation.OrderPosition < firstTimeout && aggregate.Count > 0 {
 				preCliff = append(preCliff, aggregate.MaxMS)
 			}
 			if timeoutOrders[operation.OrderPosition] {
-				timeoutTail = append(timeoutTail, aggregate.MaxMS)
+				// A hung callback contributes the elapsed time of the phase it
+				// was snapshotted in; a completed slow callback its duration.
+				value := aggregate.MaxMS
+				if aggregate.InFlightMaxMS > value {
+					value = aggregate.InFlightMaxMS
+					tailInFlight = true
+				}
+				if aggregate.Count > 0 || aggregate.InFlightMaxMS > 0 {
+					timeoutTail = append(timeoutTail, value)
+				}
 			}
 		}
 		preP95 := percentile(preCliff, 0.95)
@@ -477,6 +765,7 @@ func diagnoseCallbackPhaseCliff(phases []operationCallbackPhases, migrations []s
 		delta := tailMax - preP95
 		if delta > bestDelta {
 			bestDelta = delta
+			bestInFlight = tailInFlight
 			verdict.StuckPhase = phaseName
 			verdict.PreCliffP95MS = preP95
 			verdict.TimeoutTailMaxMS = tailMax
@@ -491,7 +780,27 @@ func diagnoseCallbackPhaseCliff(phases []operationCallbackPhases, migrations []s
 	if firstTimeout > 0 && verdict.TimeoutTailStalledOperations > 0 && verdict.TimeoutTailMaxMS >= 10_000 &&
 		verdict.TimeoutTailMaxMS >= verdict.PreCliffP95MS+5_000 &&
 		(verdict.PreCliffP95MS == 0 || verdict.TimeoutTailMaxMS >= verdict.PreCliffP95MS*10) {
-		verdict.Verdict = "callback_phase_cliff_reproduced"
+		verdict.Verdict = callbackPhaseVerdictReproduced
+		verdict.Attribution = "completed_phase_durations"
+		if bestInFlight {
+			verdict.Attribution = "in_flight_snapshots"
+		}
+	} else if firstTimeout > 0 && len(observedTail) == 0 {
+		// Every timed-out callback is absent from the Gateway's stream even
+		// with stall snapshots armed: the wedge is not inside a callback phase.
+		verdict.Verdict = callbackPhaseVerdictNotObserved
+		verdict.StuckPhase = stuckPhaseNotObserved
+		verdict.Attribution = "no_gateway_record_for_timed_out_callbacks"
+		verdict.PreCliffP95MS, verdict.TimeoutTailMaxMS, verdict.TimeoutTailStalledOperations = 0, 0, 0
+		for _, phaseName := range callbackPhaseNames {
+			var preCliff []float64
+			for _, operation := range phases {
+				if aggregate := operation.Phases[phaseName]; operation.OrderPosition < firstTimeout && aggregate.Count > 0 {
+					preCliff = append(preCliff, aggregate.MaxMS)
+				}
+			}
+			verdict.PreCliffP95MS = math.Max(verdict.PreCliffP95MS, percentile(preCliff, 0.95))
+		}
 	}
 	return verdict
 }
@@ -584,9 +893,10 @@ func writeCallbackPhaseCSV(path string, operations []operationCallbackPhases) er
 	writer := csv.NewWriter(file)
 	header := []string{"order_position", "sample_id", "cell_id", "warmup", "callback_records", "final_errors"}
 	for _, phaseName := range callbackPhaseNames {
-		header = append(header, phaseName+"_count", phaseName+"_sum_ms", phaseName+"_max_ms", phaseName+"_errors")
+		header = append(header, phaseName+"_count", phaseName+"_sum_ms", phaseName+"_max_ms", phaseName+"_errors",
+			phaseName+"_in_flight_max_ms")
 	}
-	header = append(header, "observed_at")
+	header = append(header, "in_flight_records", "in_flight_tasks", "in_flight_max_age_ms", "in_flight_current_phase", "observed_at")
 	_ = writer.Write(header)
 	for _, operation := range operations {
 		row := []string{strconv.Itoa(operation.OrderPosition), operation.SampleID, operation.CellID,
@@ -594,9 +904,11 @@ func writeCallbackPhaseCSV(path string, operations []operationCallbackPhases) er
 		for _, phaseName := range callbackPhaseNames {
 			aggregate := operation.Phases[phaseName]
 			row = append(row, strconv.Itoa(aggregate.Count), formatFloat(aggregate.SumMS),
-				formatFloat(aggregate.MaxMS), strconv.Itoa(aggregate.Errors))
+				formatFloat(aggregate.MaxMS), strconv.Itoa(aggregate.Errors), formatFloat(aggregate.InFlightMaxMS))
 		}
-		row = append(row, operation.ObservedAt.UTC().Format(time.RFC3339Nano))
+		row = append(row, strconv.Itoa(operation.InFlightRecords), strconv.Itoa(len(operation.InFlight)),
+			formatFloat(operation.InFlightMaxAgeMS), operation.inFlightCurrentPhase(),
+			operation.ObservedAt.UTC().Format(time.RFC3339Nano))
 		_ = writer.Write(row)
 	}
 	writer.Flush()

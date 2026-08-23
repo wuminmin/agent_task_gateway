@@ -990,6 +990,8 @@ for alias in "${selected_profiles[@]}"; do
       cliff_observer_output=""
 	  callback_phase_log=""
 	  callback_phase_scan=""
+	  oa_callback_log=""
+	  oa_callback_scan=""
       if [[ -n "$diagnosis_mode" ]]; then
         current_stage="diagnosis_observer_initial_snapshot"
         cliff_observer_output="$current_dir/cliff-observer.jsonl"
@@ -1018,6 +1020,13 @@ for alias in "${selected_profiles[@]}"; do
 		docker logs "$gateway_container" >"$callback_phase_log" 2>&1
 		chmod 600 "$callback_phase_log"
 		[[ -s "$callback_phase_log" ]] || { echo "P69 Gateway callback phase log is empty" >&2; exit 1; }
+		# OA-side callback dispatch evidence: the OA demo logs every failed
+		# callback attempt, so this log decides whether a timed-out callback was
+		# ever sent and how it failed. Same credential gate as the Gateway log.
+		oa_callback_log="$current_dir/oa-callbacks.oa-demo.log"
+		oa_callback_scan="$current_dir/oa-callbacks.credential-scan.json"
+		docker logs "$oa_container" >"$oa_callback_log" 2>&1
+		chmod 600 "$oa_callback_log"
       fi
       export TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD="$control_password"
       export TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD="$business_password"
@@ -1042,6 +1051,13 @@ for alias in "${selected_profiles[@]}"; do
 		  echo "$deployment_key/$experiment callback phase log failed the credential gate and was removed" >&2
 		  exit 1
 		fi
+		if ! GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-adapter-stderr-scan \
+		  -input "$oa_callback_log" -output "$oa_callback_scan" "${adapter_stderr_sensitive_args[@]}" \
+		  "${adapter_stderr_secret_args[@]}"; then
+		  rm -f "$oa_callback_log" "$oa_callback_scan"
+		  echo "$deployment_key/$experiment OA callback log failed the credential gate and was removed" >&2
+		  exit 1
+		fi
 	  fi
       unset TASKGATE_ADAPTER_STDERR_CONTROL_PASSWORD TASKGATE_ADAPTER_STDERR_BUSINESS_PASSWORD \
         TASKGATE_ADAPTER_STDERR_BUSINESS_ADMIN_PASSWORD TASKGATE_ADAPTER_STDERR_PROVSQL_PASSWORD
@@ -1049,6 +1065,7 @@ for alias in "${selected_profiles[@]}"; do
         diagnosis_status=0
         "$cliff_diagnosis" -samples "$raw" -migration "$adapter_stderr" -observer "$cliff_observer_output" \
 		  -callback-phases "$callback_phase_log" -callback-phase-curve "$current_dir/callback-phase-curve.csv" \
+		  -pool-curve "$current_dir/pool-curve.csv" \
           -summary "$current_dir/$experiment.gate.json" \
           -migration-curve "$current_dir/migration-curve.csv" -state-curve "$current_dir/state-curve.csv" \
           -correlation "$current_dir/correlation.json" || diagnosis_status=$?
@@ -1145,6 +1162,7 @@ for alias in "${selected_profiles[@]}"; do
         add_ref state_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/state-curve.csv"
         add_ref correlation "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/correlation.json"
 		add_ref callback_phase_log "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phases.gateway.log"
+		add_ref oa_callback_log "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/oa-callbacks.oa-demo.log"
 		add_ref callback_phase_credential_scan "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phases.credential-scan.json"
 		add_ref callback_phase_curve "$experiment" "$campaign_root/deployments/$alias/$(printf '%03d' "$repetition")/callback-phase-curve.csv"
       fi
@@ -1182,7 +1200,7 @@ if [[ -n "$diagnosis_mode" ]]; then
   jq -e '.status == "complete" and .classification == "DIAGNOSIS-NOT-FOR-PUBLICATION" and
     .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false and
 	.deployments == 1 and .cliff_reproduced == true and
-	.callback_phase_verdict == "callback_phase_cliff_reproduced" and .stuck_phase != "" and
+	(.callback_phase_verdict == "callback_phase_cliff_reproduced" or .callback_phase_verdict == "callback_not_observed_at_gateway") and .stuck_phase != "" and
 	.cleanup.status == "pass"' "$manifest" >/dev/null
   diagnosis_tmp="$campaign_root/.diagnosis.json.tmp"
 	jq --slurpfile gate "$diagnosis_gate" '.status="complete" | .cliff_reproduced=true |

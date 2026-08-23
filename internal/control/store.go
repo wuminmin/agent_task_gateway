@@ -135,7 +135,8 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 	}
 	store := &Store{db: db, cipher: cipher, clock: config.clock}
 	if config.callbackPhaseTimingWriter != nil {
-		store.callbackPhaseTiming = &callbackPhaseTimingRecorder{writer: config.callbackPhaseTimingWriter}
+		store.callbackPhaseTiming = newCallbackPhaseTimingRecorder(config.callbackPhaseTimingWriter, db.Stats)
+		store.callbackPhaseTiming.startWatchdog()
 	}
 
 	db.SetMaxOpenConns(pool.MaxOpenConns)
@@ -171,6 +172,9 @@ func (s *Store) Close() error {
 	if s == nil || s.db == nil || s.closed.Swap(true) {
 		return nil
 	}
+	// Diagnostic-only: dump any callback trace still in flight before the pool
+	// goes away, so a stop mid-wedge records where each hung callback was.
+	s.callbackPhaseTiming.stopWatchdog("store_close")
 	return s.db.Close()
 }
 

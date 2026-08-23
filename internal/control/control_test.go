@@ -3,10 +3,12 @@ package control
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1304,5 +1306,102 @@ func TestAuditChainDetectsTampering(t *testing.T) {
 	}
 	if err := store.VerifyAuditChain(context.Background()); !errors.Is(err, ErrAuditChainBroken) {
 		t.Fatalf("tampered chain error = %v", err)
+	}
+}
+
+func TestCallbackPhaseTraceInFlightSnapshotsAndShutdownDump(t *testing.T) {
+	var out bytes.Buffer
+	now := time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC)
+	recorder := newCallbackPhaseTimingRecorder(&out, func() sql.DBStats {
+		return sql.DBStats{MaxOpenConnections: 32, OpenConnections: 32, InUse: 31, Idle: 1, WaitCount: 7, WaitDuration: 3 * time.Second}
+	})
+	recorder.now = func() time.Time { return now }
+	store := &Store{callbackPhaseTiming: recorder}
+	// drain returns every JSON line written since the previous call.
+	drain := func() []string {
+		text := strings.TrimSpace(out.String())
+		out.Reset()
+		if text == "" {
+			return nil
+		}
+		return strings.Split(text, "\n")
+	}
+	decodeTrace := func(line string) CallbackPhaseTimingV1 {
+		var record CallbackPhaseTimingV1
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("decode callback phase record: %v", err)
+		}
+		return record
+	}
+
+	trace := store.newCallbackPhaseTrace("task_in_flight", "evt_in_flight")
+	finishClaim := trace.begin(callbackPhaseClaim)
+	now = now.Add(time.Millisecond)
+	finishClaim(nil)
+	trace.begin(callbackPhaseAuditChainHead) // never finished: the hung phase
+
+	// Below the stall threshold nothing is emitted by the watchdog path.
+	now = now.Add(5 * time.Second)
+	recorder.snapshotStalled(now)
+	if lines := drain(); len(lines) != 0 {
+		t.Fatalf("trace below the stall threshold was snapshotted: %v", lines)
+	}
+	// Past the threshold one snapshot names the in-progress phase with its
+	// elapsed time; a second sweep inside the repeat cadence stays silent.
+	now = now.Add(6 * time.Second)
+	recorder.snapshotStalled(now)
+	recorder.snapshotStalled(now.Add(time.Second))
+	lines := drain()
+	if len(lines) != 1 {
+		t.Fatalf("stall sweeps emitted %d records, want 1: %v", len(lines), lines)
+	}
+	snapshot := decodeTrace(lines[0])
+	if snapshot.FinalResult != callbackPhaseFinalInFlight || snapshot.SnapshotReason != "stall_threshold" ||
+		snapshot.CurrentPhase != callbackPhaseAuditChainHead || snapshot.SnapshotIndex != 1 ||
+		snapshot.InFlightAgeMS < 11_000 || snapshot.TaskIDSHA256 != CallbackPhaseTaskIDSHA256("task_in_flight") ||
+		len(snapshot.Phases) != len(callbackPhaseOrder) ||
+		snapshot.Phases[0].Result != "ok" || snapshot.Phases[2].Result != callbackPhaseResultInProgress ||
+		snapshot.Phases[2].DurationMS < 10_990 || snapshot.Phases[3].Result != "not_attempted" {
+		t.Fatalf("unexpected in-flight snapshot: %+v", snapshot)
+	}
+
+	// The explicit shutdown path dumps the trace again plus a pool snapshot.
+	now = now.Add(2 * time.Second)
+	if dumped := store.SnapshotInflightCallbackPhases("shutdown"); dumped != 1 {
+		t.Fatalf("shutdown dumped %d traces, want 1", dumped)
+	}
+	lines = drain()
+	if len(lines) != 2 {
+		t.Fatalf("shutdown emitted %d records, want trace + pool: %v", len(lines), lines)
+	}
+	shutdown := decodeTrace(lines[0])
+	var pool CallbackPoolSnapshotV1
+	if err := json.Unmarshal([]byte(lines[1]), &pool); err != nil {
+		t.Fatalf("decode pool snapshot: %v", err)
+	}
+	if shutdown.SnapshotReason != "shutdown" || shutdown.SnapshotIndex != 2 || shutdown.CurrentPhase != callbackPhaseAuditChainHead ||
+		pool.Record != CallbackPoolSnapshotV1Record || pool.Reason != "shutdown" || pool.PoolInUse != 31 ||
+		pool.PoolMaxOpen != 32 || pool.PoolWaitCount != 7 || pool.InFlightCallbacks != 1 || pool.StalledInFlight != 1 ||
+		pool.InFlightCurrentPhase[callbackPhaseAuditChainHead] != 1 || pool.OldestInFlightAgeMS < 13_000 {
+		t.Fatalf("unexpected shutdown records: trace=%+v pool=%+v", shutdown, pool)
+	}
+
+	// Finishing removes the trace from the registry and keeps the final record
+	// shape: the still-open phase is closed as an error, no snapshot fields.
+	trace.finish(nil, false)
+	lines = drain()
+	if len(lines) != 1 {
+		t.Fatalf("finish emitted %d records, want 1: %v", len(lines), lines)
+	}
+	final := decodeTrace(lines[0])
+	if final.FinalResult != "committed" || final.SnapshotReason != "" || final.CurrentPhase != "" ||
+		final.InFlightAgeMS != 0 || final.Phases[2].Result != "error" || len(recorder.inflightTraces()) != 0 {
+		t.Fatalf("unexpected final record after in-flight snapshots: %+v inflight=%d", final, len(recorder.inflightTraces()))
+	}
+	// Stopping a recorder whose watchdog never started must not block; it
+	// emits only a final pool snapshot because nothing is in flight.
+	recorder.stopWatchdog("test")
+	if lines = drain(); len(lines) != 1 {
+		t.Fatalf("stopWatchdog emitted %d records, want the pool snapshot only: %v", len(lines), lines)
 	}
 }

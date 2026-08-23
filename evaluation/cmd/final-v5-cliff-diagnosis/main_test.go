@@ -183,3 +183,183 @@ func callbackPhaseRecordForTest(taskID string, position int, stuck bool) control
 	}
 	return record
 }
+
+func writeCallbackPhaseLogForTest(t *testing.T, records []control.CallbackPhaseTimingV1, extra ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "callback-phases.log")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintln(file, `{"time":"2026-08-23T00:00:00Z","level":"INFO","msg":"gateway listening"}`); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if err := json.NewEncoder(file).Encode(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, line := range extra {
+		if _, err := fmt.Fprintln(file, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func inFlightCallbackPhaseRecordForTest(taskID string, position int, currentPhase string, ageMS float64, index int) control.CallbackPhaseTimingV1 {
+	record := callbackPhaseRecordForTest(taskID, position, false)
+	record.FinalResult = "in_flight"
+	record.ErrorClass = "none"
+	record.SnapshotReason = "stall_threshold"
+	record.SnapshotAt = time.Date(2026, 8, 23, 0, 30, index, 0, time.UTC).Format(time.RFC3339Nano)
+	record.InFlightAgeMS = ageMS
+	record.CurrentPhase = currentPhase
+	record.SnapshotIndex = index
+	for i := range record.Phases {
+		if record.Phases[i].Name == currentPhase {
+			record.Phases[i] = control.CallbackPhaseTimingPhaseV1{Name: currentPhase, Attempted: true,
+				StartedOffsetMS: 6, FinishedOffsetMS: 6 + ageMS, DurationMS: ageMS, Result: "in_progress"}
+		} else if record.Phases[i].Name == "commit" {
+			record.Phases[i] = control.CallbackPhaseTimingPhaseV1{Name: "commit", Result: "not_attempted"}
+		}
+	}
+	return record
+}
+
+func TestCallbackPhaseInFlightSnapshotsAttributeHungPhase(t *testing.T) {
+	tasks := make(map[string]migrationTask)
+	var migrations []sampleMigration
+	var records []control.CallbackPhaseTimingV1
+	for position := 1; position <= 4; position++ {
+		taskID := fmt.Sprintf("task-%d", position)
+		tasks[control.CallbackPhaseTaskIDSHA256(taskID)] = migrationTask{SampleID: fmt.Sprintf("sample-%d", position),
+			CellID: "shared-root/10/natural_contention", OrderPosition: position, TaskOrdinal: 1, TaskRole: "root"}
+		migration := sampleMigration{SampleID: fmt.Sprintf("sample-%d", position), OrderPosition: position}
+		switch {
+		case position <= 2:
+			records = append(records, callbackPhaseRecordForTest(taskID, position, false))
+		case position == 3:
+			// Hung callback: two stall snapshots, the later one wins; no final record.
+			migration.Submission.Timeouts = 1
+			records = append(records, inFlightCallbackPhaseRecordForTest(taskID, position, "audit_chain_head", 12_000, 1),
+				inFlightCallbackPhaseRecordForTest(taskID, position, "audit_chain_head", 1_500_000, 2))
+		default:
+			// Timed out but never reached the Gateway: no record at all.
+			migration.Submission.Timeouts = 1
+		}
+		migrations = append(migrations, migration)
+	}
+	path := writeCallbackPhaseLogForTest(t, records,
+		`{"schema_version":1,"record":"taskgate-control-pool-snapshot-v1","observed_at":"2026-08-23T00:30:00Z","reason":"periodic","pool_open_connections":32,"pool_in_use":32,"pool_idle":0,"pool_max_open":32,"pool_wait_count":9,"pool_wait_duration_ms":4200.5,"in_flight_callbacks":1,"oldest_in_flight_age_ms":1500000,"stalled_in_flight":1,"stalled_threshold_ms":10000,"in_flight_current_phase":{"audit_chain_head":1}}`)
+	curve, linked, err := readCallbackPhases(path, tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked != 4 || len(curve) != 3 || curve[2].OrderPosition != 3 || curve[2].CallbackCount != 0 ||
+		curve[2].InFlightRecords != 2 || curve[2].InFlightMaxAgeMS != 1_500_000 ||
+		curve[2].Phases["audit_chain_head"].InFlightMaxMS != 1_500_000 || curve[2].Phases["audit_chain_head"].Count != 0 ||
+		curve[2].inFlightCurrentPhase() != "audit_chain_head" || len(curve[2].InFlight) != 1 {
+		t.Fatalf("in-flight curve = %+v linked=%d", curve, linked)
+	}
+	verdict := diagnoseCallbackPhaseCliff(curve, migrations)
+	if verdict.Verdict != callbackPhaseVerdictReproduced || verdict.StuckPhase != "audit_chain_head" ||
+		verdict.Attribution != "in_flight_snapshots" || verdict.InFlightTailOperations != 1 ||
+		verdict.UnobservedTimeoutOperations != 1 || verdict.TimeoutOperations != 2 ||
+		verdict.TimeoutTailMaxMS != 1_500_000 || verdict.InFlightMaxAgeMS != 1_500_000 ||
+		verdict.FirstTimeoutOrderPosition != 3 || verdict.LastTimeoutOrderPosition != 4 {
+		t.Fatalf("in-flight verdict = %+v", verdict)
+	}
+	pools, count, err := readPoolSnapshots(path)
+	if err != nil || count != 1 {
+		t.Fatalf("pool snapshots = %d, %v", count, err)
+	}
+	summary := summarizePoolSnapshots(pools)
+	if summary.MaxInUse != 32 || summary.PoolMaxOpen != 32 || summary.PoolExhaustedSnaps != 1 || summary.MaxWaitCount != 9 ||
+		summary.MaxStalledInFlight != 1 || summary.MaxOldestInFlightMS != 1_500_000 {
+		t.Fatalf("pool summary = %+v", summary)
+	}
+}
+
+func TestCallbackPhaseVerdictNotObservedAtGatewayAndCoverageRule(t *testing.T) {
+	tasks := make(map[string]migrationTask)
+	var migrations []sampleMigration
+	var records []control.CallbackPhaseTimingV1
+	for position := 1; position <= 4; position++ {
+		taskID := fmt.Sprintf("task-%d", position)
+		tasks[control.CallbackPhaseTaskIDSHA256(taskID)] = migrationTask{SampleID: fmt.Sprintf("sample-%d", position),
+			CellID: "shared-root/10/natural_contention", OrderPosition: position, TaskOrdinal: 1, TaskRole: "root"}
+		migration := sampleMigration{SampleID: fmt.Sprintf("sample-%d", position), OrderPosition: position}
+		if position <= 2 {
+			records = append(records, callbackPhaseRecordForTest(taskID, position, false))
+		} else {
+			migration.Submission.Timeouts = 1
+		}
+		migrations = append(migrations, migration)
+	}
+	curve, _, err := readCallbackPhases(writeCallbackPhaseLogForTest(t, records), tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verdict := diagnoseCallbackPhaseCliff(curve, migrations)
+	if verdict.Verdict != callbackPhaseVerdictNotObserved || verdict.StuckPhase != stuckPhaseNotObserved ||
+		verdict.UnobservedTimeoutOperations != 2 || verdict.InFlightTailOperations != 0 || verdict.TimeoutOperations != 2 ||
+		verdict.TimeoutTailMaxMS != 0 || verdict.PreCliffP95MS == 0 {
+		t.Fatalf("not-observed verdict = %+v", verdict)
+	}
+
+	// A completed (non-timeout) operation without any record is still data loss.
+	migrations[1].Submission.Timeouts = 0
+	curveMissing, _, err := readCallbackPhases(writeCallbackPhaseLogForTest(t, records[:1]), tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := map[int]bool{}
+	for _, operation := range curveMissing {
+		covered[operation.OrderPosition] = true
+	}
+	missingCompleted := 0
+	for _, migration := range migrations {
+		if !covered[migration.OrderPosition] && migration.Submission.Timeouts+migration.Activation.Timeouts == 0 {
+			missingCompleted++
+		}
+	}
+	if missingCompleted != 1 {
+		t.Fatalf("coverage rule missed a completed operation without records: %d", missingCompleted)
+	}
+}
+
+func TestCallbackPhaseInFlightValidationFailsClosed(t *testing.T) {
+	good := inFlightCallbackPhaseRecordForTest("task-ok", 1, "task_row_lock", 20_000, 1)
+	if _, err := validateCallbackPhaseRecord(good); err != nil {
+		t.Fatalf("valid in-flight snapshot was rejected: %v", err)
+	}
+	twoInProgress := inFlightCallbackPhaseRecordForTest("task-two", 1, "task_row_lock", 20_000, 1)
+	twoInProgress.Phases[0].Result = "in_progress"
+	if _, err := validateCallbackPhaseRecord(twoInProgress); err == nil {
+		t.Fatal("in-flight snapshot with two in-progress phases was accepted")
+	}
+	wrongCurrent := inFlightCallbackPhaseRecordForTest("task-wrong", 1, "task_row_lock", 20_000, 1)
+	wrongCurrent.CurrentPhase = "commit"
+	if _, err := validateCallbackPhaseRecord(wrongCurrent); err == nil {
+		t.Fatal("in-flight snapshot whose in-progress phase is not the current phase was accepted")
+	}
+	badReason := inFlightCallbackPhaseRecordForTest("task-reason", 1, "task_row_lock", 20_000, 1)
+	badReason.SnapshotReason = "whenever"
+	if _, err := validateCallbackPhaseRecord(badReason); err == nil {
+		t.Fatal("in-flight snapshot with an unknown reason was accepted")
+	}
+	finishedWithSnapshotFields := callbackPhaseRecordForTest("task-final", 1, false)
+	finishedWithSnapshotFields.CurrentPhase = "commit"
+	if _, err := validateCallbackPhaseRecord(finishedWithSnapshotFields); err == nil {
+		t.Fatal("finished record carrying snapshot fields was accepted")
+	}
+	inProgressOutsideInFlight := callbackPhaseRecordForTest("task-progress", 1, false)
+	inProgressOutsideInFlight.Phases[1].Result = "in_progress"
+	if _, err := validateCallbackPhaseRecord(inProgressOutsideInFlight); err == nil {
+		t.Fatal("finished record with an in-progress phase was accepted")
+	}
+}

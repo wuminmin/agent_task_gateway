@@ -364,6 +364,10 @@ func main() {
 		}
 	}()
 	<-ctx.Done()
+	// Diagnostic-only (no-op unless the diagnosis marker enabled callback phase
+	// timing): record every submitted callback still in flight before the HTTP
+	// drain, which could otherwise outlast the container stop grace period.
+	store.SnapshotInflightCallbackPhases("shutdown")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
