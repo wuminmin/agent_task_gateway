@@ -19,6 +19,14 @@ set now present in the repository.
   PASS and must be independently revalidated and rerun before it is treated as
   current evidence
 - **Experiment orchestration/evidence skeleton:** complete
+- **Offline execution fallback (2026-08-23):** `offline/` holds an air-gapped
+  runbook (toolbox image, saved-image bundle, NAS build/selfcheck scripts,
+  numbered server scripts) for the pilot-class validate/smoke/real-pilot/formal
+  sequence on a Linux host without WSL2, declaring
+  `TASKGATE_PILOT_HOST_CLASS=offline-linux` to `preflight-wsl2.sh`; publication
+  mode does not accept that host class and stays WSL2-only.  The primary
+  execution host remains the author's WSL2 Ubuntu 22.04; this track is a
+  fallback only and has not been exercised end to end
 - **Source-controlled formal capabilities:** `7/9` are currently true: RLS,
   adaptive attacks, ProvSQL, compiler, concurrency, RQ5, and Artifact.
   Artifact flipped on 2026-08-16 because the criterion its source defines was

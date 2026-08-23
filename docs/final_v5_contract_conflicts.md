@@ -238,6 +238,15 @@ This is a deployment-layer gap, not a contract change: contract v1.2 already
 says a Catalog-bound instance activates one closure at a time. Resolving it does
 not alter the profile unit, the closure digests, the HOT ceiling or any Oracle.
 
+**Resolved at the deployment layer (recorded 2026-08-23).** The live runs since
+P8/P68 activate profiles through `evaluation/cmd/final-v5-profile-artifacts`,
+which copies the shared volume out and materializes one verified directory per
+profile holding exactly its closure's publication bundles (manifest-checked by
+`finalv5profile.VerifyProfileArtifactDirectory`); `compose.yaml` mounts
+`${TASKGATE_PROFILE_ARTIFACT_DIR:-snapshot-index-artifacts}` as the Gateway's
+snapshot artifact directory and `final-v5-profile-activate` sets it per
+activation and attests the activated bundles. The loader check was not relaxed.
+
 ## C13 — Cross-profile semantic replay cannot be tested with the current profiles
 
 The persisted semantic-replay isolation test requires one logical query that is

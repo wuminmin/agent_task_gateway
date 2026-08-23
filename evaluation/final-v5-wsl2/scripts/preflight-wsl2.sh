@@ -18,9 +18,18 @@ done
 commit="$(git rev-parse HEAD)"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || failures+=("Git commit is not a full SHA")
 
+host_class=unchecked
 if [[ "$mode" != smoke ]]; then
   command -v docker >/dev/null 2>&1 || failures+=("required command unavailable: docker")
-  grep -qi microsoft /proc/sys/kernel/osrelease || failures+=("not WSL2")
+  # Pilot-class runs (publication_eligible=false by construction) may execute
+  # on an explicitly declared offline Linux host instead of WSL2. Publication
+  # mode never accepts this: its frozen environment contract stays WSL2-only.
+  if [[ "$mode" != publication && "${TASKGATE_PILOT_HOST_CLASS:-}" == offline-linux ]]; then
+    host_class=offline-linux
+  else
+    host_class=wsl2
+    grep -qi microsoft /proc/sys/kernel/osrelease || failures+=("not WSL2")
+  fi
   docker info >/dev/null 2>&1 || failures+=("Docker unavailable")
   [[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || failures+=("cgroup v2 unavailable")
   compose_version="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
@@ -51,4 +60,5 @@ if ((${#failures[@]})); then
   exit 1
 fi
 if [[ "$mode" == publication ]]; then echo "publication_eligible=true"; else echo "publication_eligible=false"; fi
+echo "host_class=$host_class"
 echo "commit=$commit"

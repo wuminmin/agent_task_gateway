@@ -15,7 +15,14 @@ command -v docker >/dev/null 2>&1 || fail "Docker is required; install Docker En
 docker info >/dev/null 2>&1 || fail "the Docker daemon is unavailable or not permitted"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required to record model provenance"
 
-docker build --file "$SCRIPT_DIR/Dockerfile" --tag "$IMAGE" "$ROOT_DIR"
+# Offline hosts run against a preloaded image: the Dockerfile downloads a
+# pinned tla2tools.jar, which an air-gapped machine cannot fetch.
+if [ "${TASKGATE_TLA_SKIP_BUILD:-0}" = 1 ]; then
+  docker image inspect "$IMAGE" >/dev/null 2>&1 \
+    || fail "TASKGATE_TLA_SKIP_BUILD=1 but image $IMAGE is not loaded"
+else
+  docker build --file "$SCRIPT_DIR/Dockerfile" --tag "$IMAGE" "$ROOT_DIR"
+fi
 mkdir -p "$RESULT_DIR"
 
 run_model() {

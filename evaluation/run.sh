@@ -26,7 +26,14 @@ if [ "$mode" = "full" ]; then
   command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required to seal the full campaign manifest"
 fi
 
-docker build --file "$SCRIPT_DIR/Dockerfile" --target runner --tag "$IMAGE" "$ROOT_DIR"
+# Offline hosts run against a preloaded image instead of building one, since
+# the build stage needs network access for Go modules and apt.
+if [ "${TASKGATE_EVAL_SKIP_BUILD:-0}" = 1 ]; then
+  docker image inspect "$IMAGE" >/dev/null 2>&1 \
+    || fail "TASKGATE_EVAL_SKIP_BUILD=1 but image $IMAGE is not loaded"
+else
+  docker build --file "$SCRIPT_DIR/Dockerfile" --target runner --tag "$IMAGE" "$ROOT_DIR"
+fi
 
 git_revision=$(git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || echo unknown)
 if [ -n "$(git -C "$ROOT_DIR" status --short 2>/dev/null || true)" ]; then
