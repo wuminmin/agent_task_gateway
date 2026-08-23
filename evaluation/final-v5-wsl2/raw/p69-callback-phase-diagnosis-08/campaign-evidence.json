@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-p69-callback-phase-diagnosis-campaign-v1",
+  "status": "complete",
+  "classification": "DIAGNOSIS-NOT-FOR-PUBLICATION",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p69-callback-phase-diagnosis-08",
+  "submission_commit": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+  "deployments": 1,
+  "cliff_reproduced": true,
+  "migration_timeout_records": 44,
+  "first_timeout_order_position": 272,
+  "last_timeout_order_position": 315,
+  "callback_phase_verdict": "callback_not_observed_at_gateway",
+  "stuck_phase": "not_observed_at_gateway",
+  "cleanup": {
+    "schema_version": 1,
+    "status": "pass",
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0
+  }
+}

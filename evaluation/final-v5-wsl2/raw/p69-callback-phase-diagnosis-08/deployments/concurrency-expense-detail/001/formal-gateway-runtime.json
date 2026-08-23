@@ -1,0 +1,17 @@
+{
+  "version": "taskgate-gateway-runtime-identity-v1",
+  "submission_commit": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+  "clean_tree_at_build": true,
+  "build_context_sha256": "32ad7dc1e7bcadb1a76387d1807deee05e047fbd1c0a1e72852eb8bda2bb5f03",
+  "source_manifest_sha256": "5ac4afcfd79ff10c2d3de72995eeafba431edad5f724052dee67acdaa810eedb",
+  "build_target": "gateway",
+  "oci_revision_label": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+  "local_image_id": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+  "container_image_id": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+  "gateway_binary_sha256": "e2c9a2a0488c88eb25f334d7fcb0cf7307d9d584846e37b036105a4ccd523962",
+  "platform": "linux/amd64",
+  "healthcheck_definition_sha256": "14f924a7673ecd9d053584ca295e9511cf684b98de41052dce9515c20ae747eb",
+  "builder_base_image": "golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58",
+  "runtime_base_image": "debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
+  "aggregate_sha256": "5545e733c316ff4b343816809afa379decf0a08025078cbc02494ef496bc507c"
+}

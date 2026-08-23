@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "campaign_id": "p69-callback-phase-diagnosis-08",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "submission_commit": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+  "compose_project": "taskgate-final-v5-deployment-01-457d276c399d52474796",
+  "profile_id": "profile-3947f508ef5e9677",
+  "profile_alias": "concurrency-expense-detail",
+  "catalog_path": "config/profiles/concurrency-expense-detail.catalog.yaml",
+  "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
+  "repetition": 1,
+  "cells": [
+    "concurrency/serial-control/1/serial",
+    "concurrency/shared-root/10/forced_queue_safety",
+    "concurrency/shared-root/10/natural_contention",
+    "concurrency/shared-root/100/forced_queue_safety",
+    "concurrency/shared-root/100/natural_contention",
+    "concurrency/shared-root/50/forced_queue_safety",
+    "concurrency/shared-root/50/natural_contention",
+    "concurrency/shared-root/500/forced_queue_safety",
+    "concurrency/shared-root/500/natural_contention"
+  ],
+  "files": [
+    {
+      "kind": "profile_binding",
+      "path": "deployments/concurrency-expense-detail/001/profile-binding.json",
+      "sha256": "c86296ff18f04386247460600790f79135bd81d65a1370fbb38b8810a72d95ed",
+      "bytes": 466
+    },
+    {
+      "kind": "activation_evidence",
+      "path": "deployments/concurrency-expense-detail/001/activation/concurrency-expense-detail.json",
+      "sha256": "9b8b2714df14bef2aa1fc50b10df427f661ae5870d756aa0219f0085eda345e3",
+      "bytes": 10191
+    },
+    {
+      "kind": "environment",
+      "path": "deployments/concurrency-expense-detail/001/environment.json",
+      "sha256": "efb2b4e02c8f0adecbeabd20d53c22d061930267a25bc014b963aa6b23d57d59",
+      "bytes": 136849
+    },
+    {
+      "kind": "fresh_proof",
+      "path": "deployments/concurrency-expense-detail/001/fresh-proof.json",
+      "sha256": "b0fa49a8286b894d9f0d3d0eb194c6a383a897435d668628acde3343d9e840a5",
+      "bytes": 1960
+    },
+    {
+      "kind": "gateway_image",
+      "path": "deployments/concurrency-expense-detail/001/gateway-image.json",
+      "sha256": "7fd0912c786eb291baafe2b22832596ff8b3e52f63035a5b28d1e9da0917b23f",
+      "bytes": 1616
+    },
+    {
+      "kind": "formal_gateway_runtime",
+      "path": "deployments/concurrency-expense-detail/001/formal-gateway-runtime.json",
+      "sha256": "efae5429b1dd69b9ae63d26efa20d6f522080264065df9e28220dbea68e21689",
+      "bytes": 1164
+    },
+    {
+      "kind": "formal_gateway_build_manifest",
+      "path": "source/formal-gateway-build.json",
+      "sha256": "8f17ea7a1239eef2ab1d9924423df2724cfcbd29a9039566318da888a3e9ca85",
+      "bytes": 951
+    },
+    {
+      "kind": "formal_gateway_compose_override",
+      "path": "source/compose.formal-gateway.yaml",
+      "sha256": "d7b0b4c9185d53adf8b3478a6fe3341f2ef592ec5e4e1f2cd1f2721763203838",
+      "bytes": 152
+    },
+    {
+      "kind": "formal_gateway_build_log",
+      "path": "source/formal-gateway-build.log",
+      "sha256": "b563dad1e28e898be60515d04b3ca03aea580f622a2576ea9cdf9d83fc310acc",
+      "bytes": 693
+    },
+    {
+      "kind": "cleanup",
+      "path": "deployments/concurrency-expense-detail/001/cleanup.json",
+      "sha256": "5b535739b5982b59e11775a3ecae0a405909c32f66c8abcbb163ded52f405b9c",
+      "bytes": 98
+    },
+    {
+      "kind": "deployment_configuration",
+      "path": "deployments/concurrency-expense-detail/001/deployment-configuration.json",
+      "sha256": "808fd5cbf86ddd693a59abd419618f09939643193b529143c05400f21e49be80",
+      "bytes": 495
+    },
+    {
+      "kind": "cliff_observer_binary",
+      "path": "source/final-v5-cliff-observer",
+      "sha256": "d9f3a21b9e42e08a486e8622705c80955a70e104939363e8af83d0ee762a0224",
+      "bytes": 13396230
+    },
+    {
+      "kind": "cliff_observer_build_manifest",
+      "path": "source/final-v5-cliff-observer.build.json",
+      "sha256": "e25424a8304e378119d28a18da2c0b79d260176f9409fdead2ae91bdbb068cff",
+      "bytes": 308287
+    },
+    {
+      "kind": "cliff_diagnosis_binary",
+      "path": "source/final-v5-cliff-diagnosis",
+      "sha256": "7b1ab9f9b830c56d70b80f61f88550968a1ee0f8c6873943de77f7ef53ed53d2",
+      "bytes": 19270624
+    },
+    {
+      "kind": "cliff_diagnosis_build_manifest",
+      "path": "source/final-v5-cliff-diagnosis.build.json",
+      "sha256": "47ba413e4093e603abaf443aa3d2b3c4110234c23773f9efae439d1719bfbef1",
+      "bytes": 308289
+    },
+    {
+      "kind": "cliff_observer_log",
+      "path": "deployments/concurrency-expense-detail/001/cliff-observer.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "kind": "config",
+      "path": "deployments/concurrency-expense-detail/001/config/concurrency.json",
+      "sha256": "448f787b10b528394f02c58483be2e6c7034dee46d788940affcc2c7b7825a79",
+      "bytes": 1196,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "selected_cells",
+      "path": "deployments/concurrency-expense-detail/001/selected-cells/concurrency.json",
+      "sha256": "8d65081ba9a259e269d0979194bf38ac51e410b8ec9b5d298eb2f922066e4381",
+      "bytes": 460,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "raw_jsonl",
+      "path": "deployments/concurrency-expense-detail/001/raw/concurrency.jsonl",
+      "sha256": "9856083ff8721f1fd1ff20feddec767811e43869179c045b61353ef97bdb7ed6",
+      "bytes": 93508779,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "launcher_gate",
+      "path": "deployments/concurrency-expense-detail/001/concurrency.gate.json",
+      "sha256": "fca2ed82b149e8e933e57ffd291111c2cd1f9ffcea15bb3a9058d0d93043d3f5",
+      "bytes": 1363,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "adapter_stderr",
+      "path": "deployments/concurrency-expense-detail/001/adapter-stderr/concurrency.log",
+      "sha256": "64a46491526739c9726f244f64b3ab71e38db21aa622db66512f76c6b6cb7b7e",
+      "bytes": 58367387,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "adapter_stderr_credential_scan",
+      "path": "deployments/concurrency-expense-detail/001/adapter-stderr/concurrency.credential-scan.json",
+      "sha256": "0e0041cdf56bef630f2f021ec2f02f086a31c6d32e0c6a712a62b691f79d2302",
+      "bytes": 398,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "cliff_observer",
+      "path": "deployments/concurrency-expense-detail/001/cliff-observer.jsonl",
+      "sha256": "44f87cb3e82f1c28e629176701be5683f972e9b93aecbc036e10a26ef292e24f",
+      "bytes": 3302667,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "migration_curve",
+      "path": "deployments/concurrency-expense-detail/001/migration-curve.csv",
+      "sha256": "d27b98678879b8cea2fe4cf6db78faefc89a4c24d9972db92e380104f410cc45",
+      "bytes": 57585,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "state_curve",
+      "path": "deployments/concurrency-expense-detail/001/state-curve.csv",
+      "sha256": "e5d34b84e754bc853a57674872068ee623834dc6484e739a0fada2407204b85a",
+      "bytes": 971600,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "correlation",
+      "path": "deployments/concurrency-expense-detail/001/correlation.json",
+      "sha256": "059ee203cd73d8f861199cfd0637573e11e5606212bac0380451b8970a55ca26",
+      "bytes": 5644,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "callback_phase_log",
+      "path": "deployments/concurrency-expense-detail/001/callback-phases.gateway.log",
+      "sha256": "b9fb9dc0dbaee2401b3da3339cd9ecb5bb01102cfb3ac29c53fdbb21ad8a8a76",
+      "bytes": 37261122,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "oa_callback_log",
+      "path": "deployments/concurrency-expense-detail/001/oa-callbacks.oa-demo.log",
+      "sha256": "532b9eb0b2f3eff3e69594feab825e8a762d1a30903d6eb82a1671efd6895906",
+      "bytes": 101,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "callback_phase_credential_scan",
+      "path": "deployments/concurrency-expense-detail/001/callback-phases.credential-scan.json",
+      "sha256": "82c8b699fe412237ea1ff43c237318dd9e387d475885d5862062e456d264d614",
+      "bytes": 398,
+      "experiment": "concurrency"
+    },
+    {
+      "kind": "callback_phase_curve",
+      "path": "deployments/concurrency-expense-detail/001/callback-phase-curve.csv",
+      "sha256": "089172db905cb8781a64c3291c76d82b6a74d0ef0fec4bbab75b89fc19906971",
+      "bytes": 71388,
+      "experiment": "concurrency"
+    }
+  ]
+}

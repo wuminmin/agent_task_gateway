@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-fresh-profile-execution-v1",
+  "status": "pass",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p69-callback-phase-diagnosis-08",
+  "submission_commit": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+  "compose_project": "taskgate-final-v5-deployment-01-457d276c399d52474796",
+  "profile_alias": "concurrency-expense-detail",
+  "profile_id": "profile-3947f508ef5e9677",
+  "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
+  "repetition": 1,
+  "formal_gateway_built": true,
+  "formal_gateway": {
+    "image_id": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+    "build_manifest_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p69-callback-phase-diagnosis-08/source/formal-gateway-build.json",
+    "build_manifest_sha256": "8f17ea7a1239eef2ab1d9924423df2724cfcbd29a9039566318da888a3e9ca85",
+    "compose_override_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p69-callback-phase-diagnosis-08/source/compose.formal-gateway.yaml",
+    "compose_override_sha256": "d7b0b4c9185d53adf8b3478a6fe3341f2ef592ec5e4e1f2cd1f2721763203838",
+    "runtime_identity_path": "/home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p69-callback-phase-diagnosis-08/deployments/concurrency-expense-detail/001/formal-gateway-runtime.json",
+    "runtime_identity_sha256": "efae5429b1dd69b9ae63d26efa20d6f522080264065df9e28220dbea68e21689",
+    "build_context_sha256": "32ad7dc1e7bcadb1a76387d1807deee05e047fbd1c0a1e72852eb8bda2bb5f03",
+    "source_manifest_sha256": "5ac4afcfd79ff10c2d3de72995eeafba431edad5f724052dee67acdaa810eedb",
+    "dataset_binding_sha256": "3bb2771fa07b3cd7b0e0d806cf84af41d05628b958f425310368b854b77b7526",
+    "profile_registry_sha256": "2d7fa108b69ecfaed1464e939a4b2539cf60fcafd87d1e867b56b0a2dc102c66"
+  }
+}

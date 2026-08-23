@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_kind": "taskgate-pilot-gateway-image-observation-v1",
+  "experiment_class": "pilot",
+  "provenance_assertion": "observation_only_not_publication_verification",
+  "formal_gateway_built": true,
+  "formal_build_label": "v1",
+  "captured_at": "2026-08-23T09:46:16Z",
+  "container_id": "4051a8d1706d6c649f2a0b601d64949699013cb6c53975a94cf8b0e0ca23963a",
+  "image_reference": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+  "container_image_id": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+  "image_id": "sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297",
+  "repo_digests": [
+    "taskgate-final-v5-gateway@sha256:dcce4ba565060a5c19212894386d0f2c397d062a82d0914ae3707d3a55a94297"
+  ],
+  "created": "2026-08-23T17:42:02.914680867+08:00",
+  "platform": "linux/amd64",
+  "source_provenance": {
+    "submission_commit": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+    "build_context_sha256": "32ad7dc1e7bcadb1a76387d1807deee05e047fbd1c0a1e72852eb8bda2bb5f03",
+    "source_manifest_sha256": "5ac4afcfd79ff10c2d3de72995eeafba431edad5f724052dee67acdaa810eedb",
+    "build_target": "gateway",
+    "builder_base_image": "golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58",
+    "runtime_base_image": "debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
+    "clean_tree_at_build": null
+  },
+  "repository_at_capture": {
+    "head": "b91f0d271ad0856dad0a019273c41ea31faafff8",
+    "worktree_clean": true,
+    "image_source_equivalence_asserted": false
+  }
+}
