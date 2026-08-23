@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "failure_stage": "cells_concurrency",
+  "campaign_class": "pilot",
+  "publication_eligible": false,
+  "formal_campaign": false,
+  "campaign_id": "p69-callback-phase-diagnosis-07",
+  "submission_commit": "07ad8dd12ae3875cbb674e58089cfcafb2373d6b",
+  "compose_project": "taskgate-final-v5-deployment-01-41d2c86fdbd2e511df06"
+}

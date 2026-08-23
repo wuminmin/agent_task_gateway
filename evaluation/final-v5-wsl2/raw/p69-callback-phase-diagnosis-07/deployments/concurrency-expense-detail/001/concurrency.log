@@ -1,0 +1,4 @@
+adapter warmup deployment-01-r001-p01-warmup-0001 returned status invalid
+adapter warmup deployment-01-r001-p01-warmup-0018 returned status invalid
+adapter process replicate 1: adapter wrote stderr; content was suppressed by the evidence secret boundary
+exit status 1

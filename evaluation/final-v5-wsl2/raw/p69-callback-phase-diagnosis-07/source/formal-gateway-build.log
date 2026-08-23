@@ -1,0 +1,9 @@
+formal Gateway build
+  commit        07ad8dd12ae3 (clean, equals origin/tkde-artifact-rerun)
+  context       88751d608344 over 2152 tracked files
+  manifest      4138e55f7281
+  build manifest /home/wmm/worktrees/agent_task_gateway/evaluation/final-v5-wsl2/raw/p69-callback-phase-diagnosis-07/source/formal-gateway-build.json (56de3d0f94e24202af69a4a88d68c6cde769295e0c94f65ea276521cf9efd074)
+  compose image  sha256:d53e12a06d8b3e26502040870cd957d8d1ae5c4527b7e5214e30a6d31bf94799
+  image         sha256:d53e12a06d8b3e26502040870cd957d8d1ae5c4527b7e5214e30a6d31bf94799 (linux/amd64)
+  tag           taskgate-final-v5-gateway:07ad8dd12ae3875cbb674e58089cfcafb2373d6b
+formal Gateway build: pass
