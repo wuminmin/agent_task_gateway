@@ -700,7 +700,7 @@ func (adapter *attackAdapter) downloadAttackRows(ctx context.Context, response q
 	if delivery.DownloadURL == "" || delivery.ArtifactSHA256 != intent.ParquetSHA256 {
 		return nil, errors.New("attack delivery metadata differs from signed artifact intent")
 	}
-	encoded, err := httpGet(ctx, adapter.real.http, delivery.DownloadURL, 1<<30)
+	encoded, _, err := httpGet(ctx, adapter.real.http, delivery.DownloadURL, 1<<30)
 	if err != nil {
 		return nil, err
 	}

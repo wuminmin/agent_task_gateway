@@ -46,8 +46,8 @@ type realAdapter struct {
 	http         *http.Client
 	alice        *mcpClient
 	carol        *mcpClient
-	aliceOA      *http.Client
-	bobOA        *http.Client
+	aliceOA      oaAccount
+	bobOA        oaAccount
 	business     *pgxpool.Pool
 	observer     *pgxpool.Pool
 	control      *pgxpool.Pool
@@ -245,16 +245,19 @@ func newRealAdapter(ctx context.Context) (*realAdapter, error) {
 	if err != nil {
 		return closeOnError(err)
 	}
-	aliceOA, err := oaClient(oaBase, "alice", alicePassword, timeout)
-	if err != nil {
-		return closeOnError(err)
+	// Sessions are opened fresh per OA action (P69: the OA session dies 8h
+	// into an 8.5h campaign, silently). Verify both credentials once here so
+	// a bad password fails the run at startup instead of measuring no-ops.
+	aliceOA := newOAAccount(oaBase, "alice", alicePassword, timeout)
+	bobOA := newOAAccount(oaBase, "bob", bobPassword, timeout)
+	if _, err := aliceOA.newSession(ctx); err != nil {
+		return closeOnError(fmt.Errorf("verify alice OA login: %w", err))
 	}
-	bobOA, err := oaClient(oaBase, "bob", bobPassword, timeout)
-	if err != nil {
-		return closeOnError(err)
+	if _, err := bobOA.newSession(ctx); err != nil {
+		return closeOnError(fmt.Errorf("verify bob OA login: %w", err))
 	}
 	var bundle queryreceipt.PublicKeyBundleV1
-	keyBytes, err := httpGet(ctx, client, gatewayBase+"/.well-known/taskgate/query-receipt-keyring.json", 1<<20)
+	keyBytes, _, err := httpGet(ctx, client, gatewayBase+"/.well-known/taskgate/query-receipt-keyring.json", 1<<20)
 	if err != nil {
 		return closeOnError(err)
 	}
@@ -613,7 +616,7 @@ func (adapter *realAdapter) completeTaskgateSampleWithParquet(ctx context.Contex
 	if delivery.DownloadURL == "" || delivery.ArtifactSHA256 != response.Receipt.ArtifactIntent.ParquetSHA256 {
 		return experiment.Sample{}, nil, errors.New("delivery metadata disagrees with receipt")
 	}
-	parquetBytes, err := httpGet(ctx, adapter.http, delivery.DownloadURL, 1<<30)
+	parquetBytes, _, err := httpGet(ctx, adapter.http, delivery.DownloadURL, 1<<30)
 	if err != nil {
 		return experiment.Sample{}, nil, err
 	}

@@ -1070,7 +1070,15 @@ for alias in "${selected_profiles[@]}"; do
           -migration-curve "$current_dir/migration-curve.csv" -state-curve "$current_dir/state-curve.csv" \
           -correlation "$current_dir/correlation.json" || diagnosis_status=$?
 		echo "P69-STAGE: diagnosis deployment=$deployment_key runner_status=$runner_status analyzer_status=$diagnosis_status measured=$(jq -s 'length' "$raw") timeouts=$(jq -r '.migration_timeout_records' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable) stuck_phase=$(jq -r '.callback_phase_verdict.stuck_phase' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable)"
-		(( runner_status == 1 && diagnosis_status == 0 )) || exit 1
+		# A reproduced cliff kills the runner (exit 1); a fix-confirmation run
+		# finishes clean (exit 0). The analyzer gate JSON says which one happened,
+		# and the runner exit code must agree with it.
+		cliff_flag=$(jq -r '.cliff_reproduced' "$current_dir/$experiment.gate.json" 2>/dev/null || echo unavailable)
+		if [[ "$cliff_flag" == true ]]; then
+			(( runner_status == 1 && diagnosis_status == 0 )) || exit 1
+		else
+			(( runner_status == 0 && diagnosis_status == 0 )) || exit 1
+		fi
         continue
       fi
       (( runner_status == 0 )) || exit "$runner_status"
@@ -1199,11 +1207,14 @@ if [[ -n "$diagnosis_mode" ]]; then
 	  stuck_phase:$diagnosis[0].callback_phase_verdict.stuck_phase,cleanup:$cleanup[0]}' >"$manifest"
   jq -e '.status == "complete" and .classification == "DIAGNOSIS-NOT-FOR-PUBLICATION" and
     .campaign_class == "pilot" and .publication_eligible == false and .formal_campaign == false and
-	.deployments == 1 and .cliff_reproduced == true and
-	(.callback_phase_verdict == "callback_phase_cliff_reproduced" or .callback_phase_verdict == "callback_not_observed_at_gateway") and .stuck_phase != "" and
+	.deployments == 1 and
+	((.cliff_reproduced == true and
+	  (.callback_phase_verdict == "callback_phase_cliff_reproduced" or .callback_phase_verdict == "callback_not_observed_at_gateway") and .stuck_phase != "") or
+	 (.cliff_reproduced == false and .callback_phase_verdict == "callback_phase_cliff_not_reproduced" and
+	  .stuck_phase == "none" and .migration_timeout_records == 0)) and
 	.cleanup.status == "pass"' "$manifest" >/dev/null
   diagnosis_tmp="$campaign_root/.diagnosis.json.tmp"
-	jq --slurpfile gate "$diagnosis_gate" '.status="complete" | .cliff_reproduced=true |
+	jq --slurpfile gate "$diagnosis_gate" '.status="complete" | .cliff_reproduced=$gate[0].cliff_reproduced |
 	  .callback_phase_verdict=$gate[0].callback_phase_verdict.verdict |
 	  .stuck_phase=$gate[0].callback_phase_verdict.stuck_phase' "$campaign_root/diagnosis.json" >"$diagnosis_tmp"
   chmod 600 "$diagnosis_tmp"

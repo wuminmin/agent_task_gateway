@@ -363,3 +363,17 @@ func TestCallbackPhaseInFlightValidationFailsClosed(t *testing.T) {
 		t.Fatal("finished record with an in-progress phase was accepted")
 	}
 }
+
+func TestCallbackPhaseVerdictNotReproducedClosesCleanRun(t *testing.T) {
+	phases := []operationCallbackPhases{
+		{OrderPosition: 1, CallbackCount: 2, Phases: map[string]callbackPhaseAggregate{"audit_chain_head": {Count: 2, MaxMS: 5}}},
+		{OrderPosition: 2, CallbackCount: 2, Phases: map[string]callbackPhaseAggregate{"audit_chain_head": {Count: 2, MaxMS: 6}}},
+	}
+	migrations := []sampleMigration{{OrderPosition: 1}, {OrderPosition: 2}}
+	verdict := diagnoseCallbackPhaseCliff(phases, migrations)
+	if verdict.Verdict != "callback_phase_cliff_not_reproduced" || verdict.StuckPhase != "none" ||
+		verdict.Attribution != "no_migration_timeouts" || verdict.TimeoutOperations != 0 ||
+		verdict.FirstTimeoutOrderPosition != 0 || verdict.LastTimeoutOrderPosition != 0 {
+		t.Fatalf("clean fix-confirmation run verdict = %+v", verdict)
+	}
+}

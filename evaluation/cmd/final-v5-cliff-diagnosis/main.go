@@ -122,6 +122,11 @@ const (
 	// armed, so the wedge sits before ApplyApprovalCallback or outside the Gateway.
 	callbackPhaseVerdictNotObserved = "callback_not_observed_at_gateway"
 	stuckPhaseNotObserved           = "not_observed_at_gateway"
+	// callbackPhaseVerdictNotReproduced closes a fix-confirmation deployment:
+	// the identical closed-shape run finished with zero migration timeouts, so
+	// there is no cliff to attribute and no stuck phase.
+	callbackPhaseVerdictNotReproduced = "callback_phase_cliff_not_reproduced"
+	stuckPhaseNone                    = "none"
 )
 
 type callbackPhaseVerdict struct {
@@ -195,7 +200,7 @@ func main() {
 		os.Exit(1)
 	}
 	if !reproduced {
-		fmt.Fprintln(os.Stderr, "diagnostic deployment completed without reproducing a migration timeout")
+		fmt.Fprintln(os.Stderr, "diagnostic deployment did not close: no attributed cliff and no clean zero-timeout confirmation")
 		os.Exit(1)
 	}
 }
@@ -313,12 +318,18 @@ func diagnose(samplesPath, migrationPath, observerPath, summaryPath, migrationCS
 				summary["pool_curve"] = filepath.Base(poolCurveCSV)
 			}
 		}
-		// Both attributed outcomes close the diagnosis: the hung phase is named,
-		// or the Gateway provably never saw the timed-out callbacks. Only an
-		// unattributed cliff leaves the question open.
+		// Three outcomes close the diagnosis: the hung phase is named, the
+		// Gateway provably never saw the timed-out callbacks, or (for a
+		// fix-confirmation deployment) the identical run produced zero
+		// migration timeouts. Only an unattributed cliff leaves it open.
 		reproduced = reproduced && (phaseVerdict.Verdict == callbackPhaseVerdictReproduced ||
 			phaseVerdict.Verdict == callbackPhaseVerdictNotObserved)
 		summary["cliff_reproduced"] = reproduced
+		closed := reproduced || (timeoutRecords == 0 && phaseVerdict.Verdict == callbackPhaseVerdictNotReproduced)
+		if err := writeJSONExclusive(summaryPath, summary); err != nil {
+			return false, err
+		}
+		return closed, nil
 	}
 	if err := writeJSONExclusive(summaryPath, summary); err != nil {
 		return false, err
@@ -717,6 +728,12 @@ func diagnoseCallbackPhaseCliff(phases []operationCallbackPhases, migrations []s
 	}
 	verdict := callbackPhaseVerdict{Verdict: callbackPhaseVerdictNotAttributed, Attribution: "none",
 		FirstTimeoutOrderPosition: firstTimeout, LastTimeoutOrderPosition: lastTimeout, TimeoutOperations: len(timeoutOrders)}
+	if len(timeoutOrders) == 0 {
+		verdict.Verdict = callbackPhaseVerdictNotReproduced
+		verdict.StuckPhase = stuckPhaseNone
+		verdict.Attribution = "no_migration_timeouts"
+		return verdict
+	}
 	// Tail coverage: a timed-out operation is observed when any completed or
 	// in-flight record joined it; the rest never reached ApplyApprovalCallback.
 	observedTail := make(map[int]bool, len(timeoutOrders))

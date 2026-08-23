@@ -54,14 +54,8 @@ func TestOANarrowActionUsesRealFormAndSurvivesApprovalDelay(t *testing.T) {
 	oaServer := httptest.NewServer(oa.Handler())
 	defer oaServer.Close()
 
-	alice, err := oaClient(oaServer.URL, "alice", strings.Repeat("a", 32), 3*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bob, err := oaClient(oaServer.URL, "bob", strings.Repeat("b", 32), 3*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	alice := newOAAccount(oaServer.URL, "alice", strings.Repeat("a", 32), 3*time.Second)
+	bob := newOAAccount(oaServer.URL, "bob", strings.Repeat("b", 32), 3*time.Second)
 
 	resourceBudget := provisionedBudget{
 		MaxQueries: 5, MaxRows: 100, MaxDBMS: 30_000, QueryTimeoutMS: 5_000,
@@ -109,7 +103,7 @@ func TestOANarrowActionUsesRealFormAndSurvivesApprovalDelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := oaAction(t.Context(), alice, oaServer.URL, draft.DraftID, "submit", ""); err != nil {
+	if err := oaAction(t.Context(), alice, draft.DraftID, "submit", ""); err != nil {
 		t.Fatal(err)
 	}
 	waitAdapterOACallback(t, callbacks, "submitted")
@@ -123,7 +117,7 @@ func TestOANarrowActionUsesRealFormAndSurvivesApprovalDelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := oaNarrowAction(t.Context(), bob, oaServer.URL, draft.DraftID, oaNarrowDecision{
+	if err := oaNarrowAction(t.Context(), bob, draft.DraftID, oaNarrowDecision{
 		Products: products, Columns: columns, MandatoryScope: scope,
 		MaxQueries: resourceBudget.MaxQueries, MaxResultRows: resourceBudget.MaxRows,
 		MaxDBMS: resourceBudget.MaxDBMS, QueryTimeoutMS: resourceBudget.QueryTimeoutMS,
@@ -235,6 +229,140 @@ func TestDelegatedNarrowTTLMSFailsClosed(t *testing.T) {
 				t.Fatalf("delegatedNarrowTTLMS(%d) = (%d, %v), want (%d, nil)", test.seconds, got, err, test.want)
 			}
 		})
+	}
+}
+
+// TestOAActionsOpenFreshVerifiedSessionsAcrossExpiry is the P69 regression:
+// the OA session token dies 8h after login while a campaign runs ~8.5h in one
+// adapter process. With per-action fresh sessions, actions after the 8h mark
+// must still submit and decide successfully instead of silently landing on
+// /login with a final 200.
+func TestOAActionsOpenFreshVerifiedSessionsAcrossExpiry(t *testing.T) {
+	callbackSecret := strings.Repeat("c", 32)
+	serviceToken := "expiry-service-token"
+	start := time.Date(2026, 8, 23, 9, 46, 0, 0, time.UTC)
+	var clock atomic.Value
+	clock.Store(start)
+	callbacks := make(chan adapterOACallback, 8)
+	callbackServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		var event adapterOACallback
+		if err := json.NewDecoder(request.Body).Decode(&event); err != nil {
+			http.Error(response, "invalid callback", http.StatusBadRequest)
+			return
+		}
+		callbacks <- event
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"ok":true}`))
+	}))
+	defer callbackServer.Close()
+
+	oa, err := oademo.New(oademo.Config{
+		ServiceToken: serviceToken, CallbackSecret: callbackSecret, SessionSecret: strings.Repeat("s", 32),
+		CallbackURL: callbackServer.URL, PublicBaseURL: "http://oa.invalid",
+		AlicePassword: strings.Repeat("a", 32), BobPassword: strings.Repeat("b", 32),
+		Clock:         func() time.Time { return clock.Load().(time.Time) },
+		ReceiptSigner: approval.DemoReceiptSigner([]byte(callbackSecret)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oaServer := httptest.NewServer(oa.Handler())
+	defer oaServer.Close()
+
+	alice := newOAAccount(oaServer.URL, "alice", strings.Repeat("a", 32), 3*time.Second)
+	bob := newOAAccount(oaServer.URL, "bob", strings.Repeat("b", 32), 3*time.Second)
+	client, err := approval.NewClient(oaServer.URL, serviceToken, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createDraft := func(taskID string) string {
+		manifest := expiryRegressionManifest(taskID)
+		digest, digestErr := approval.ManifestDigest(manifest)
+		if digestErr != nil {
+			t.Fatal(digestErr)
+		}
+		draft, draftErr := client.CreateDraft(t.Context(), approval.DraftRequest{
+			Manifest: manifest, ManifestDigest: digest, ApprovalMode: "manual", Approver: "bob",
+		})
+		if draftErr != nil {
+			t.Fatal(draftErr)
+		}
+		return draft.DraftID
+	}
+
+	first := createDraft("task-expiry-before")
+	if err := oaAction(t.Context(), alice, first, "submit", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitAdapterOACallback(t, callbacks, "submitted")
+
+	// The wedge window: more than the OA's 8h session lifetime elapses while
+	// the same adapter process keeps provisioning tasks.
+	clock.Store(start.Add(8*time.Hour + time.Minute))
+
+	second := createDraft("task-expiry-after")
+	if err := oaAction(t.Context(), alice, second, "submit", ""); err != nil {
+		t.Fatalf("submit after the 8h session lifetime: %v", err)
+	}
+	waitAdapterOACallback(t, callbacks, "submitted")
+	if err := oaAction(t.Context(), bob, second, "decision", "approved"); err != nil {
+		t.Fatalf("decision after the 8h session lifetime: %v", err)
+	}
+	approved := waitAdapterOACallback(t, callbacks, "approved")
+	if approved.ApprovedGrant == nil || approved.ApprovalReceipt == nil {
+		t.Fatal("post-expiry approval callback omitted its signed grant")
+	}
+}
+
+// TestOAAccountFailsLoudOnBadPassword covers the other silent path: the OA
+// answers a failed login with a redirect to /login?error=invalid and a final
+// 200, which the pre-P69 client accepted as success.
+func TestOAAccountFailsLoudOnBadPassword(t *testing.T) {
+	callbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer callbackServer.Close()
+	oa, err := oademo.New(oademo.Config{
+		ServiceToken: "service", CallbackSecret: strings.Repeat("c", 32), SessionSecret: strings.Repeat("s", 32),
+		CallbackURL: callbackServer.URL, PublicBaseURL: "http://oa.invalid",
+		AlicePassword: strings.Repeat("a", 32), BobPassword: strings.Repeat("b", 32),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oaServer := httptest.NewServer(oa.Handler())
+	defer oaServer.Close()
+
+	wrong := newOAAccount(oaServer.URL, "alice", "not-the-password", 3*time.Second)
+	if _, err := wrong.newSession(t.Context()); err == nil {
+		t.Fatal("bad password produced a usable OA session")
+	}
+	if err := oaAction(t.Context(), wrong, "oa_no_such_draft", "submit", ""); err == nil {
+		t.Fatal("bad-password OA action reported success")
+	}
+}
+
+func expiryRegressionManifest(taskID string) approval.AuthorizationManifestV1 {
+	return approval.AuthorizationManifestV1{
+		Version: domain.AuthorizationManifestV1Version, TaskID: taskID,
+		HumanSubject: "alice", AgentID: "agent:alice", DeclaredObjective: "P69 session expiry regression",
+		Products:        []string{"final_v5_attack_expense_detail"},
+		ApprovedColumns: map[string][]string{"final_v5_attack_expense_detail": {"receipt_no", "amount"}},
+		MandatoryScope:  map[string]any{"department": []string{"销售部"}},
+		Sensitivity:     domain.SensitivityHigh,
+		Budget: approval.AuthorizationBudgetV1{
+			MaxQueries: 5, MaxResultRows: 100, MaxDBMS: 30_000, PerQueryTimeoutMS: 5_000,
+			TaskTTLMS: 90_000, MaxReleaseFacts: 20, MaxInfluenceFacts: 30, MaxOutcomeFacts: 6,
+			ExposureProfileVersion: "taskgate-exposure-v5",
+			PredicateFootprint: &domain.PredicateFootprintLimitsV1{
+				Version: domain.PredicateFootprintV1, MaxRawLiteralsPerQuery: 64,
+				MaxUniqueAtomsPerQuery: 8, MaxAtomPayloadBytes: 4096, MaxTotalAtomPayloadBytes: 32768,
+			},
+		},
+		CatalogVersion: "final-v5-test", CatalogSHA256: strings.Repeat("1", 64),
+		DatasourceID: "final-v5-test-source", SchemaDigest: strings.Repeat("2", 64),
+		CallbackContext: "adapter-oa-expiry-regression", Nonce: strings.Repeat("0", 32),
 	}
 }
 

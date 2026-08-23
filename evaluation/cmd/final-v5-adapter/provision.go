@@ -84,7 +84,7 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 		return provisionedTask{}, errors.New("task request omitted identity, root, profile, or budget")
 	}
 	draftID := pathTail(created.OAURL)
-	if err := oaAction(ctx, adapter.aliceOA, adapter.oaBase, draftID, "submit", ""); err != nil {
+	if err := oaAction(ctx, adapter.aliceOA, draftID, "submit", ""); err != nil {
 		return provisionedTask{}, err
 	}
 	taskRole := "root"
@@ -96,7 +96,7 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 	}
 	var narrowedTTLMS int64
 	if parentTaskID == "" {
-		if err := oaAction(ctx, adapter.bobOA, adapter.oaBase, draftID, "decision", "approved"); err != nil {
+		if err := oaAction(ctx, adapter.bobOA, draftID, "decision", "approved"); err != nil {
 			return provisionedTask{}, err
 		}
 	} else {
@@ -105,7 +105,7 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 			return provisionedTask{}, narrowErr
 		}
 		narrowedTTLMS = computedTTLMS
-		if err := oaNarrowAction(ctx, adapter.bobOA, adapter.oaBase, draftID, oaNarrowDecision{
+		if err := oaNarrowAction(ctx, adapter.bobOA, draftID, oaNarrowDecision{
 			Products: products, Columns: approvedColumns, MandatoryScope: mandatoryScope,
 			MaxQueries: created.Budget.MaxQueries, MaxResultRows: created.Budget.MaxRows,
 			MaxDBMS: created.Budget.MaxDBMS, QueryTimeoutMS: created.Budget.QueryTimeoutMS,
