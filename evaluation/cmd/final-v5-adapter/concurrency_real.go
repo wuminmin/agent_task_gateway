@@ -169,6 +169,8 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 			initialRoot, beforeBoundary)
 		if errors.Is(sampleErr, errConcurrencyObservationIncomplete) &&
 			sampledSnapshot.ConcurrencyProbeCapacity == capacity {
+			recordConcurrencyObservationShortfall(operation, roundSHA, cell.Width, sampledSnapshot,
+				concurrencyObservationShortfall(sampledSnapshot, roundSHA, operation.Mode, cell.Width), sampleErr)
 			return partial, &concurrencyRunError{code: "offered_concurrency_not_observed", invalid: true,
 				sample: partial, cause: sampleErr}
 		}
@@ -180,9 +182,10 @@ WHERE root_task_id=$1 FOR UPDATE`, created.RootTaskID).Scan(&locked); err != nil
 		return partial, &concurrencyRunError{code: "concurrency_capacity_changed", sample: partial,
 			cause: errors.New("authenticated concurrency capacity changed during the measurement")}
 	}
-	if !exactConcurrencyServiceObservation(sampledSnapshot, roundSHA, operation.Mode, cell.Width) {
+	if unmet := concurrencyObservationShortfall(sampledSnapshot, roundSHA, operation.Mode, cell.Width); len(unmet) > 0 {
 		partial := partialConcurrencyServiceSample(operation, capacity, sampledSnapshot, roundSHA, rootTaskIDHash,
 			initialRoot, beforeBoundary)
+		recordConcurrencyObservationShortfall(operation, roundSHA, cell.Width, sampledSnapshot, unmet, nil)
 		return partial, &concurrencyRunError{code: "offered_concurrency_not_observed", invalid: true, sample: partial}
 	}
 	retained := observedConcurrencyServiceSample(operation, capacity, sampledSnapshot, roundSHA, rootTaskIDHash,
@@ -613,17 +616,7 @@ func (backend *realConcurrencyBackend) awaitContendersAndSampleProbe(ctx context
 }
 
 func exactConcurrencyServiceObservation(snapshot gatewayapp.ConcurrencyProbeSnapshot, roundSHA, mode string, width int) bool {
-	return width >= 1 && snapshot.Version == gatewayapp.ConcurrencyProbeVersion &&
-		validDigest(snapshot.GatewayInstanceSHA256) && snapshot.RoundSHA256 == roundSHA &&
-		snapshot.Mode == mode && snapshot.ExpectedWidth == int64(width) && snapshot.Released &&
-		snapshot.Arrived == int64(width) && snapshot.UniqueParticipants == int64(width) &&
-		snapshot.ParticipantSetSHA256 == concurrencyfixture.ParticipantSetSHA256(roundSHA, width) &&
-		snapshot.BarrierWaiting == 0 && snapshot.PeakBarrierWaiting == int64(width) &&
-		snapshot.Active == 0 && snapshot.PeakActive >= 1 && snapshot.PeakActive <= snapshot.HTTPActiveCapacity &&
-		snapshot.Queued == 0 && snapshot.PeakQueued >= 0 && snapshot.PeakQueued <= snapshot.HTTPQueueCapacity &&
-		snapshot.Completed == int64(width) && snapshot.Canceled == 0 && snapshot.Rejected == 0 &&
-		snapshot.PeakControlPoolInUse >= 1 && snapshot.PeakControlPoolInUse <= snapshot.ControlPoolCapacity &&
-		snapshot.ControlPoolWaitCountDelta >= 0 && snapshot.ControlPoolWaitNanoseconds >= 0
+	return len(concurrencyObservationShortfall(snapshot, roundSHA, mode, width)) == 0
 }
 
 // partialConcurrencyServiceSample retains authenticated partial service
