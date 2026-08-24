@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,27 +32,42 @@ type oaNarrowDecision struct {
 	TaskTTLMS      int64
 }
 
-// oaAccount holds one OA browser identity. Sessions are never reused across
-// actions: the OA session token expires 8h after login while a campaign runs
-// longer, and an expired session turns every authenticated POST into a silent
-// redirect-to-/login with a final 200 (P69 root cause). Each action therefore
-// opens a fresh session, verifies it is live, acts, and checks it never landed
-// on the login page.
+// oaSession is the single live browser session shared by every copy of an
+// oaAccount value. gen advances on each successful login so that a burst of
+// concurrent operations that all notice the same dead session causes exactly
+// one re-login instead of a stampede of bcrypt logins.
+type oaSession struct {
+	mu     sync.Mutex
+	client *http.Client
+	gen    uint64
+}
+
+// oaAccount holds one OA browser identity. The OA session token expires 8h
+// after login while a campaign runs longer, and an expired session turns every
+// authenticated POST into a silent redirect-to-/login with a final 200 (P69
+// root cause). One session is therefore kept and reused, every response is
+// checked for having landed on the login page, and only that signal triggers a
+// re-login plus a single replay of the action. The session is deliberately not
+// proved live by a separate probe: the action's own GET already carries that
+// signal, while GET /tasks costs the OA a full scan of every draft it holds,
+// which made a campaign quadratic in the number of tasks (P72).
 type oaAccount struct {
 	baseURL  string
 	username string
 	password string
 	timeout  time.Duration
+	session  *oaSession
 }
 
 func newOAAccount(baseURL, username, password string, timeout time.Duration) oaAccount {
-	return oaAccount{baseURL: strings.TrimRight(baseURL, "/"), username: username, password: password, timeout: timeout}
+	return oaAccount{baseURL: strings.TrimRight(baseURL, "/"), username: username,
+		password: password, timeout: timeout, session: &oaSession{}}
 }
 
-// newSession logs in on a fresh cookie jar and proves the session is live
-// with a redirect-free probe before returning the client. A wrong password
-// surfaces here as an error instead of a silent redirect chain.
-func (account oaAccount) newSession(ctx context.Context) (*http.Client, error) {
+// login performs the credential exchange on a fresh cookie jar. It does not
+// probe /tasks: that probe is O(drafts held by the OA) and, run once per
+// action, made a whole campaign quadratic (P72).
+func (account oaAccount) login(ctx context.Context) (*http.Client, error) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: account.timeout}
 	page, _, err := httpGet(ctx, client, account.baseURL+"/login", 2<<20)
@@ -66,10 +82,55 @@ func (account oaAccount) newSession(ctx context.Context) (*http.Client, error) {
 	if _, _, err := httpPostForm(ctx, client, account.baseURL+"/login", values); err != nil {
 		return nil, err
 	}
+	return client, nil
+}
+
+// newSession logs in and proves the session is live. It is used for start-up
+// credential verification, where one extra probe is free and a wrong password
+// must fail the run immediately instead of measuring no-ops.
+func (account oaAccount) newSession(ctx context.Context) (*http.Client, error) {
+	client, err := account.login(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err := account.verifySessionAlive(ctx, client); err != nil {
 		return nil, err
 	}
 	return client, nil
+}
+
+// current returns the shared session, logging in on first use. The returned
+// generation identifies that session, so a caller that finds it dead can ask
+// for a replacement without racing every other caller into a fresh login.
+func (account oaAccount) current(ctx context.Context) (*http.Client, uint64, error) {
+	account.session.mu.Lock()
+	defer account.session.mu.Unlock()
+	if account.session.client == nil {
+		client, err := account.login(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		account.session.client = client
+		account.session.gen++
+	}
+	return account.session.client, account.session.gen, nil
+}
+
+// refresh replaces the session only if nobody else already replaced the
+// generation the caller found dead.
+func (account oaAccount) refresh(ctx context.Context, stale uint64) (*http.Client, uint64, error) {
+	account.session.mu.Lock()
+	defer account.session.mu.Unlock()
+	if account.session.client != nil && account.session.gen != stale {
+		return account.session.client, account.session.gen, nil
+	}
+	client, err := account.login(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	account.session.client = client
+	account.session.gen++
+	return account.session.client, account.session.gen, nil
 }
 
 // verifySessionAlive asks the OA directly whether this client is logged in:
@@ -127,37 +188,66 @@ func oaNarrowAction(ctx context.Context, account oaAccount, draftID string,
 	return account.perform(ctx, draftID, "decision", values)
 }
 
-// perform runs one authenticated OA browser action on a freshly verified
-// session. Landing on /login at any step is a hard error: the OA's silent
-// answer for a dead session must never look like success again.
+// perform runs one authenticated OA browser action on the shared session.
+// Landing on /login is never accepted as success: it means the session died,
+// and it is answered with exactly one re-login and one replay. The OA rejects
+// an unauthenticated request inside requireSession before the handler runs
+// (internal/oademo/server.go), so the attempt that was redirected cannot have
+// applied the action, and replaying it cannot apply it twice.
 func (account oaAccount) perform(ctx context.Context, draftID, action string, values url.Values) error {
-	client, err := account.newSession(ctx)
+	client, gen, err := account.current(ctx)
 	if err != nil {
 		return err
 	}
+	dead, err := account.attempt(ctx, client, draftID, action, values)
+	if err != nil {
+		return err
+	}
+	if !dead {
+		return nil
+	}
+	client, _, err = account.refresh(ctx, gen)
+	if err != nil {
+		return fmt.Errorf("OA re-login for %s before %s on draft %s: %w",
+			account.username, action, draftID, err)
+	}
+	dead, err = account.attempt(ctx, client, draftID, action, values)
+	if err != nil {
+		return err
+	}
+	if dead {
+		return fmt.Errorf("OA dropped the %s session twice during %s on draft %s",
+			account.username, action, draftID)
+	}
+	return nil
+}
+
+// attempt runs the GET/POST pair once. It reports dead=true when either
+// response landed on the login page, which is the OA's silent answer for an
+// expired session and must never be read as success.
+func (account oaAccount) attempt(ctx context.Context, client *http.Client,
+	draftID, action string, values url.Values) (bool, error) {
 	taskURL := account.baseURL + "/tasks/" + url.PathEscape(draftID)
 	page, finalURL, err := httpGet(ctx, client, taskURL, 2<<20)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if landedOnLogin(finalURL) {
-		return fmt.Errorf("OA dropped the %s session before %s on draft %s: landed on %s",
-			account.username, action, draftID, finalURL)
+		return true, nil
 	}
 	csrf, err := csrfToken(page)
 	if err != nil {
-		return err
+		return false, err
 	}
 	values.Set("csrf", csrf)
 	_, finalURL, err = httpPostForm(ctx, client, taskURL+"/"+action, values)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if landedOnLogin(finalURL) {
-		return fmt.Errorf("OA dropped the %s session during %s on draft %s: landed on %s",
-			account.username, action, draftID, finalURL)
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 func (decision oaNarrowDecision) formValues() (url.Values, error) {
