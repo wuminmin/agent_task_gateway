@@ -129,6 +129,11 @@ func runTestAdapter() {
 		}
 		if operationStatus != "pass" {
 			sample.ErrorCode = "test_" + operationStatus
+			if operation.Warmup {
+				if code := os.Getenv("TASKGATE_TEST_ADAPTER_WARMUP_ERROR_CODE"); code != "" {
+					sample.ErrorCode = code
+				}
+			}
 			sample.Reason = "retained test adapter outcome"
 		}
 		if os.Getenv("TASKGATE_TEST_ADAPTER_OVERCHARGE") == "1" {
@@ -388,6 +393,54 @@ func TestRunnerRetainsFailedAndInvalidWarmups(t *testing.T) {
 				samples[0].Status != status || samples[0].ErrorCode != "test_"+status ||
 				samples[1].Warmup || !strings.Contains(samples[1].SampleID, "-sample-") || samples[1].Status != "pass" {
 				t.Fatalf("warmup failure and measured sample were not both retained: %+v", samples)
+			}
+		})
+	}
+}
+
+// TestRunnerExemptsOnlyTheConcurrencyObservationMissWarmup pins P73. A warmup
+// that merely failed to observe the offered concurrency width keeps no
+// measurement, so it must be retained without killing the campaign -- aborting
+// there destroyed every sample a multi-hour run had collected. Any other
+// non-passing warmup, including an invalid one carrying a different code, must
+// still fail the run.
+func TestRunnerExemptsOnlyTheConcurrencyObservationMissWarmup(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		errorCode string
+		wantFail  bool
+	}{
+		{"observation miss is tolerated", concurrencyfixture.PreregisteredMissCode, false},
+		{"any other invalid warmup still fails", "concurrency_capacity_changed", true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			config := Config{
+				SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+				CampaignID: "warmup-miss", ExperimentID: "concurrency",
+				Deployments: 1, Warmups: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+				Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+			}
+			t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+			t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "invalid")
+			t.Setenv("TASKGATE_TEST_ADAPTER_WARMUP_STATUS", "invalid")
+			t.Setenv("TASKGATE_TEST_ADAPTER_WARMUP_ERROR_CODE", testCase.errorCode)
+			t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+			t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+			output := filepath.Join(t.TempDir(), "warmup-miss.jsonl")
+			err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output)
+			if testCase.wantFail && err == nil {
+				t.Fatal("a non-exempt invalid warmup must still fail the campaign")
+			}
+			if !testCase.wantFail && err != nil {
+				t.Fatalf("the observation-miss warmup must not fail the campaign: %v", err)
+			}
+			samples, readErr := ReadSamples([]string{output})
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(samples) != 2 || !samples[0].Warmup || samples[0].Status != "invalid" ||
+				samples[0].ErrorCode != testCase.errorCode {
+				t.Fatalf("the warmup was not retained verbatim: %+v", samples)
 			}
 		})
 	}

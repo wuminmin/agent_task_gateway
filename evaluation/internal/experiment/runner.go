@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 )
 
 var deploymentIDPattern = regexp.MustCompile(`^deployment-([0-9]{2})$`)
@@ -261,12 +263,19 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 			}
 			if op.Warmup {
 				// Passing warmups remain untimed and excluded from raw measurements.
-				// A failed/invalid warmup is an experiment failure in its own right:
-				// retain it in JSONL so the requested operation is never erased.
+				// A failed or invalid warmup is retained in JSONL so the requested
+				// operation is never erased, and it fails the run -- with one
+				// exception: the concurrency probe missing its offered width. A
+				// warmup keeps no measurement for that to corrupt, so the miss says
+				// nothing about the system, while failing the run on it destroys
+				// every sample the campaign had collected (P73).
 				if sample.Status != "pass" {
-					campaignErrors = append(campaignErrors, fmt.Errorf("adapter warmup %s returned status %s", op.SampleID, sample.Status))
 					if err := writeRetained(sample); err != nil {
 						return err
+					}
+					if !warmupObservationMiss(sample) {
+						campaignErrors = append(campaignErrors,
+							fmt.Errorf("adapter warmup %s returned status %s", op.SampleID, sample.Status))
 					}
 				}
 				continue
@@ -284,6 +293,17 @@ func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, ada
 	}
 	completed = true
 	return errors.Join(campaignErrors...)
+}
+
+// warmupObservationMiss reports whether a non-passing warmup merely failed to
+// observe the offered concurrency width. That outcome is inherent sampling
+// noise in the concurrency probe -- measured at 1/45 warmups in the -08
+// diagnosis run and 2/45 in -12 -- and never a system failure. A measured
+// sample carrying it stays invalid and still fails its gate; only the warmup,
+// whose data is discarded either way, is exempt.
+func warmupObservationMiss(sample Sample) bool {
+	return sample.ExperimentID == "concurrency" && sample.Status == "invalid" &&
+		sample.ErrorCode == concurrencyfixture.PreregisteredMissCode
 }
 
 func invalidAdapterSample(operation AdapterOperation, code string) Sample {
