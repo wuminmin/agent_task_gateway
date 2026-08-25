@@ -724,7 +724,7 @@ func validateAdapterDiagnostics(experimentID string, operations []AdapterOperati
 	if mode != "" && mode != p68CliffDiagnosisMarker {
 		return errors.New("unknown task migration diagnostic mode")
 	}
-	var migrationPayload, missPayload bytes.Buffer
+	var migrationPayload, missPayload, resamplePayload bytes.Buffer
 	scanner := bufio.NewScanner(bytes.NewReader(payload))
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {
@@ -744,6 +744,9 @@ func validateAdapterDiagnostics(experimentID string, operations []AdapterOperati
 		case PreregisteredConcurrencyMissDiagnosticV1Record:
 			missPayload.Write(line)
 			missPayload.WriteByte('\n')
+		case ConcurrencyResampleAttemptV1Record:
+			resamplePayload.Write(line)
+			resamplePayload.WriteByte('\n')
 		default:
 			return fmt.Errorf("unknown adapter diagnostic record %q", record)
 		}
@@ -762,6 +765,11 @@ func validateAdapterDiagnostics(experimentID string, operations []AdapterOperati
 	}
 	if exactMisses > 0 || missPayload.Len() > 0 {
 		if err := validatePreregisteredConcurrencyMissDiagnostics(experimentID, operations, samples, missPayload.Bytes()); err != nil {
+			return err
+		}
+	}
+	if resamplePayload.Len() > 0 {
+		if err := validateConcurrencyResampleDiagnostics(experimentID, operations, samples, resamplePayload.Bytes()); err != nil {
 			return err
 		}
 	}
@@ -825,6 +833,72 @@ func validateTaskMigrationWaitDiagnostics(experimentID string, operations []Adap
 		if !exists || first.Status != "reached" || first.TaskOrdinal != diagnostic.TaskOrdinal ||
 			first.TaskRole != diagnostic.TaskRole {
 			return fmt.Errorf("active migration wait %q lacks its reached submission wait", key)
+		}
+	}
+	return nil
+}
+
+// validateConcurrencyResampleDiagnostics ties every disclosed redraw to the
+// operation it belongs to and to the outcome it produced. A terminal attempt
+// must leave the retained sample invalid, and a non-terminal series must not:
+// that is what stops a redraw from quietly burying a round that never realised
+// its contention, and stops a passing sample from carrying invented attempts.
+func validateConcurrencyResampleDiagnostics(experimentID string, operations []AdapterOperation,
+	samples []*Sample, payload []byte) error {
+	if experimentID != "concurrency" || len(operations) != len(samples) || len(payload) == 0 {
+		return errors.New("concurrency resample diagnostics are outside the concurrency path")
+	}
+	operationBySample := make(map[string]AdapterOperation, len(operations))
+	for _, operation := range operations {
+		operationBySample[operation.SampleID] = operation
+	}
+	retained := make(map[string]*Sample, len(samples))
+	for index, sample := range samples {
+		if sample != nil && index < len(operations) && sample.SampleID == operations[index].SampleID {
+			retained[sample.SampleID] = sample
+		}
+	}
+	attempts := make(map[string]map[int]bool)
+	terminal := make(map[string]bool)
+	scanner := bufio.NewScanner(bytes.NewReader(payload))
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	for scanner.Scan() {
+		var diagnostic ConcurrencyResampleAttemptV1
+		if err := StrictJSON(scanner.Bytes(), &diagnostic); err != nil {
+			return err
+		}
+		if err := diagnostic.Validate(); err != nil {
+			return err
+		}
+		operation, exists := operationBySample[diagnostic.SampleID]
+		if !exists || diagnostic.ExperimentID != operation.ExperimentID || diagnostic.CellID != operation.CellID {
+			return errors.New("resample attempt differs from the operation it names")
+		}
+		if attempts[diagnostic.SampleID] == nil {
+			attempts[diagnostic.SampleID] = make(map[int]bool)
+		}
+		if attempts[diagnostic.SampleID][diagnostic.Attempt] {
+			return errors.New("resample attempt is disclosed twice")
+		}
+		attempts[diagnostic.SampleID][diagnostic.Attempt] = true
+		if diagnostic.Terminal {
+			if terminal[diagnostic.SampleID] {
+				return errors.New("resample series carries more than one terminal attempt")
+			}
+			terminal[diagnostic.SampleID] = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	for sampleID := range attempts {
+		sample := retained[sampleID]
+		if sample == nil {
+			return errors.New("resample attempt names a sample the runner did not retain")
+		}
+		unrealised := sample.Status == "invalid" && sample.ErrorCode == concurrencyfixture.PreregisteredMissCode
+		if terminal[sampleID] != unrealised {
+			return errors.New("resample terminal marker disagrees with the retained sample")
 		}
 	}
 	return nil

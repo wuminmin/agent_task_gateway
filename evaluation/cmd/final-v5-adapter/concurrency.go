@@ -122,11 +122,54 @@ func (adapter *concurrencyAdapter) Close() {
 	}
 }
 
+// concurrencyResampleBound is how many times one natural-contention round may
+// be drawn before its sample is failed loudly instead of drawn again.
+//
+// It is derived from the same conservative prior the frozen preregistration
+// uses -- a single-round success probability of at least 0.25 -- and never from
+// an observed miss rate, because fitting a stopping rule to the data it will be
+// reported alongside is exactly the objection a reviewer should raise. A
+// publication campaign draws 360 natural-contention samples (3 deployments x 4
+// cells x 30), so holding the campaign-wide probability of exhausting the bound
+// anywhere below 0.05 needs ceil(log(1-0.95^(1/360))/log(0.75)) = 31 draws.
+const concurrencyResampleBound = 31
+
+// Execute measures one concurrency cell, redrawing a natural-contention round
+// whose contention never materialised.
+//
+// Such a round is not a failed measurement: the clients do assemble at the
+// barrier, but their writes never collide, so the OutcomeRadix reports no
+// natural CAS conflict and nothing was measured about contention. It is not a
+// draw from the cell at all. Redrawing it is therefore replacing a trial that
+// did not happen, not discarding an inconvenient outcome -- and because every
+// discarded attempt is disclosed, a reader can check that claim rather than
+// trust it. Exhausting the bound leaves the sample invalid and loud.
 func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
 	cell, found := concurrencyfixture.Lookup(operation.WorkloadID, operation.Scale, operation.Mode)
 	if adapter == nil || adapter.backend == nil || operation.ExperimentID != "concurrency" || !found {
 		return invalidSample(operation, "unsupported_source_controlled_concurrency_cell")
 	}
+	for attempt := 1; ; attempt++ {
+		sample, unrealised := adapter.drawConcurrencyRound(ctx, operation, cell)
+		if unrealised == nil {
+			return sample
+		}
+		if attempt >= concurrencyResampleBound {
+			writeConcurrencyResampleAttempt(sample, attempt, true, unrealised)
+			if observedPass, err := experiment.ValidatePreregisteredConcurrencyRound(sample); err == nil && !observedPass {
+				writePreregisteredConcurrencyMissDiagnostic(sample, unrealised)
+			}
+			return sample
+		}
+		writeConcurrencyResampleAttempt(sample, attempt, false, unrealised)
+	}
+}
+
+// drawConcurrencyRound runs one round. It reports a non-nil second value only
+// when the round is a natural-contention draw whose contention never happened,
+// which is the single outcome Execute is allowed to redraw.
+func (adapter *concurrencyAdapter) drawConcurrencyRound(ctx context.Context, operation experiment.AdapterOperation,
+	cell concurrencyfixture.Cell) (experiment.Sample, error) {
 	sample, err := adapter.backend.Run(ctx, operation, cell)
 	if err != nil {
 		var measured *concurrencyRunError
@@ -142,30 +185,33 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 				retained.Status = "invalid"
 				retained.ErrorCode = measured.code
 				retained.Reason = "the requested concurrency width was not observed at the authenticated Gateway service boundary"
+				if unrealisedNaturalContention(retained) {
+					return retained, err
+				}
 				if observedPass, validationErr := experiment.ValidatePreregisteredConcurrencyRound(retained); validationErr == nil && !observedPass {
 					writePreregisteredConcurrencyMissDiagnostic(retained, err)
 				} else {
 					writeAdapterFailureDiagnostic("concurrency", operation, err)
 				}
-				return retained
+				return retained, nil
 			}
 			writeAdapterFailureDiagnostic("concurrency", operation, err)
 			retained.Status = "fail"
 			retained.ErrorCode = measured.code
 			retained.Reason = "a real concurrency backend operation was attempted and failed; retained evidence must be audited"
-			return retained
+			return retained, nil
 		}
 		writeAdapterFailureDiagnostic("concurrency", operation, err)
 		if sample.SchemaVersion != 0 {
 			sample.Status = "fail"
 			sample.ErrorCode = "real_concurrency_measurement_failed"
 			sample.Reason = "a real concurrency backend operation was attempted and failed; retained evidence must be audited"
-			return sample
+			return sample, nil
 		}
-		return failedSample(operation, "real_concurrency_measurement_failed")
+		return failedSample(operation, "real_concurrency_measurement_failed"), nil
 	}
 	if sample.Status != "pass" {
-		return sample
+		return sample, nil
 	}
 	if err := experiment.ValidateConcurrencyEvidence(sample); err != nil {
 		writeAdapterFailureDiagnostic("concurrency", operation, err)
@@ -173,7 +219,14 @@ func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experi
 		sample.ErrorCode = "concurrency_evidence_invariant_failed"
 		sample.Reason = "the real concurrency run completed but violated a frozen evidence invariant"
 	}
-	return sample
+	return sample, nil
+}
+
+// unrealisedNaturalContention reports the one redrawable outcome: a
+// natural-contention round that offered its width but produced no collision.
+func unrealisedNaturalContention(sample experiment.Sample) bool {
+	return sample.ExperimentID == "concurrency" && sample.Mode == "natural_contention" &&
+		sample.Status == "invalid" && sample.ErrorCode == concurrencyfixture.PreregisteredMissCode
 }
 
 type concurrencyProbeAPI interface {

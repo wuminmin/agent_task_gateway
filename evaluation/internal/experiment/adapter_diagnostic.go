@@ -12,6 +12,10 @@ import (
 
 const PreregisteredConcurrencyMissDiagnosticV1Record = "taskgate-preregistered-concurrency-miss-diagnostic-v1"
 
+// ConcurrencyResampleAttemptV1Record names a natural-contention round that was
+// drawn again because the contention it exists to measure never happened.
+const ConcurrencyResampleAttemptV1Record = "taskgate-concurrency-resample-attempt-v1"
+
 const TaskMigrationWaitDiagnosticV1Record = "taskgate-final-v5-task-migration-wait-diagnostic-v1"
 
 // TaskMigrationWaitDiagnosticV1 is an explicitly versioned private diagnostic
@@ -117,6 +121,61 @@ func (diagnostic PreregisteredConcurrencyMissDiagnosticV1) Validate() error {
 		diagnostic.ExperimentID != "concurrency" || diagnostic.CellID == "" ||
 		diagnostic.SampleID == "" || strings.TrimSpace(diagnostic.Cause) == "" {
 		return errors.New("invalid preregistered concurrency miss diagnostic")
+	}
+	return nil
+}
+
+// ConcurrencyResampleAttemptV1 discloses one natural-contention round that did
+// not realise its condition and was therefore redrawn.
+//
+// A natural_contention cell offers N-way concurrency and then requires the
+// writes to actually collide: the OutcomeRadix must report a CAS conflict. The
+// clients do assemble at the barrier every time, but the collision is
+// probabilistic, and a round without one measured nothing about contention. It
+// is not a draw from the cell at all, so it is discarded and redrawn rather
+// than retained -- and every discarded attempt is recorded here so a reader can
+// see how often that happened instead of having to take the final samples on
+// faith.
+//
+// Terminal marks the attempt that exhausted the bound: the sample then stays
+// invalid and fails loudly rather than being quietly accepted.
+type ConcurrencyResampleAttemptV1 struct {
+	SchemaVersion int    `json:"schema_version"`
+	Record        string `json:"record"`
+	ExperimentID  string `json:"experiment_id"`
+	CellID        string `json:"cell_id"`
+	SampleID      string `json:"sample_id"`
+	Attempt       int    `json:"attempt"`
+	Terminal      bool   `json:"terminal"`
+	Cause         string `json:"cause"`
+}
+
+func NewConcurrencyResampleAttemptV1(sample Sample, attempt int, terminal bool, cause error) ConcurrencyResampleAttemptV1 {
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	return ConcurrencyResampleAttemptV1{
+		SchemaVersion: 1,
+		Record:        ConcurrencyResampleAttemptV1Record,
+		ExperimentID:  sample.ExperimentID,
+		CellID:        sample.CellID,
+		SampleID:      sample.SampleID,
+		Attempt:       attempt,
+		Terminal:      terminal,
+		Cause:         message,
+	}
+}
+
+func (diagnostic ConcurrencyResampleAttemptV1) Validate() error {
+	if diagnostic.SchemaVersion != 1 || diagnostic.Record != ConcurrencyResampleAttemptV1Record ||
+		diagnostic.ExperimentID != "concurrency" || diagnostic.CellID == "" ||
+		diagnostic.SampleID == "" || diagnostic.Attempt < 1 ||
+		strings.TrimSpace(diagnostic.Cause) == "" {
+		return errors.New("invalid concurrency resample attempt diagnostic")
+	}
+	if !strings.HasSuffix(diagnostic.CellID, "/natural_contention") {
+		return errors.New("only a natural-contention round may be redrawn")
 	}
 	return nil
 }

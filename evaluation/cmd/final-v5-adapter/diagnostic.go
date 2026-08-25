@@ -49,3 +49,12 @@ func writePreregisteredConcurrencyMissDiagnostic(sample experiment.Sample, err e
 	diagnostic := experiment.NewPreregisteredConcurrencyMissDiagnosticV1(sample, err)
 	_ = json.NewEncoder(adapterDiagnosticOutput).Encode(diagnostic)
 }
+
+// writeConcurrencyResampleAttempt discloses one redrawn natural-contention
+// round. It is a structured, whitelisted record on purpose: the runner rejects
+// any unstructured line on this channel, so an unstructured note here would
+// fail the deployment it was trying to explain.
+func writeConcurrencyResampleAttempt(sample experiment.Sample, attempt int, terminal bool, err error) {
+	diagnostic := experiment.NewConcurrencyResampleAttemptV1(sample, attempt, terminal, err)
+	_ = json.NewEncoder(adapterDiagnosticOutput).Encode(diagnostic)
+}
