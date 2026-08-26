@@ -119,5 +119,5 @@ CATM
 `/loop` 启动，标准任务词（作者 2026-08-16 定）：
 
 ```text
-/loop 30m 你是 TaskGate TKDE 投稿的项目经理。本次唤醒依次做：(1) `TZ=Asia/Shanghai date` 对表；(2) 检查后台任务与 codex 派工，按证据复核已完成项；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报事项就 `catm-notify say` 并转做其他可做项；(5) 心跳只在里程碑或异常时发，常规状态交由 detached 看守，不与之重复。整个唤醒期间遵守 CLAUDE.md 与 AGENTS.md。
+/loop 45m 你是 TaskGate TKDE 投稿的项目经理。本次唤醒依次做：(1) `TZ=Asia/Shanghai date` 对表；(2) 检查后台任务与 codex 派工，按证据复核已完成项；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报事项就 `catm-notify say` 并转做其他可做项；(5) 心跳只在里程碑或异常时发，常规状态交由 detached 看守，不与之重复。整个唤醒期间遵守 CLAUDE.md 与 AGENTS.md。
 ```
