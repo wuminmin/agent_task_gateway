@@ -359,8 +359,7 @@ func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(
 	for _, name := range publications {
 		requested[name] = struct{}{}
 	}
-	installAll := len(requested) == 0 ||
-		strings.TrimSpace(os.Getenv("TASKGATE_GATEWAY_FULL_SNAPSHOT_REGISTRY")) != ""
+	installAll := len(requested) == 0 || fullSnapshotRegistryRequested()
 	registry, err := ordinal.NewRegistry()
 	if err != nil {
 		t.Fatalf("create snapshot registry: %v", err)
@@ -559,6 +558,17 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 // holds the verified compiler input rather than the parsed index, because
 // ParseHotDictionary hands out a live structure that a test could mutate.
 var liveSnapshotBundles sync.Map
+
+// fullSnapshotRegistryRequested reports whether this run should materialise the
+// publications whose committed input carries no rows.
+//
+// Those are scanned out of the Business database and compiled, which is the
+// fifty-thousand-row path: one case measured 25.84 GB peak. A harness that only
+// resolves the expense products has no reason to pay it, so the expensive
+// publications are opt-in for a host with the memory to want them.
+func fullSnapshotRegistryRequested() bool {
+	return strings.TrimSpace(os.Getenv("TASKGATE_GATEWAY_FULL_SNAPSHOT_REGISTRY")) != ""
+}
 
 // scanLiveSnapshotRows fills a compiler input's rows from the Business database.
 //

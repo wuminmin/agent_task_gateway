@@ -1,3 +1,12 @@
+//go:build taskgate_scale
+
+// P4.0-C2 regenerates the complete 105-file ProvSQL manifest set and compares
+// every production Influence bitmap member-for-member against live PostgreSQL.
+// It carries its own 45-minute budget and has never finished inside the
+// acceptance run's per-package limit, so it belongs on the taskgate_scale lane
+// that ordinal_single_product_postgres_test.go and ordinal_derivation_scale_test.go
+// already use, rather than holding the whole gate open.
+
 package gateway
 
 import (

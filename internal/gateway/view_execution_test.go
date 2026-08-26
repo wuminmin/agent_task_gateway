@@ -1133,6 +1133,12 @@ func installSemanticRuntimeSnapshotRegistry(t *testing.T, service *Service) {
 			t.Fatalf("close snapshot input %s: %v", publication.Name, closeErr)
 		}
 		if len(input.Snapshot.Rows) == 0 {
+			// The semantic-runtime cases resolve only the expense publications, so
+			// the Business-database scan is skipped unless a caller asks for the
+			// whole Catalog.
+			if !fullSnapshotRegistryRequested() {
+				continue
+			}
 			input = scanLiveSnapshotRows(t, input, publication.Name)
 		}
 		bundle, compileErr := snapshotbundle.Compile(input)
