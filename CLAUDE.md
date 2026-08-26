@@ -124,6 +124,4 @@ CATM
 
 ```text
 /loop 30m 你是 TaskGate TKDE 投稿的项目经理，全部执行工作由 Claude 自己完成（已无 Codex 派工）。本次唤醒依次做：(1) `TZ=Asia/Shanghai date` 对表，查 git HEAD/origin/树净、后台任务与残留；(2) 按证据复核已完成项——自报「通过」不作数，要有实测出处；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > P7 投稿清单 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报就 `catm-notify say` 并转做其他可做项；(5) 心跳只在里程碑或异常时发，常规状态交由 detached 看守，不与之重复。整个唤醒期间遵守 CLAUDE.md（含「查证的具体做法」八条）。论文投出后调用 ScheduleWakeup stop 结束循环。
-
-注：cron 只接受整除 60 的间隔，40m 会造成 :00→:40→:00 的不均匀触发，故实际排程取 30m。
 ```
