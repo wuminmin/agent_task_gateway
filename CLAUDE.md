@@ -78,29 +78,40 @@ Claude 必须拿实际证据复核过才放行下一项。发现一处缺陷先*
 能发心跳。**等待期不空转**：复核已有证据、扫同缺陷类、盘点前置条件。
 
 **只有三种情况停下等作者**：命中上面三类且等待期无其他可做项；环境故障自复失败；
-作者明确叫停。停之前必做两件事：状态与卡点写进台账或 handoff；`notify_author`
+作者明确叫停。停之前必做两件事：状态与卡点写进台账或 handoff；`catm-notify say`
 说清在等什么、需要作者做什么。
 
 ## 心跳（2026-08-16 作者定）
 
-作者只看手机通知，**只有 `notify_author` 会到手机**；`sync_session` 只同步状态，
-不能顶心跳。里程碑即时发（派工、复核完、路线级事实、停手、需作者动手、阶段结论、
+作者只看手机通知，**只有 `catm-notify say` 会到手机**；`catm-notify sync` 只刷新会话
+状态，不能顶心跳。里程碑即时发（派工、复核完、路线级事实、停手、需作者动手、阶段结论、
 更正自己的错误）；此外连续工作期间**每 30 分钟至少一条**，三行：
 
 1. 在做什么 + 已耗时；
 2. 本窗口实测事实（带数字与提交号；没有就写"无新事实"）；
 3. 是否需要作者动作（没有就写"无需作者动作"）。
 
-发送后 `date -u +%H:%M` 记时，阶段边界对表。坏消息照发。"不刷屏"只约束同一窗口内
-重复发同一件事。收尾用 `notify_work_completed`，summary 与终端最终答复一字不差。
+发送后用 `TZ=Asia/Shanghai date` 记时（作者 2026-08-25 定：**一律报 UTC+8**），阶段边界
+对表。**时间戳必须在同一条命令内插值，不得手写**。坏消息照发。"不刷屏"只约束同一窗口内
+重复发同一件事。收尾用 `catm-notify done`，summary 与终端最终答复一字不差。
 
-**catm MCP 工具未暴露给会话时**（实测会发生），走 HTTP 直连，不跳过心跳：
+**CATM 已不是 MCP**（2026-08-26 实查更正：本会话工具清单无 `mcp__catm__*`；
+旧文所称 `notify_author` / `sync_session` / `notify_work_completed` 均已不存在）。
+现在走本地命令 `catm-notify`，由 `catm-notify` skill 承载：
 
 ```bash
-./scripts/catm-notify.sh sync   "在做什么"     # 拿并缓存 session_id（复用，别打散进度）
-./scripts/catm-notify.sh notify "心跳三行"
-./scripts/catm-notify.sh done   "与终端一字不差的最终答复"
+catm-notify start "<任务名>"      # 开/复用本工作区会话
+catm-notify sync  "<当前阶段>"    # 只刷新状态，不到手机
+catm-notify say   "<心跳三行>"    # 到手机的唯一通道
+catm-notify done - <<'CATM'       # 收尾，与终端最终答复一字不差
+<终端最终答复原文>
+CATM
 ```
+
+**注意子命令名**：全局命令用 **`say`**，没有 `notify`（误用只会打出 usage 而不发送）。
+仓库里另有 `./scripts/catm-notify.sh`，它的子命令是 `sync|notify|done`——**与全局命令不同名**，
+仅在全局命令不可用时作后备。**消息正文一律用文件或 stdin 传递**，不内嵌反引号、
+嵌套双引号、撇号（见"查证的具体做法"第 7 条）。
 
 ## 循环靠机制，不靠自觉
 
@@ -108,5 +119,5 @@ Claude 必须拿实际证据复核过才放行下一项。发现一处缺陷先*
 `/loop` 启动，标准任务词（作者 2026-08-16 定）：
 
 ```text
-/loop 30m 你是 TaskGate TKDE 投稿的项目经理。本次唤醒依次做：(1) date -u 对表，catm 发三行心跳；(2) 检查后台任务与 codex 派工，按证据复核已完成项；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报事项就 notify_author 并转做其他可做项。整个唤醒期间遵守 CLAUDE.md 与 AGENTS.md。
+/loop 30m 你是 TaskGate TKDE 投稿的项目经理。本次唤醒依次做：(1) `TZ=Asia/Shanghai date` 对表；(2) 检查后台任务与 codex 派工，按证据复核已完成项；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报事项就 `catm-notify say` 并转做其他可做项；(5) 心跳只在里程碑或异常时发，常规状态交由 detached 看守，不与之重复。整个唤醒期间遵守 CLAUDE.md 与 AGENTS.md。
 ```
