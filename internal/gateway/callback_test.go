@@ -268,7 +268,7 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		t.Fatalf("delegated approval = %d %s", response.Code, response.Body.String())
 	}
 
-	indexes := harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1")
+	indexes := harness.installCatalogV4SnapshotRegistry(t)
 	ordinalPlan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
 	bound := prepareOrdinalForTest(t, harness, childID, ordinalPlan)
 	entityKey, err := exposure.ComposeCanonicalKeyV2("base-entity",

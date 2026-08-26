@@ -609,7 +609,7 @@ func TestExecutePlanSemanticViewCarriesRegistryExpectationToPairedQueries(t *tes
 	}
 	registryConnector := &registryFakeConnector{fakeConnector: harness.connector, snapshot: fixture.registry}
 	harness.service.connector = registryConnector
-	indexes := harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1", "expense-detail-v1")
+	indexes := harness.installCatalogV4SnapshotRegistry(t)
 	taskID := requestAndApproveSemanticRuntimeTask(t, harness)
 
 	// Build the exact terminal ordinal row contract used by the public path,
@@ -1133,12 +1133,6 @@ func installSemanticRuntimeSnapshotRegistry(t *testing.T, service *Service) {
 			t.Fatalf("close snapshot input %s: %v", publication.Name, closeErr)
 		}
 		if len(input.Snapshot.Rows) == 0 {
-			// The semantic-runtime cases resolve only the expense publications, so
-			// the Business-database scan is skipped unless a caller asks for the
-			// whole Catalog.
-			if !fullSnapshotRegistryRequested() {
-				continue
-			}
 			input = scanLiveSnapshotRows(t, input, publication.Name)
 		}
 		bundle, compileErr := snapshotbundle.Compile(input)

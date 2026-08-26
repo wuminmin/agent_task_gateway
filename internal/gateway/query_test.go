@@ -416,7 +416,7 @@ func TestOrdinalSemanticReplayBindingPinsCompilerOrderingAndPaginationVersions(t
 
 func TestSQLAndExecutePlanShareV4SemanticReplayAfterConsumedRowBudget(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1")
+	harness.installCatalogV4SnapshotRegistry(t)
 	taskID := "task-v4-replay-consumed-row-budget"
 	approvedColumns := []string{"month", "department", "expense_type", "total_amount"}
 	harness.createTaskWithGrantAndExposureProfile(t, taskID, func(core *domain.TaskGrantCoreV1) {
@@ -1060,7 +1060,7 @@ func TestExposureBudgetRejectsBufferedResultBeforeRelease(t *testing.T) {
 
 func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1")
+	harness.installCatalogV4SnapshotRegistry(t)
 	backend := newGatewayArtifactMemoryBackend()
 	artifactCipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x45}, 32))
 	if err != nil {
