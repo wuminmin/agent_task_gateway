@@ -34,7 +34,7 @@ type v10Harness struct {
 func newV10Harness(t *testing.T, taskID string) *v10Harness {
 	t.Helper()
 	harness := newGatewayHarness(t)
-	harness.installCatalogV4SnapshotRegistry(t)
+	harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1")
 
 	backend := newGatewayArtifactMemoryBackend()
 	cipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x59}, 32))

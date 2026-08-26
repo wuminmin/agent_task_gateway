@@ -609,7 +609,7 @@ func TestExecutePlanSemanticViewCarriesRegistryExpectationToPairedQueries(t *tes
 	}
 	registryConnector := &registryFakeConnector{fakeConnector: harness.connector, snapshot: fixture.registry}
 	harness.service.connector = registryConnector
-	indexes := harness.installCatalogV4SnapshotRegistry(t)
+	indexes := harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1", "expense-detail-v1")
 	taskID := requestAndApproveSemanticRuntimeTask(t, harness)
 
 	// Build the exact terminal ordinal row contract used by the public path,

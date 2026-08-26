@@ -385,7 +385,7 @@ func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecutio
 
 func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.installCatalogV4SnapshotRegistry(t)
+	harness.installCatalogV4SnapshotRegistry(t, "expense-summary-v1")
 	const taskID = "task-copy-before-available"
 	const requestID = "copy-before-available-1"
 	// The task is created before the Connector fixture, because the fixture is

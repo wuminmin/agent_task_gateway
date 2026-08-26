@@ -337,14 +337,39 @@ func (harness *gatewayHarness) createExposureV5SummaryTask(t *testing.T, taskID 
 	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV5)
 }
 
-func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) map[string]ordinal.SnapshotIndex {
+// installCatalogV4SnapshotRegistry installs the named snapshot publications
+// into the harness registry and the Control Store.
+//
+// Callers name the publications their case actually resolves. The Catalog also
+// carries the benchmark publications whose source rows live in the Business
+// database rather than the repository, and materialising one of those means
+// scanning fifty thousand rows and compiling the bundle: measured at 25.84 GB
+// peak and 1353.8s for a single case under -race, against a development host
+// with 30 GB and no swap, which the kernel ends by killing the test binary.
+//
+// Installing every publication is therefore opt-in through
+// TASKGATE_GATEWAY_FULL_SNAPSHOT_REGISTRY, for a host with the memory to prove
+// the Gateway accepts the whole Catalog. Naming nothing also installs
+// everything, so a caller that wants the full set can still ask for it.
+func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(
+	t *testing.T, publications ...string,
+) map[string]ordinal.SnapshotIndex {
 	t.Helper()
+	requested := make(map[string]struct{}, len(publications))
+	for _, name := range publications {
+		requested[name] = struct{}{}
+	}
+	installAll := len(requested) == 0 ||
+		strings.TrimSpace(os.Getenv("TASKGATE_GATEWAY_FULL_SNAPSHOT_REGISTRY")) != ""
 	registry, err := ordinal.NewRegistry()
 	if err != nil {
 		t.Fatalf("create snapshot registry: %v", err)
 	}
 	indexes := make(map[string]ordinal.SnapshotIndex, len(harness.catalog.SnapshotPublications))
 	for _, publication := range harness.catalog.SnapshotPublications {
+		if _, wanted := requested[publication.Name]; !installAll && !wanted {
+			continue
+		}
 		path := filepath.Join("..", "..", "config", "snapshots", publication.Name+".json")
 		file, openErr := os.Open(path)
 		if openErr != nil {
