@@ -363,6 +363,9 @@ func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) ma
 			// this publication live in the Business database rather than in the
 			// repository. Scan them the way cmd/snapshot-index does, so the test
 			// consumes the same bundle production would activate.
+			if !fullSnapshotRegistryRequested() {
+				continue
+			}
 			input = scanLiveSnapshotRows(t, input, publication.Name)
 		}
 		bundle, compileErr := snapshotbundle.Compile(input)
@@ -534,6 +537,19 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 // holds the verified compiler input rather than the parsed index, because
 // ParseHotDictionary hands out a live structure that a test could mutate.
 var liveSnapshotBundles sync.Map
+
+// fullSnapshotRegistryRequested reports whether this run should materialise the
+// publications whose committed input carries no rows.
+//
+// Those are scanned out of the Business database and compiled: five of the
+// Catalog's seven publications take that path, measured at 25.84 GB peak on a
+// 30 GB host. The cases that genuinely need them prepare ordinal-program plans
+// and live behind taskgate_scale, so the acceptance run installs only the
+// publications that carry committed rows.
+func fullSnapshotRegistryRequested() bool {
+	return scaleLaneBuild ||
+		strings.TrimSpace(os.Getenv("TASKGATE_GATEWAY_FULL_SNAPSHOT_REGISTRY")) != ""
+}
 
 // scanLiveSnapshotRows fills a compiler input's rows from the Business database.
 //

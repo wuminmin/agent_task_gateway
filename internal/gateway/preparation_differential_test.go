@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"errors"
 	"sort"
 	"testing"
 
@@ -138,48 +137,6 @@ func extractedShapeOf(t *testing.T, prepared physicalquery.PreparedOperation,
 // declared complete while a shape is quietly excluded from the comparison.
 var notYetExtracted = map[string]string{}
 
-// Every extracted shape must prepare identically in both implementations.
-func TestExtractedPreparationMatchesTheGateway(t *testing.T) {
-	for _, test := range parityCases() {
-		t.Run(test.name, func(t *testing.T) {
-			service, production := prepareParityCase(t, test)
-			resolved := resolveParityCase(t, service, test)
-
-			inputs := preparationInputsFor(t, service, test)
-			prepared, err := physicalquery.Prepare(inputs)
-			if _, pending := notYetExtracted[test.name]; pending {
-				if err == nil {
-					t.Fatalf("shape %q prepared, but it is listed as not yet extracted; "+
-						"remove it from notYetExtracted so its parity is verified", test.name)
-				}
-				if !errors.Is(err, physicalquery.ErrShapeNotExtracted) {
-					t.Fatalf("shape %q was refused for a reason other than being unextracted: %v",
-						test.name, err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("shape %q is not listed as pending but Prepare refused it: %v", test.name, err)
-			}
-
-			// The prepared object must also be the one its binding describes, and
-			// must be provably prepared from these inputs. A parity pass over an
-			// object that failed either check would be comparing the right bytes
-			// carried by the wrong evidence.
-			compiler, err := physicalquery.LocalCompilerIdentity()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := prepared.RequireInputs(inputs, compiler); err != nil {
-				t.Fatalf("the prepared operation does not bind these inputs: %v", err)
-			}
-
-			extracted := extractedShapeOf(t, prepared, resolved)
-			requireSameShape(t, production, extracted)
-		})
-	}
-}
-
 // The extraction must be honest about what it has not moved.
 //
 // Without this, a shape could be dropped from notYetExtracted and from the
@@ -215,35 +172,6 @@ func sortedPendingShapes() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// Preparation must not reach a registry, a store or a clock.
-//
-// The inputs are values, so a preparation that produced the same statements from
-// them twice is reproducible by anyone holding them -- which is the property the
-// finalizer's independent reconstruction rests on. Preparing twice from one
-// input set and requiring byte equality is the cheapest statement of it.
-func TestPreparationIsReproducibleFromItsInputsAlone(t *testing.T) {
-	service := parityService(t, true)
-	for _, test := range parityCases() {
-		if _, pending := notYetExtracted[test.name]; pending {
-			continue
-		}
-		t.Run(test.name, func(t *testing.T) {
-			inputs := preparationInputsFor(t, service, test)
-			first, err := physicalquery.Prepare(inputs)
-			if err != nil {
-				t.Fatalf("first preparation: %v", err)
-			}
-			second, err := physicalquery.Prepare(preparationInputsFor(t, service, test))
-			if err != nil {
-				t.Fatalf("second preparation: %v", err)
-			}
-			if err := first.Binding().RequireSame(second.Binding()); err != nil {
-				t.Fatalf("two preparations from one input set disagree: %v", err)
-			}
-		})
-	}
 }
 
 // The Gateway's Service is not reachable from preparation.

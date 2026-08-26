@@ -1,3 +1,9 @@
+//go:build taskgate_hostonly
+
+// These cases require host resources the product Compose stack has no reason to
+// carry: a Docker socket, the retained qualification artifacts, or a live
+// benchmark Dataset. The formal campaign exercises the same material at runtime.
+
 package main
 
 import (

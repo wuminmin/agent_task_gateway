@@ -1,3 +1,11 @@
+//go:build taskgate_scale
+
+// These cases prepare an ordinal-program plan, and preparation resolves every
+// snapshot publication the Catalog declares (preparation_inputs.go:180). Five of
+// the seven are scanned out of the Business database, which measured 25.84 GB
+// peak on a 30 GB host, so they belong on the taskgate_scale lane rather than
+// holding the acceptance run open.
+
 package gateway
 
 import (

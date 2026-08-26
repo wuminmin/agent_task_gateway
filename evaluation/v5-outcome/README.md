@@ -37,7 +37,17 @@ gate rejects every named test skip and every unexplained package skip. Go's
 package-level `[no test files]` lifecycle event is the sole explicit exception,
 so packages without tests remain in the complete `./...` traversal without
 being misreported as a skipped test. Costly scale experiments use the separate
-`taskgate_scale` build tag and are not part of this acceptance run.
+`taskgate_scale` build tag and are not part of this acceptance run. Two further
+classes sit outside it for reasons of their own. Cases that prepare an
+ordinal-program plan also carry `taskgate_scale`: preparation resolves every
+snapshot publication the Catalog declares, and five of the seven are scanned out
+of the Business database, which measured 25.84 GB peak against a 30 GB host.
+Cases that need host resources the product stack has no reason to carry -- a
+Docker socket, the retained qualification artifacts, a live benchmark Dataset --
+carry `taskgate_hostonly`; they exercise the evaluation harness rather than the
+product, and the formal campaign exercises the same material at runtime. So the
+gate is the complete traversal of what the product's own Compose deployment can
+execute, not of the module's every file.
 On success the wrapper promotes `evidence.json` to schema version
 3, adds `submission_commit` and the receipt-hash binding, and invokes the paper
 generator with `--evidence-mode final`. In its default draft mode, the generator

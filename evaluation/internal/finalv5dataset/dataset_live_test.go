@@ -1,3 +1,11 @@
+//go:build taskgate_hostonly
+
+// These cases require host resources the product Compose stack has no reason to
+// carry: a Docker socket, the retained qualification artifacts, or a live
+// benchmark Dataset. They exercise the evaluation harness rather than the
+// product, and the formal campaign exercises the same material at runtime, so
+// they sit behind taskgate_hostonly instead of failing the acceptance run.
+
 package finalv5dataset
 
 import (

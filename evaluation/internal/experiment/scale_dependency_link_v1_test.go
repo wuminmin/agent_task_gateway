@@ -1,3 +1,9 @@
+//go:build taskgate_scale
+
+// These cases stream a 1,035,000-row dependency set to reproduce every frozen
+// role digest. That is costly scale work, which the repository keeps behind
+// taskgate_scale rather than in the acceptance run.
+
 package experiment
 
 import (
