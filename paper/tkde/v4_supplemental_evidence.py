@@ -233,10 +233,27 @@ def _list(value: Any, label: str, *, length: int | None = None) -> list[Any]:
     return value
 
 
+_ISO_SUBMICROSECOND = re.compile(r"(?<=:\d\d)\.(\d+)")
+
+
+def _normalise_iso_fraction(text: str) -> str:
+    """Truncate sub-microsecond digits the way CPython 3.11+ fromisoformat does.
+
+    Evidence timestamps are recorded with nanosecond precision. Python 3.11 and
+    later accept any number of fractional digits and truncate to microseconds;
+    Python 3.10 accepts only 3 or 6 digits and rejects everything else.
+    Rewriting the fraction to exactly six digits -- truncating what is longer
+    and zero-padding what is shorter -- reproduces 3.11 semantics, so the host
+    interpreter and the paper container validate identically.
+    """
+    return _ISO_SUBMICROSECOND.sub(
+        lambda match: "." + match.group(1)[:6].ljust(6, "0"), text, count=1)
+
+
 def _timestamp(value: Any, label: str) -> datetime:
     _require(isinstance(value, str) and value, f"{label} is not a timestamp")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(_normalise_iso_fraction(value.replace("Z", "+00:00")))
     except ValueError as error:
         raise ValueError(f"V4 supplemental evidence: invalid {label}: {error}") from error
     _require(parsed.tzinfo is not None, f"{label} has no timezone")

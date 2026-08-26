@@ -157,10 +157,26 @@ def _safe_relative(value: str, name: str) -> pathlib.PurePosixPath:
     return path
 
 
+_ISO_SUBMICROSECOND = re.compile(r"(?<=:\d\d)\.(\d+)")
+
+
+def _normalise_iso_fraction(text: str) -> str:
+    """Rewrite the seconds fraction to exactly six digits.
+
+    RFC3339 allows any number of fractional digits and the sealed packs record
+    nanoseconds. CPython 3.11+ truncates the extra digits, but 3.10 accepts
+    only 3 or 6 and rejects everything else, so validation would depend on
+    which interpreter happens to run it. Truncating what is longer and
+    zero-padding what is shorter reproduces 3.11 semantics on every version.
+    """
+    return _ISO_SUBMICROSECOND.sub(
+        lambda match: "." + match.group(1)[:6].ljust(6, "0"), text, count=1)
+
+
 def _parse_time(value: Any, name: str) -> dt.datetime:
     _require(isinstance(value, str) and value, f"{name} must be an RFC3339 timestamp")
     try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.datetime.fromisoformat(_normalise_iso_fraction(value.replace("Z", "+00:00")))
     except ValueError as exc:
         raise EvidenceError(f"{name} must be an RFC3339 timestamp") from exc
 
