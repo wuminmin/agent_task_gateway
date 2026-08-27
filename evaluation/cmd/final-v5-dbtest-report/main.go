@@ -217,6 +217,8 @@ type SkipRecord struct {
 // Report is the committed record.
 type Report struct {
 	Version string `json:"version"`
+	// Scope names the harness whose allowance set settled this report.
+	Scope string `json:"scope,omitempty"`
 	// Commit, PostgreSQLImage, PostgreSQLVersionNum, GoVersion and Timeout are
 	// the run's identity. They are supplied rather than inferred: this tool reads
 	// a report, and a tool that guessed the deployment it came from would be
@@ -249,6 +251,9 @@ type Report struct {
 	// They are failures too: an allowance that outlives its premise is a silent
 	// waiver unless the report makes the stale entry visible.
 	UnmatchedAllowances []AllowedSkip `json:"unmatched_allowances"`
+	// EvidenceProblems is every satisfied-by-evidence claim whose record could
+	// not be verified at this commit. Any entry withdraws acceptance.
+	EvidenceProblems []string `json:"evidence_problems,omitempty"`
 
 	// ReportSHA256 digests the go test -json stream this was derived from, so the
 	// summary points at its own source.
@@ -266,16 +271,32 @@ func main() {
 		goVer   = flag.String("go-version", "", "the Go toolchain version")
 		timeout = flag.String("timeout", "", "the per-package timeout the suite ran with")
 		out     = flag.String("out", "", "write the summary here instead of stdout")
+		scope   = flag.String("scope", "db-test-env",
+			"harness whose declared-skip set applies: db-test-env or compose-gate")
+		evidenceRoot = flag.String("evidence-root", "",
+			"repository root holding docs/evidence; required to check satisfied-by-evidence claims")
 	)
 	flag.Parse()
 
-	report, err := summarize(os.Stdin, Report{
-		Version: reportVersion, Commit: *commit, PostgreSQLImage: *image,
-		PostgreSQLVersionNum: *version, GoVersion: *goVer, Timeout: *timeout,
-	})
+	allowances, scopeName, err := allowancesForScope(*scope)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "final-v5 dbtest report:", err)
 		os.Exit(2)
+	}
+	report, err := summarizeWithAllowances(os.Stdin, Report{
+		Version: reportVersion, Scope: scopeName, Commit: *commit, PostgreSQLImage: *image,
+		PostgreSQLVersionNum: *version, GoVersion: *goVer, Timeout: *timeout,
+	}, allowances)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "final-v5 dbtest report:", err)
+		os.Exit(2)
+	}
+	// A declared skip that claims to be covered by the DSN-enabled suite record
+	// is only as good as that record: it must exist for this commit and be
+	// accepted, or the claim is prose and this report is not accepted either.
+	report.EvidenceProblems = checkSatisfiedEvidence(*evidenceRoot, *commit, report.Skips)
+	if len(report.EvidenceProblems) != 0 {
+		report.Accepted = false
 	}
 	encoded, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -292,15 +313,18 @@ func main() {
 	if !report.Accepted {
 		fmt.Fprintf(os.Stderr,
 			"final-v5 dbtest report: NOT accepted -- %d failed package(s), %d failed test(s), "+
-				"%d undeclared skip(s), %d unmatched allowance(s)\n",
+				"%d undeclared skip(s), %d unmatched allowance(s), %d unverified evidence claim(s)\n",
 			report.PackagesFailed, report.TestsFailed, len(report.UndeclaredSkips),
-			len(report.UnmatchedAllowances))
+			len(report.UnmatchedAllowances), len(report.EvidenceProblems))
 		for _, skip := range report.UndeclaredSkips {
 			fmt.Fprintf(os.Stderr, "  undeclared skip %s %s: %s\n", skip.Package, skip.Test, skip.Reason)
 		}
 		for _, allowance := range report.UnmatchedAllowances {
 			fmt.Fprintf(os.Stderr, "  unmatched allowance %s %s: reason contains %q; due %s\n",
 				allowance.Package, allowance.Test, allowance.ReasonSubstring, allowance.DeferredUntil)
+		}
+		for _, problem := range report.EvidenceProblems {
+			fmt.Fprintf(os.Stderr, "  unverified evidence claim %s\n", problem)
 		}
 		os.Exit(1)
 	}

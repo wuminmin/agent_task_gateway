@@ -2,9 +2,11 @@ package experiment
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
@@ -28,26 +31,86 @@ const (
 	reproInfluenceFacts = int64(4)
 )
 
-// retainedSnapshotArtifacts is the published artifact directory for the
-// Result-heavy publication, retained in the repository as evidence.
+// retainedSnapshotArtifacts is a published artifact directory for the frozen
+// Catalog's publications, retained on the evidence host as immutable evidence.
 //
 // A V5 operation compiles an ordinal program and therefore binds the
 // Catalog-wide dictionary universe, so it cannot be prepared at all without the
 // published artifacts. That is not a testing inconvenience: it is the property
 // that makes the reproduction meaningful, because the artifacts are immutable
 // and the Catalog pins their digests, so both sides are bound to one universe.
+//
+// The artifacts are never tracked (raw/.gitignore ignores them, and every
+// qualification run materializes the same immutable bundles again), so the
+// directory is discovered rather than named. TASKGATE_RETAINED_SNAPSHOT_ARTIFACTS
+// wins when set; otherwise every retained qualification run under raw/ is a
+// candidate. A candidate counts only when each publication the live Catalog
+// pins is present and its bundle manifest carries exactly the pinned manifest,
+// dictionary and sidecar digests: the evidence identity is the Catalog's, not
+// a path's, and a directory that reproduces it is the same evidence.
 func retainedSnapshotArtifacts(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("..", "..", "final-v5-wsl2", "raw",
-		"diagnosis-attestation-footprint-qualification-02-20260804T154235Z-818c481ebe5b",
-		"snapshot-index-artifacts-full"))
+	root := repositoryRoot(t)
+	pins, err := catalog.Load(filepath.Join(root, "config", "catalog.yaml"))
 	if err != nil {
-		t.Fatalf("resolve retained snapshot artifacts: %v", err)
+		t.Fatalf("load the live Catalog: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("the retained snapshot artifacts are not present: %v", err)
+	var candidates []string
+	if override := strings.TrimSpace(os.Getenv("TASKGATE_RETAINED_SNAPSHOT_ARTIFACTS")); override != "" {
+		candidates = append(candidates, override)
+	} else {
+		raw := filepath.Join(root, "evaluation", "final-v5-wsl2", "raw")
+		matches, err := filepath.Glob(filepath.Join(raw,
+			"diagnosis-attestation-footprint-qualification-*", "snapshot-index-artifacts-full"))
+		if err != nil {
+			t.Fatalf("scan retained qualification runs: %v", err)
+		}
+		sort.Strings(matches)
+		candidates = append(candidates, matches...)
 	}
-	return path
+	var rejected []string
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		if err := retainedArtifactsMatchCatalog(candidate, pins); err != nil {
+			rejected = append(rejected, fmt.Sprintf("%s: %v", candidate, err))
+			continue
+		}
+		return candidate
+	}
+	t.Skipf("the retained snapshot artifacts are not present: no directory reproduces the "+
+		"Catalog-pinned publication identities (%d candidate(s); rejected: %s)",
+		len(candidates), strings.Join(rejected, "; "))
+	return ""
+}
+
+// retainedArtifactsMatchCatalog accepts a directory only when every publication
+// the Catalog pins is present and its bundle manifest carries exactly the
+// pinned manifest, dictionary and sidecar digests.
+func retainedArtifactsMatchCatalog(directory string, pins *catalog.Catalog) error {
+	if len(pins.SnapshotPublications) == 0 {
+		return errors.New("the Catalog pins no publications")
+	}
+	for _, publication := range pins.SnapshotPublications {
+		path := filepath.Join(directory, publication.Name, publication.Name+".bundle.json")
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("publication %s: %w", publication.Name, err)
+		}
+		manifest, err := snapshotbundle.DecodeBundleManifest(file)
+		file.Close()
+		if err != nil {
+			return fmt.Errorf("publication %s: %w", publication.Name, err)
+		}
+		if manifest.PublicationName != publication.Name ||
+			manifest.ManifestDigest != publication.ManifestDigest ||
+			manifest.DictionaryManifest.DictionaryDigest != publication.DictionaryDigest ||
+			manifest.DictionaryManifest.SidecarDigest != publication.SidecarDigest {
+			return fmt.Errorf("publication %s carries an identity the Catalog does not pin", publication.Name)
+		}
+	}
+	return nil
 }
 
 // reproMaterial is one operation's frozen contract material: a real activated

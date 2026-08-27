@@ -63,6 +63,7 @@ OA_PAGE=$(mktemp /tmp/taskbound-oa-page.XXXXXX)
 DOWNLOAD_FILE=$(mktemp /tmp/taskbound-result-download.XXXXXX)
 DOWNLOAD_HEADERS=$(mktemp /tmp/taskbound-result-headers.XXXXXX)
 GO_TEST_JSON=$(mktemp /tmp/taskbound-go-test.XXXXXX)
+GO_TEST_REPORT=$(mktemp /tmp/taskbound-go-test-report.XXXXXX)
 
 COMPOSE_PORT_OVERRIDE="services:
   control-postgres:
@@ -161,6 +162,9 @@ cleanup() {
   esac
   case "$GO_TEST_JSON" in
     /tmp/taskbound-go-test.*) rm -f "$GO_TEST_JSON" ;;
+  esac
+  case "$GO_TEST_REPORT" in
+    /tmp/taskbound-go-test-report.*) rm -f "$GO_TEST_REPORT" ;;
   esac
   if [ "$KEEP_STACK" != "1" ]; then
     if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
@@ -361,52 +365,32 @@ if ! compose --profile integration-tools run --rm test-runner \
   fail "complete PostgreSQL-backed Go test suite failed"
 fi
 cat "$GO_TEST_JSON"
-if ! python3 - "$GO_TEST_JSON" <<'PY'
-import json
-import pathlib
-import sys
-
-events = []
-for line_number, line in enumerate(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(), 1):
-    if not line.startswith("{"):
-        continue
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"malformed go test JSON event at line {line_number}: {exc}")
-    if isinstance(event, dict) and "Action" in event:
-        events.append(event)
-
-# Go reports a package-level skip for packages that contain no _test.go files.
-# Those packages are still part of ./...; only that explicitly evidenced
-# lifecycle event is benign. Every named test skip and every other package skip
-# invalidates the complete-suite receipt.
-no_test_packages = {
-    event.get("Package") for event in events
-    if event.get("Action") == "output" and "[no test files]" in event.get("Output", "")
-}
-skips = [
-    event for event in events
-    if event.get("Action") == "skip"
-    and (event.get("Test") or event.get("Package") not in no_test_packages)
-]
-failures = [event for event in events if event.get("Action") == "fail"]
-package_passes = [
-    event for event in events
-    if event.get("Action") == "pass" and not event.get("Test") and event.get("Package")
-]
-if not events or skips or failures or not package_passes:
-    print(
-        f"go test evidence invalid: events={len(events)} skips={len(skips)} "
-        f"failures={len(failures)} package_passes={len(package_passes)}",
-        file=sys.stderr,
-    )
-    raise SystemExit(1)
-PY
-then
-  fail "complete Go test evidence contained a skip, failure, or no package pass"
+# Acceptance of the complete suite is settled by the declared-skip audit that
+# already accepts the DSN-enabled suite (evaluation/cmd/final-v5-dbtest-report),
+# scoped to this Compose harness. A skip is a failure unless an allowance names
+# the test, the reason it printed, why this container cannot run it, and the
+# milestone by which it must run elsewhere; an allowance that matches nothing is
+# a failure too, and a claim of "already covered by the DSN suite record" is
+# checked against docs/evidence at this exact commit rather than read as prose.
+# The retained snapshot artifacts carry no allowance: on the evidence host the
+# tests that need them run, discovered by Catalog digest.
+command -v go >/dev/null 2>&1 || fail "go is required on the host to audit the test evidence"
+runner_go_version=$(compose --profile integration-tools run --rm test-runner go version | tr -d '\r')
+business_container=$(compose ps --quiet business-postgres)
+business_image=$(docker inspect --format '{{.Config.Image}}' "$business_container")
+business_version_num=$(docker exec "$business_container" \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'show server_version_num' | tr -d '[:space:]')
+repository_root=$(git rev-parse --show-toplevel)
+if ! go run ./evaluation/cmd/final-v5-dbtest-report -scope compose-gate \
+  -evidence-root "$repository_root" -commit "$(git rev-parse HEAD)" \
+  -postgresql-image "$business_image" -postgresql-version-num "$business_version_num" \
+  -go-version "$runner_go_version" -timeout "go test default" \
+  -out "$GO_TEST_REPORT" <"$GO_TEST_JSON"; then
+  cat "$GO_TEST_REPORT" 2>/dev/null || true
+  fail "complete Go test evidence was not accepted by the declared-skip audit"
 fi
-pass "complete PostgreSQL-backed unit and race tests passed with zero skips"
+cat "$GO_TEST_REPORT"
+pass "complete PostgreSQL-backed unit and race tests accepted: every skip declared with a due milestone"
 promotion_recovery_output=$(compose --profile integration-tools run --rm test-runner \
   go test -json -count=1 -run '^TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce$' \
   ./internal/gateway)
