@@ -364,10 +364,10 @@ func TestPublicationNonProfileSubcampaignHasNoProfileDeploymentFiction(t *testin
 		`TASKGATE_FINAL_V5_COMPILER_DSN=$nonprofile_dsn`,
 		`if [[ "$nonprofile_id" == scale-outcome-merkle || "$nonprofile_id" == compiler ]]; then`,
 		`final-v5-split-publication`,
-		`.profile_cells == 129`,
-		`.scale_non_profile_cells == 38`,
+		`.profile_cells == 125`,
+		`.scale_non_profile_cells == 36`,
 		`.compiler_non_profile_cells == 11`,
-		`.total_cells == 178`,
+		`.total_cells == 172`,
 	} {
 		if !strings.Contains(nonProfile, required) {
 			t.Fatalf("deployment-free publication section lacks %q", required)

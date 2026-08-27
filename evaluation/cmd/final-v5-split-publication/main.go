@@ -42,7 +42,7 @@ func run(arguments []string) error {
 		if err := experiment.ValidateSplitPublicationPlan(plan); err != nil {
 			return err
 		}
-		fmt.Println("P62B-STAGE: publication_dry=pass profile_cells=129 scale_nonprofile=38 compiler_nonprofile=11 total=178 fresh_executions=3 deployments=0")
+		fmt.Println("P62B-STAGE: publication_dry=pass profile_cells=125 scale_nonprofile=36 compiler_nonprofile=11 total=172 fresh_executions=3 deployments=0")
 		return nil
 	}
 	if *root == "" || *output == "" {

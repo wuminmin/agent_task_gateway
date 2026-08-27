@@ -118,7 +118,7 @@ func ValidateSplitPublicationPlan(plan finalv5profile.CampaignPlan) error {
 
 // FinalizeSplitPublicationCampaign conjunctively validates the profile-backed
 // and deployment-free sections. Neither section can independently claim the
-// complete 178-cell publication denominator.
+// complete 172-cell publication denominator.
 func FinalizeSplitPublicationCampaign(root, planPath string) (SplitPublicationCampaignSummary, error) {
 	var summary SplitPublicationCampaignSummary
 	planBytes, err := os.ReadFile(planPath)
@@ -195,8 +195,8 @@ func FinalizeSplitPublicationCampaign(root, planPath string) (SplitPublicationCa
 			FreshExecutions: 3, ProfileBinding: "required", StateInheritance: false, EvidenceSHA256: profileDigests},
 		NonProfile: nonProfile,
 	}
-	if summary.ProfileCells != 125 || summary.ScaleNonProfile != 36 || summary.CompilerNonProfile != 11 || summary.TotalCells != 178 {
-		return SplitPublicationCampaignSummary{}, errors.New("publication evidence does not close the 129+38+11 denominator")
+	if summary.ProfileCells != 125 || summary.ScaleNonProfile != 36 || summary.CompilerNonProfile != 11 || summary.TotalCells != 172 {
+		return SplitPublicationCampaignSummary{}, errors.New("publication evidence does not close the 125+36+11 denominator")
 	}
 	return summary, nil
 }

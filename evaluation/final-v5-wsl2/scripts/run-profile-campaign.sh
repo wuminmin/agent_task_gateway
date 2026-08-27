@@ -1345,8 +1345,8 @@ else
   GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-split-publication \
     -root "$campaign_root" -plan "$plan" -out "$manifest"
   jq -e '.status == "pass" and .campaign_class == "publication" and .publication_eligible == true and
-    .formal_campaign == true and .profile_cells == 129 and .scale_non_profile_cells == 38 and
-    .compiler_non_profile_cells == 11 and .total_cells == 178' "$manifest" >/dev/null
+    .formal_campaign == true and .profile_cells == 125 and .scale_non_profile_cells == 36 and
+    .compiler_non_profile_cells == 11 and .total_cells == 172' "$manifest" >/dev/null
 fi
 trap - EXIT
 if [[ -n "$diagnosis_mode" ]]; then

@@ -60,7 +60,7 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 	if err != nil {
 		return err
 	}
-	// Pilot planning retains the historical 129-cell profile matrix. Formal
+	// Pilot planning retains the 125-cell profile matrix. Formal
 	// publication planning adds the 47 deployment-free cells explicitly.
 	if campaignClass == "pilot" {
 		required = required[:0]
@@ -73,8 +73,8 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 		for _, profile := range registry.Profiles {
 			required = append(required, profile.Cells...)
 		}
-		if len(required) != 178 {
-			return fmt.Errorf("publication denominator is %d cells, want 178", len(required))
+		if len(required) != 172 {
+			return fmt.Errorf("publication denominator is %d cells, want 172", len(required))
 		}
 	}
 	plan, err := finalv5profile.BuildCampaignPlan(registry, required, nonProfile)
