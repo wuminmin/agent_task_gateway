@@ -1,0 +1,12 @@
+attestation footprint qualification for config/profiles/exposure-scale.catalog.yaml
+  commit 5ef1edf1b12c (clean, equals origin/tkde-artifact-rerun)
+  profile exposure-scale (profile-794efc2159ffaa5f) registry final-v5-contracts-v1.11 catalog eea3becc0ea4
+  artifact manifest ce4303913edb directory 02ec57013d27
+  ExpectedSchema E=1 digest=856334d4f8b2 (from catalogschema.Build)
+  11 snapshots, 10 intervals, 1 internal keys
+  constructor_or_cold_pool     1 internal calls/attestation over 1 keys
+  explicit_preflight_pool      1 internal calls/attestation over 1 keys
+  single_query_transaction     1 internal calls/attestation over 1 keys
+  paired_query_transaction     1 internal calls/attestation over 1 keys
+  constructor == explicit preflight: true
+  footprint=5adda596a784 portable=0669912b2eba

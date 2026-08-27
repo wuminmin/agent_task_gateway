@@ -1,0 +1,12 @@
+attestation footprint qualification for config/profiles/result-heavy.catalog.yaml
+  commit 5ef1edf1b12c (clean, equals origin/tkde-artifact-rerun)
+  profile result-heavy (profile-a86cd4df5cad6e26) registry final-v5-contracts-v1.11 catalog e7232c7bfdc8
+  artifact manifest aa429a225d9d directory 814d4df9971f
+  ExpectedSchema E=1 digest=e2a3796fb3f5 (from catalogschema.Build)
+  11 snapshots, 10 intervals, 1 internal keys
+  constructor_or_cold_pool     1 internal calls/attestation over 1 keys
+  explicit_preflight_pool      1 internal calls/attestation over 1 keys
+  single_query_transaction     1 internal calls/attestation over 1 keys
+  paired_query_transaction     1 internal calls/attestation over 1 keys
+  constructor == explicit preflight: true
+  footprint=19b05a96d16c portable=58d58d30326e
