@@ -125,3 +125,15 @@ CATM
 ```text
 /loop 30m 你是 TaskGate TKDE 投稿的项目经理，全部执行工作由 Claude 自己完成（已无 Codex 派工）。本次唤醒依次做：(1) `TZ=Asia/Shanghai date` 对表，查 git HEAD/origin/树净、后台任务与残留；(2) 按证据复核已完成项——自报「通过」不作数，要有实测出处；(3) 按 CLAUDE.md 工作循环优先级接着推进（handoff「接着做这个」> 台账尾部 > P7 投稿清单 > 盘点），长任务后台化后继续做不依赖它的事；(4) 命中三类上报就 `catm-notify say` 并转做其他可做项；(5) 心跳只在里程碑或异常时发，常规状态交由 detached 看守，不与之重复。整个唤醒期间遵守 CLAUDE.md（含「查证的具体做法」八条）。论文投出后调用 ScheduleWakeup stop 结束循环。
 ```
+
+## 评测执行机与仓库路径（2026-08-27 立）
+
+TKDE 评测（campaign / route-matrix live / SQL 门等 harness 活）在 **WSL2** 上跑，NAS 不能跑 harness。**WSL 与 NAS 两处仓库都要保持最新（与 origin 同步）。**
+
+- **WSL2 仓库**：`/home/wmm/worktrees/agent_task_gateway`
+- **NAS 仓库**：`/volume1/homes/wuminmin/github/wuminmin/agent_task_gateway`（= `/var/services/homes/...` 同一文件系统）
+- **NAS→WSL2 连接**：Tailscale 节点 `wmm-wsl`（`100.73.90.49`），用户 `wmm`，专用密钥 `~/.ssh/id_ed25519_taskgate`
+  ```sh
+  ssh -i ~/.ssh/id_ed25519_taskgate -o StrictHostKeyChecking=accept-new \
+      -o UserKnownHostsFile=$HOME/.ssh/known_hosts_tailscale wmm@100.73.90.49
+  ```
