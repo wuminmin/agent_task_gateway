@@ -159,3 +159,22 @@ go 模块）会超时或索引下不全。根治要打通 WSL↔NAS 直连（当
   （如 `172.25.84.18`）——实测 buildkit 沙箱经 NAT 可达 eth0，不可达 docker0。
 - **apt**：`Dockerfile.formal` 的 apt-get 加 `Acquire::Retries=8` + 60s 超时，容忍索引丢包。
 - **构建超时**：`final-v5-gateway-build` 的 `buildTimeout` 30m→90m，覆盖慢链路。
+
+### 根治尝试：WSL 改 mirrored 网络模式（2026-08-27 作者定，重启启用）
+
+上面 NAT 路径慢的根治：给 WSL 启用 **mirrored 镜像网络模式**（`.wslconfig`
+`[wsl2] networkingMode=mirrored`，Win11 支持）——WSL 直接共用 Windows 网络栈、跳过
+NAT 层，延迟/丢包有望与 Windows 持平，并可能像 Windows↔NAS 那样建立**直连**
+（曾观察 Windows↔NAS 直连 `131.226.100.138`），延迟或从 ~110ms 大降。
+
+**重启 WSL 后，恢复评测前逐项验证（网络变了，旧假设需重核）：**
+1. **DNS**：作者手工配过 `resolv.conf`（`generateResolvConf=false`），mirrored 可能覆盖，
+   先 `cat /etc/resolv.conf`、`getent hosts proxy.golang.org github.com` 确认解析正常。
+2. **NAS→WSL2 SSH**：mirrored 下 WSL 的 tailscale IP/可达性可能变，重连一次
+   `ssh -i ~/.ssh/id_ed25519_taskgate ... wmm@<新IP或100.73.90.49>` 确认；不通则查
+   `tailscale status`/`tailscale ip -4`。
+3. **WSL↔NAS 是否直连**：`tailscale ping ds423plus`，看是否 `direct`（不再 `peer-relay`）。
+4. **出网速度**：`curl -o /dev/null -w '%{speed_download}\n' https://proxy.golang.org/.../@v/list`；
+   若已达正常带宽，formal build 的三处绕法（本机 GOPROXY / 90m / apt 重试）可保留但不再是命门。
+5. **eth0/接口 IP 变了**：本机 GOPROXY 若仍要用，`ip -4 addr` 现查新地址（mirrored 下可能无 eth0）。
+6. WSL 仓库在磁盘上不随重启丢失，仍应在 `76ae046`；恢复后 `git status` 确认干净再继续 E1。
