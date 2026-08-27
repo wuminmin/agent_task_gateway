@@ -48,6 +48,10 @@ type BuildRequest struct {
 	// Tag is the local name to give the built image. It is a convenience for the
 	// operator; nothing downstream trusts it, because a tag can be moved.
 	Tag string
+	// ModuleProxy, when set, is passed to the builder as GOPROXY. It changes
+	// only where modules are fetched from: go.sum still decides which bytes are
+	// accepted. Empty leaves the Dockerfile's default in force.
+	ModuleProxy string
 }
 
 // BuildArguments renders the exact docker build argv.
@@ -71,6 +75,9 @@ func (request BuildRequest) BuildArguments() ([]string, error) {
 	if strings.TrimSpace(request.Tag) == "" {
 		return nil, errors.New("the formal build needs a local tag to refer to the result")
 	}
+	if strings.ContainsAny(request.ModuleProxy, " \t\r\n") {
+		return nil, errors.New("the formal build module proxy must be a single GOPROXY value without whitespace")
+	}
 	builder, err := request.Pins.Pin(BuilderRole)
 	if err != nil {
 		return nil, err
@@ -87,7 +94,7 @@ func (request BuildRequest) BuildArguments() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{
+	arguments := []string{
 		"build",
 		"--file", FormalDockerfile,
 		"--target", "runtime",
@@ -97,13 +104,18 @@ func (request BuildRequest) BuildArguments() ([]string, error) {
 		"--build-arg", "SOURCE_MANIFEST_SHA256=" + request.Context.SourceManifestSHA256,
 		"--build-arg", "BUILDER_BASE_IMAGE=" + builderReference,
 		"--build-arg", "RUNTIME_BASE_IMAGE=" + runtimeReference,
+	}
+	if request.ModuleProxy != "" {
+		arguments = append(arguments, "--build-arg", "GOPROXY="+request.ModuleProxy)
+	}
+	return append(arguments,
 		"--tag", request.Tag,
 		// A build that reused a layer cached from a different context would defeat
 		// the point of digesting the context at all.
 		"--no-cache",
 		"--pull=false",
 		"-",
-	}, nil
+	), nil
 }
 
 // Build streams the context to the builder and returns the built image ID.

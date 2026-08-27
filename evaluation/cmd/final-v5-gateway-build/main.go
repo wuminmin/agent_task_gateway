@@ -34,9 +34,13 @@ import (
 )
 
 const (
-	buildTimeout  = 30 * time.Minute
-	verifyTimeout = 60 * time.Second
-	defaultTag    = "taskgate-final-v5-gateway:formal"
+	// moduleProxyEnv names an optional GOPROXY for the builder. It is read from
+	// the environment rather than a flag so every launcher that runs this tool
+	// (the campaign scripts included) inherits it without a script change.
+	moduleProxyEnv = "TASKGATE_FORMAL_BUILD_GOPROXY"
+	buildTimeout   = 30 * time.Minute
+	verifyTimeout  = 60 * time.Second
+	defaultTag     = "taskgate-final-v5-gateway:formal"
 )
 
 func main() {
@@ -125,8 +129,12 @@ func runBuild(args []string, getenv func(string) string, stdout *os.File) error 
 		materialized.ContextSHA256[:12], len(materialized.Entries))
 	fmt.Fprintf(stdout, "  manifest      %s\n", materialized.SourceManifestSHA256[:12])
 
+	moduleProxy := strings.TrimSpace(getenv(moduleProxyEnv))
+	if moduleProxy != "" {
+		fmt.Fprintf(stdout, "  module proxy  %s (transport only; go.sum decides the bytes)\n", moduleProxy)
+	}
 	image, err := formalbuild.Build(ctx, engine, formalbuild.ExecBuilder, formalbuild.BuildRequest{
-		Context: materialized, Pins: pins, Tag: *tag,
+		Context: materialized, Pins: pins, Tag: *tag, ModuleProxy: moduleProxy,
 	})
 	if err != nil {
 		return err
@@ -143,6 +151,7 @@ func runBuild(args []string, getenv func(string) string, stdout *os.File) error 
 		if err != nil {
 			return err
 		}
+		manifest.ModuleProxy = moduleProxy
 		if err := formalbuild.WriteBuildDeployment(*manifestOut, *composeOverrideOut, manifest); err != nil {
 			return err
 		}

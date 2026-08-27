@@ -31,6 +31,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
+# GOPROXY is a build input for module transport only. Every module the builder
+# fetches is checked against the tracked go.sum, so where the bytes came from
+# cannot change which bytes get built; it only changes whether the download
+# finishes inside the build budget. The default is Go's own. A host on a slow
+# international link may point it at a local proxy serving an already verified
+# module cache; the value actually used is recorded in the build manifest.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 RUN go mod download
 COPY . .
 

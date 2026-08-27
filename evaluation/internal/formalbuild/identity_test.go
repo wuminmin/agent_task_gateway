@@ -456,3 +456,30 @@ func TestContextDigestOfTheRealRepositoryIsStable(t *testing.T) {
 		t.Fatal("the materialized archive is empty")
 	}
 }
+
+func TestBuildArgumentsCarryTheModuleProxyOnlyWhenSet(t *testing.T) {
+	base := BuildRequest{Context: buildableContext(), Pins: pinnedPins(), Tag: "t:formal"}
+	arguments, err := base.BuildArguments()
+	if err != nil {
+		t.Fatalf("BuildArguments: %v", err)
+	}
+	if strings.Contains(strings.Join(arguments, " "), "GOPROXY=") {
+		t.Fatalf("an unset module proxy reached the builder: %v", arguments)
+	}
+	base.ModuleProxy = "http://172.17.0.1:3000,https://proxy.golang.org,direct"
+	arguments, err = base.BuildArguments()
+	if err != nil {
+		t.Fatalf("BuildArguments with a module proxy: %v", err)
+	}
+	rendered := strings.Join(arguments, " ")
+	if !strings.Contains(rendered, "--build-arg GOPROXY="+base.ModuleProxy) {
+		t.Fatalf("the module proxy was not passed as GOPROXY: %s", rendered)
+	}
+	if arguments[len(arguments)-1] != "-" {
+		t.Fatalf("the module proxy displaced the streamed context: %v", arguments)
+	}
+	base.ModuleProxy = "http://172.17.0.1:3000 --network=host"
+	if _, err := base.BuildArguments(); err == nil {
+		t.Fatal("a module proxy carrying whitespace was accepted")
+	}
+}

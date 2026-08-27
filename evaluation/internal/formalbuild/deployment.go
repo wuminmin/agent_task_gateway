@@ -56,6 +56,10 @@ type BuildManifest struct {
 	BuildTarget          string `json:"build_target"`
 	BuilderBaseImage     string `json:"builder_base_image"`
 	RuntimeBaseImage     string `json:"runtime_base_image"`
+	// ModuleProxy is the GOPROXY the builder fetched modules through, when the
+	// operator overrode the Dockerfile default. Transport only; go.sum decided
+	// the bytes. Recorded so the build's inputs are complete.
+	ModuleProxy string `json:"module_proxy,omitempty"`
 	BuildBindings
 }
 
