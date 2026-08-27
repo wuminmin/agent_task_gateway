@@ -38,9 +38,14 @@ const (
 	// the environment rather than a flag so every launcher that runs this tool
 	// (the campaign scripts included) inherits it without a script change.
 	moduleProxyEnv = "TASKGATE_FORMAL_BUILD_GOPROXY"
-	buildTimeout   = 30 * time.Minute
-	verifyTimeout  = 60 * time.Second
-	defaultTag     = "taskgate-final-v5-gateway:formal"
+	// The formal build runs apt-get (Debian mirrors) and go mod download inside
+	// the builder. On a slow international link either can take many minutes, and
+	// 30m cancelled a real v1.11 build mid-download (2026-08-27). 90m is a
+	// wall-clock ceiling for a cancel, not a target: a local module proxy and a
+	// warm base image finish in a few minutes.
+	buildTimeout  = 90 * time.Minute
+	verifyTimeout = 60 * time.Second
+	defaultTag    = "taskgate-final-v5-gateway:formal"
 )
 
 func main() {
