@@ -137,3 +137,25 @@ TKDE 评测（campaign / route-matrix live / SQL 门等 harness 活）在 **WSL2
   ssh -i ~/.ssh/id_ed25519_taskgate -o StrictHostKeyChecking=accept-new \
       -o UserKnownHostsFile=$HOME/.ssh/known_hosts_tailscale wmm@100.73.90.49
   ```
+
+## 网络环境（2026-08-27 实测立；WSL2 出网慢的成因与绕法）
+
+WSL2 出网走 **Tailscale exit node = NAS（`ds423plus` `100.72.87.34`）**，宿主与
+docker 容器的流量都经此出口（实测出口 IP 均为 `131.226.101.166`，容器不绕过）。
+配置本身没问题，但 **WSL↔NAS 未建立直连、走 peer-relay（`223.240.87.119`）**，
+`tailscale ping ds423plus` 报 `via peer-relay ... direct connection not established`。
+该中继是瓶颈：**实测经出口下载仅 ~15 KB/s**（500KB 文件 33s），大文件传输（apt 索引、
+go 模块）会超时或索引下不全。根治要打通 WSL↔NAS 直连（当前被 NAT 挡成 relay）。
+
+**formal Gateway build 的绕法（三重，均纯传输韧性，`go.sum`/digest-pin 仍决定字节）：**
+- **go 模块**：在 WSL2 起本机 GOPROXY 服务已缓存模块，走局域网（实测 **41 MB/s**），
+  经 `TASKGATE_FORMAL_BUILD_GOPROXY` 透传给 builder：
+  ```sh
+  # eth0 IP 会变，用时现查：ip -4 addr show eth0
+  python3 -m http.server 3000 --bind 0.0.0.0 --directory ~/go/pkg/mod/cache/download &
+  export TASKGATE_FORMAL_BUILD_GOPROXY="http://<eth0-ip>:3000,https://proxy.golang.org,direct"
+  ```
+  **注意**：buildkit RUN 步够不到 docker0 网关 `172.17.0.1`，必须用 **eth0 IP**
+  （如 `172.25.84.18`）——实测 buildkit 沙箱经 NAT 可达 eth0，不可达 docker0。
+- **apt**：`Dockerfile.formal` 的 apt-get 加 `Acquire::Retries=8` + 60s 超时，容忍索引丢包。
+- **构建超时**：`final-v5-gateway-build` 的 `buildTimeout` 30m→90m，覆盖慢链路。
