@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-profile-activation-support-v1",
+  "contract_release": "final-v5-contracts-v1.11",
+  "profile_registry_sha256": "2526b74933e649898ccc88858b21c0a13b78f61d6fb0eac046194fc74ea04a30",
+  "activation_implementation_available": true,
+  "activation_smoke_manifest_sha256": "5e94e762c198bba32063f8f0ce181bdce634b6eba6e8e8c5ee2de162597c3810",
+  "outside_product_route_matrix_sha256": "0a54a496b4bf44c8e7e682bf1a2207ddfc61431df433b304cdfc0ad7ea8d1311",
+  "semantic_cache_isolation_evidence_sha256": "ee1cc94d1e9bdabaa78511fb049cd5f07054e0df682e66c73eed4fbd1e11a49a",
+  "outside_product_route_matrix_status": "pass",
+  "semantic_cache_isolation_status": "pass",
+  "semantic_cache_catalog_bound": true,
+  "outside_product_route_matrix_failed_probe_count": 0,
+  "profiles": [
+    {
+      "profile_id": "profile-00bc8f7d5633f596",
+      "profile_alias": "rls-unlimited",
+      "catalog_sha256": "4ea11563ac1e1433115bd27e24395dab72e2cb6635baa00b20bae16c48d5dbb9",
+      "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
+      "profile_schema_attestation": "6af9951f0c0b88a40f2f6e253938fa2e1eb4918feef37dc36a0e65b7c58f7504",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "daf534660b8047c424be95b41857296ead9cd54a29b3214426572b864d10a626"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-0d88c4e9d8b7561b",
+      "profile_alias": "expense-detail",
+      "catalog_sha256": "924d385e6561fedb4b865702f1a049eb2677f3022448947ab15446871175879d",
+      "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
+      "profile_schema_attestation": "512c9f2e86739fc409d91a0dfe45ae671fd78831729608d30c329b0d367be729",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "cae16be430c5498958e5c7b532d1e5be0e865940e8f9b424a51e30c321fed999"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-158c6ffcccef2383",
+      "profile_alias": "attack-expense-detail",
+      "catalog_sha256": "c02407c16495d2f627b66cc91f5fe3feba0274e3f0748eb08f224ba0da57caeb",
+      "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
+      "profile_schema_attestation": "a2d8282a40aa0b93201252af53266c9061ca350b7bbb98018c8c8043c3b267b2",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "c79084619899a62ca4af0b1bc07edba8d326d70230f6f95b51d6705bf5ce4b66"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-18c12d9c4dc04fc5",
+      "profile_alias": "rls-bounded",
+      "catalog_sha256": "9f81bad7373630fcebd6f95dbef9f5feff2fe9c775c7658f10c3d2c4f94299be",
+      "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
+      "profile_schema_attestation": "a2bb7bfee820e373b9fab983dfd2d25f6590065f43c05e0691e78a15a83a6bdd",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "634de3365587698d67ddf0ed1875cf08b4d3a2c7295171dd5689008ef5c25011"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-3947f508ef5e9677",
+      "profile_alias": "concurrency-expense-detail",
+      "catalog_sha256": "045c9ef297b370db24f0d17282db1b5861590d8108bd9b7cad04e3a2a6ea41be",
+      "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
+      "profile_schema_attestation": "f60632ace9219693da7244b327484d7a65d10d24ec0c876bc32075416ce4b104",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "d87395104d74a34a364a35d2e9b122a88acfb16e644e3af738b9914628cc251f"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-46b22367d1386567",
+      "profile_alias": "depth4-semantic-view",
+      "catalog_sha256": "9ccc84b22033ccba2f9e5281c69ee37b97296c5eb4a0162a6150ed65caaebb27",
+      "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
+      "profile_schema_attestation": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "bad812f8a965a492e1aa083ca70e45bcd0496319421c9e20542e77861c26b773"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-5b48ad2a02c5446d",
+      "profile_alias": "analytics-orders-lineitem",
+      "catalog_sha256": "4764a69897d79cd283a1d5044bf858fb31047a51dbf1877273648e75e4688733",
+      "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
+      "profile_schema_attestation": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "18a149655327974f9a07f11c0df0cb5fff396fd82afb534b2ce058d0c60ff02b"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-794efc2159ffaa5f",
+      "profile_alias": "exposure-scale",
+      "catalog_sha256": "eea3becc0ea4f23515545d87564e3517f2f48402b4a21291f03b44c694d9ea61",
+      "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
+      "profile_schema_attestation": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+      "publication_identities": [
+        "final-v5-exposure-scale-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "252091cbed5756328add31f22cfe21ce2ee61b202a4581743c135a817b839252"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-a60a787c64c95451",
+      "profile_alias": "provsql-nonce-join",
+      "catalog_sha256": "43dbfca095ff2aa11e8595201c586a0a4277f18cb95f1c69f8b4e6bd85a9bdb6",
+      "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
+      "profile_schema_attestation": "64930465463cf47a0528a8d86a4f655b7478cd717fdb7c827f2c72e417877f64",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-nonce-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "1b1d983b72c6ae3bd21ce09dfcb148399803142ec2dab232242d194344877b5b"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-a86cd4df5cad6e26",
+      "profile_alias": "result-heavy",
+      "catalog_sha256": "e7232c7bfdc85b9c661f69f2e66638ab9fc70c607c05e1267b73af0d4ecc4256",
+      "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
+      "profile_schema_attestation": "ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70",
+      "publication_identities": [
+        "final-v5-result-heavy-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "1b83534c26495a37df8e0bb9e507826ba02771683479ad7980bc5006cd6e8829"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-f60ec5752f501da0",
+      "profile_alias": "analytics-orders",
+      "catalog_sha256": "b6a5aaf7c03d82f820b57f49d27363677049966b001efde2972aa3f4d3485325",
+      "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
+      "profile_schema_attestation": "2f503bdc932295871e82b64f0d346613a6ee4eb01ef99fd52e329ee81fad5a36",
+      "publication_identities": [
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "42d0b4a3d1f764b023ebe48b262567cb6fe66273bfb3386f8a2cc8d97fd88115"
+      ],
+      "reason": ""
+    }
+  ]
+}

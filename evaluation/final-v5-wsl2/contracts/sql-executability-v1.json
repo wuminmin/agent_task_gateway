@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "record": "taskgate-final-v5-contract-sql-executability-v1",
-  "contract_release": "final-v5-contracts-v1.10",
-  "contract_index_sha256": "d38122ed173bce4310083569c216685eebc098cf6e5480513f898321c8c46ff9",
+  "contract_release": "final-v5-contracts-v1.11",
+  "contract_index_sha256": "3923fa10e2531d8860e646e9a60c4b95fe4d747ae84a020de7ee3b9423915986",
   "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "postgresql_server_version_num": "160014",
   "checked_artifacts": [
@@ -20,7 +20,7 @@
     {
       "kind": "experiment_contract",
       "path": "contracts/artifact-v1.json",
-      "sha256": "400d68e8a3a286bf024a731d3ba29125d8db206cae9a45cdeaa267cd2c0f85e8",
+      "sha256": "11d6f7e90da242cfb20fc0cb101fc1f19e062a4909af0e5b54375173f546d1a0",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
@@ -31,7 +31,7 @@
     {
       "kind": "experiment_contract",
       "path": "contracts/baseline-v1.json",
-      "sha256": "d9ace81d1430565d3500a6263ce5a15f3676095ecb21a5e4d323537bb2d6518d",
+      "sha256": "d045698711b46195d975057f9ebec3c8c76cb6401dd9539cab4591c7a64ae90a",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
@@ -86,7 +86,7 @@
     {
       "kind": "experiment_contract",
       "path": "contracts/scale-v1.json",
-      "sha256": "b3f7655b45f955484f15268dbe1271f07655e573364f53e83580748d2da48e1b",
+      "sha256": "ce7d14f5d5647af848138d1d1262a7002377ba7735e9af1538f1cdce7199dc74",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
