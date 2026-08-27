@@ -93,6 +93,29 @@ wait_healthy() {
   return 1
 }
 
+# Wait for a one-shot job service to exit, and require exit status 0.
+wait_completed() {
+  local service=$1 deadline=$((SECONDS + 900))
+  while (( SECONDS < deadline )); do
+    local id running code
+    id=$("${COMPOSE[@]}" ps -aq "$service" 2>/dev/null || true)
+    if [[ -n "$id" ]]; then
+      running=$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || echo true)
+      if [[ "$running" == false ]]; then
+        code=$(docker inspect --format '{{.State.ExitCode}}' "$id" 2>/dev/null || echo unknown)
+        [[ "$code" == 0 ]] && return 0
+        echo "$service exited with status $code" >&2
+        "${COMPOSE[@]}" logs --tail 60 "$service" >&2
+        return 1
+      fi
+    fi
+    sleep 2
+  done
+  echo "$service did not complete within 900s" >&2
+  "${COMPOSE[@]}" logs --tail 60 "$service" >&2
+  return 1
+}
+
 case "${1:-}" in
   up)
     # Down with volumes first. A reused data directory means initdb never
@@ -107,6 +130,12 @@ case "${1:-}" in
     "${COMPOSE[@]}" up -d --wait control-postgres snapshot-sidecar-install
     wait_healthy control-postgres
     wait_healthy business-postgres
+    # `--wait` returns once the one-shot installer is *running*, not once it has
+    # published: measured 2026-08-27, `verify` straight after `up` saw
+    # taskgate_ordinal relations=0 and the same environment showed 35 a minute
+    # later with the installer Exited (0). Wait for the job to exit and require
+    # exit 0, as the campaign runner does for its phase-1 jobs.
+    wait_completed snapshot-sidecar-install
     echo "control  $(control_dsn)"
     echo "business $(business_dsn)"
     ;;
