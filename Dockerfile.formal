@@ -26,8 +26,13 @@ ARG BUILDER_BASE_IMAGE
 ARG RUNTIME_BASE_IMAGE
 
 FROM ${BUILDER_BASE_IMAGE} AS build
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates \
+# A slow international link drops apt index fetches mid-download. Retries and a
+# generous per-connection timeout are transport resilience only: the base image
+# is digest-pinned, so which packages install is fixed regardless of the mirror.
+RUN apt-get -o Acquire::Retries=8 -o Acquire::http::Timeout=60 \
+        -o Acquire::https::Timeout=60 update \
+    && apt-get -o Acquire::Retries=8 -o Acquire::http::Timeout=60 \
+        install -y --no-install-recommends build-essential ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
