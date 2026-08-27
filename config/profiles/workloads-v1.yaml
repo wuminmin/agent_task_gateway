@@ -53,7 +53,7 @@ experiments:
       products: [expense_detail]
   concurrency:
     - workload_id: shared-root
-      scales: ["10", "50", "100", "500"]
+      scales: ["10", "50"]
       modes: [forced_queue_safety, natural_contention]
       products: [final_v5_concurrency_expense_detail]
     - workload_id: serial-control

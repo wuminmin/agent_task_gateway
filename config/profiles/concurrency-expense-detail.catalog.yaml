@@ -32,7 +32,7 @@ products:
     - name: final_v5_concurrency_expense_detail
       source: travel_demo
       reporting_view: reporting.final_v5_concurrency_expense_detail
-      description: IEEE TKDE Final-V5 单任务同根并发专用冻结报销字段
+      description: IEEE TKDE Final-V5 委托子任务同根并发专用冻结报销字段
       sensitivity: medium
       fields:
         - name: receipt_no

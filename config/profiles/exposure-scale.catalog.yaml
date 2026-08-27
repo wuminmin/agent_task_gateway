@@ -65,14 +65,14 @@ products:
 scopes:
     - name: partition_key
       type: enum
-      description: Frozen exposure-scale partition key
+      description: Final-V5 ProvSQL 冻结分区键
       allowed_values:
         - "1"
 approval_routes:
     - sensitivity: low
       mode: manual
       approver: bob
-      budget_profile: summary-manual-v5
+      budget_profile: final-v5-baseline-low-v1
     - sensitivity: low
       products:
         - final_v5_exposure_scale
@@ -80,15 +80,15 @@ approval_routes:
       approver: bob
       budget_profile: final-v5-exposure-scale-v1
 budget_profiles:
-    - name: summary-manual-v5
-      max_queries: 10
-      max_rows: 500
-      max_db_time: 30s
-      query_timeout: 5s
-      task_ttl: 30m0s
-      max_release_facts: 1000
-      max_influence_facts: 5000
-      max_outcome_facts: 10
+    - name: final-v5-baseline-low-v1
+      max_queries: 128
+      max_rows: 400000
+      max_db_time: 30m0s
+      query_timeout: 30m0s
+      task_ttl: 2h0m0s
+      max_release_facts: 2000000
+      max_influence_facts: 8000000
+      max_outcome_facts: 128
       exposure_profile_version: taskgate-exposure-v5
       predicate_footprint:
         version: taskgate-predicate-footprint-v1

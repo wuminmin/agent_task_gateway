@@ -151,6 +151,14 @@ func run(root string, verifyOnly bool) error {
 				// freeze an obsolete cumulative budget after the live route was raised
 				// to cover another experiment sharing the same Product closure.
 				deploymentCatalog = refreshMatchingRouteBudgets(profileCatalog, live)
+			} else {
+				// A never-activated profile is reprojected from the live Catalog,
+				// but a reviewed profile-only route (the deliberately narrow
+				// three-Product ProvSQL route, which the live Catalog does not
+				// carry) is part of the profile declaration, not stale
+				// projection. A release freeze resets every activation, so
+				// without this the freeze itself would silently drop the route.
+				deploymentCatalog = carryProfileOnlyRoutes(live, profileCatalog)
 			}
 		}
 		if err := materializeProfile(root, deploymentCatalog, &profiles[index], hot, attestations,
@@ -206,6 +214,39 @@ func matchingRouteExists(document *catalog.Catalog, want catalog.ApprovalRoute) 
 		if candidate.Sensitivity == want.Sensitivity && candidate.Mode == want.Mode &&
 			candidate.Approver == want.Approver && candidate.BudgetProfile == want.BudgetProfile &&
 			sameStrings(candidate.Products, want.Products) {
+			return true
+		}
+	}
+	return false
+}
+
+// carryProfileOnlyRoutes returns the live Catalog extended with every
+// product-scoped route of the profile Catalog whose exact Product set has no
+// route in the live Catalog, together with the budget profile that route names.
+// A live route for the same Product set always wins, so a reviewed live change
+// is never overridden by a stale profile projection.
+func carryProfileOnlyRoutes(live, profileCatalog *catalog.Catalog) *catalog.Catalog {
+	extended := *live
+	extended.ApprovalRoutes = append([]catalog.ApprovalRoute(nil), live.ApprovalRoutes...)
+	extended.BudgetProfiles = append([]catalog.BudgetProfile(nil), live.BudgetProfiles...)
+	for _, route := range profileCatalog.ApprovalRoutes {
+		if len(route.Products) == 0 || productRouteExists(live, route.Products) {
+			continue
+		}
+		extended.ApprovalRoutes = append(extended.ApprovalRoutes, route)
+		if _, found := extended.LookupBudgetProfile(route.BudgetProfile); found {
+			continue
+		}
+		if budget, found := profileCatalog.LookupBudgetProfile(route.BudgetProfile); found {
+			extended.BudgetProfiles = append(extended.BudgetProfiles, budget)
+		}
+	}
+	return &extended
+}
+
+func productRouteExists(document *catalog.Catalog, products []string) bool {
+	for _, candidate := range document.ApprovalRoutes {
+		if len(candidate.Products) > 0 && sameStrings(candidate.Products, products) {
 			return true
 		}
 	}

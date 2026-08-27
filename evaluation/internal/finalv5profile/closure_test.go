@@ -212,6 +212,18 @@ func TestProfileCatalogsAreClosedAndCrossProfileProductsAreRejected(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The ProvSQL profile carries a reviewed profile-only route that the live
+	// Catalog does not: exactly one query over the three frozen relations. A
+	// release freeze resets every activation and reprojects the profile, and
+	// the freeze must not silently widen that governance property.
+	policy, err := provsql.ResolveTaskPolicy([]string{"provsql_orders", "provsql_lineitem", "provsql_nonce"})
+	if err != nil {
+		t.Fatalf("ProvSQL exact closure did not resolve: %v", err)
+	}
+	if policy.BudgetProfile != "final-v5-provsql-low-v1" || policy.Budget.MaxQueries != 1 {
+		t.Fatalf("ProvSQL exact route resolved to %q with max_queries=%d, want final-v5-provsql-low-v1 with 1",
+			policy.BudgetProfile, policy.Budget.MaxQueries)
+	}
 	for _, probe := range []struct {
 		name     string
 		catalog  *catalog.Catalog

@@ -35,8 +35,8 @@ func TestPublicationPlanClosesProfileAndNonProfileDenominators(t *testing.T) {
 	for _, deployment := range plan.Deployments {
 		profileCells += len(deployment.Cells)
 	}
-	if len(plan.Deployments) != 11 || profileCells != 129 || len(plan.NonProfileCells) != 49 {
-		t.Fatalf("publication plan deployments/profile/non-profile = %d/%d/%d, want 11/129/49",
+	if len(plan.Deployments) != 11 || profileCells != 125 || len(plan.NonProfileCells) != 47 {
+		t.Fatalf("publication plan deployments/profile/non-profile = %d/%d/%d, want 11/125/47",
 			len(plan.Deployments), profileCells, len(plan.NonProfileCells))
 	}
 	want := map[string]struct {
