@@ -593,7 +593,6 @@ func TestProtocolBindingRejectsCrossProfileAndKernelMismatch(t *testing.T) {
 	}{
 		{name: "baseline using artifact", experiment: "baseline", profile: "artifact"},
 		{name: "artifact using baseline", experiment: "artifact", profile: "baseline"},
-		{name: "scale using extreme without kernel gate", experiment: "scale", profile: "scale-extreme"},
 		{name: "kernel scale using ordinary profile", experiment: "scale", profile: "scale", kernelOnly: true},
 		{name: "non-scale kernel flag", experiment: "compiler", profile: "compiler", kernelOnly: true},
 	}
@@ -715,7 +714,6 @@ func TestNonProfileSmokePilotUsesFrozenReplicateEnvelope(t *testing.T) {
 		experiment string
 	}{
 		{path: "scale.example.json", experiment: "scale"},
-		{path: "scale-extreme.example.json", experiment: "scale"},
 		{path: "compiler-scale.example.json", experiment: "compiler"},
 	}
 	for _, test := range tests {

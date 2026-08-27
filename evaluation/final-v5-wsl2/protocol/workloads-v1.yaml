@@ -31,11 +31,6 @@ profiles:
       - id: outcome-merkle
         scales: [10k-x1-o0, 10k-x1-o50, 10k-x1-o90, 10k-x1-o100, 10k-x100-o0, 10k-x100-o50, 10k-x100-o90, 10k-x100-o100, 10k-x10k-o0, 10k-x10k-o50, 10k-x10k-o90, 10k-x10k-o100, 100k-x1-o0, 100k-x1-o50, 100k-x1-o90, 100k-x1-o100, 100k-x100-o0, 100k-x100-o50, 100k-x100-o90, 100k-x100-o100, 100k-x10k-o0, 100k-x10k-o50, 100k-x10k-o90, 100k-x10k-o100, 1m-x1-o0, 1m-x1-o50, 1m-x1-o90, 1m-x1-o100, 1m-x100-o0, 1m-x100-o50, 1m-x100-o90, 1m-x100-o100, 1m-x10k-o0, 1m-x10k-o50, 1m-x10k-o90, 1m-x10k-o100]
         modes: [merkle_control]
-  scale-extreme:
-    workloads:
-      - id: taskgate_scale_extreme
-        scales: [10m, 100m]
-        modes: [kernel_storage_only]
   artifact:
     workloads:
       - id: result-heavy
@@ -84,8 +79,13 @@ profiles:
         modes: [structured_rejection]
   concurrency:
     workloads:
+      # Offered widths above the retained ServiceActiveWindow of ten exercise the
+      # bounded service queue, not additional database contention. The paper
+      # disclaims sustained contention and reports a ten-row publication with one
+      # contender per cell, so widths 100 and 500 measured a load shape no claim
+      # rests on while costing 90.6% of the concurrency profile's runtime.
       - id: shared-root
-        scales: ["10", "50", "100", "500"]
+        scales: ["10", "50"]
         modes: [forced_queue_safety, natural_contention]
       - id: serial-control
         scales: ["1"]

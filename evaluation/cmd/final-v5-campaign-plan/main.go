@@ -61,7 +61,7 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 		return err
 	}
 	// Pilot planning retains the historical 129-cell profile matrix. Formal
-	// publication planning adds the 49 deployment-free cells explicitly.
+	// publication planning adds the 47 deployment-free cells explicitly.
 	if campaignClass == "pilot" {
 		required = required[:0]
 		for _, profile := range registry.Profiles {
@@ -194,8 +194,8 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 	}
 	sort.Strings(required)
 	sort.Slice(campaigns, func(i, j int) bool { return campaigns[i].ID < campaigns[j].ID })
-	if len(required) != 49 || len(nonProfile) != 49 || len(campaigns) != 3 {
-		return nil, nil, nil, fmt.Errorf("publication non-profile denominator is %d cells with %d groups/%d identities, want 49 and 3/49", len(required), len(campaigns), len(nonProfile))
+	if len(required) != 47 || len(nonProfile) != 47 || len(campaigns) != 2 {
+		return nil, nil, nil, fmt.Errorf("publication non-profile denominator is %d cells with %d groups/%d identities, want 47 and 2/47", len(required), len(campaigns), len(nonProfile))
 	}
 	return required, nonProfile, campaigns, nil
 }

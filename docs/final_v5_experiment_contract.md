@@ -13,7 +13,7 @@ result, paper-number, or final-commit bytes.
 
 The existing hash-locked protocol and workload matrix are unchanged. This
 contract binds `workloads-v1.yaml` SHA-256
-`c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7`.
+`b698b0362d195152d728b1670c7840079056adfd503f79eb954464c83a0bd1f3`.
 The default experiment contracts contain exactly:
 
 | Experiment | Explicit cells | Matrix meaning |

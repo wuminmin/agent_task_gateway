@@ -39,7 +39,7 @@ func TestNonProfileSmokeLauncherIsPilotOnlyAndReusesFrozenRunners(t *testing.T) 
 		`-u TASKGATE_DATASET_BINDINGS`,
 		`-u TASKGATE_FINAL_V5_BINDING_FILE_SHA256`,
 		`-u TASKGATE_FINAL_V5_BINDING_SECTION_SHA256`,
-		`if [[ "$nonprofile_id" == scale-outcome-merkle || "$nonprofile_id" == scale-kernel-storage ]]; then`,
+		`if [[ "$nonprofile_id" == scale-outcome-merkle ]]; then`,
 		`TASKGATE_DATASET_BINDINGS=$nonprofile_binding_path`,
 		`TASKGATE_FINAL_V5_BINDING_FILE_SHA256=$binding_file_sha`,
 		`TASKGATE_FINAL_V5_BINDING_SECTION_SHA256=$binding_section_sha`,
@@ -49,7 +49,7 @@ func TestNonProfileSmokeLauncherIsPilotOnlyAndReusesFrozenRunners(t *testing.T) 
 		`campaign_class:"pilot",pilot_kind:"nonprofile_smoke",publication_eligible:false,formal_campaign:false`,
 		`profile_binding:"forbidden"`,
 		`P63E-CELL: cell=`,
-		`cells=49/49`,
+		`cells=47/47`,
 		`deployments=0`,
 	} {
 		if !strings.Contains(script, required) {

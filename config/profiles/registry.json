@@ -299,12 +299,8 @@
         "concurrency/serial-control/1/serial",
         "concurrency/shared-root/10/forced_queue_safety",
         "concurrency/shared-root/10/natural_contention",
-        "concurrency/shared-root/100/forced_queue_safety",
-        "concurrency/shared-root/100/natural_contention",
         "concurrency/shared-root/50/forced_queue_safety",
-        "concurrency/shared-root/50/natural_contention",
-        "concurrency/shared-root/500/forced_queue_safety",
-        "concurrency/shared-root/500/natural_contention"
+        "concurrency/shared-root/50/natural_contention"
       ],
       "experiments": [
         "concurrency"

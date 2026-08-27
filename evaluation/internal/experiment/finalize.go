@@ -583,8 +583,6 @@ func validateNonProfileSelection(config Config, selected []string) error {
 	switch config.ProtocolProfile {
 	case "scale":
 		wantWorkload = "outcome-merkle"
-	case "scale-extreme":
-		wantWorkload = "taskgate_scale_extreme"
 	case "compiler":
 		// Every Compiler cell is deployment-free.
 	default:

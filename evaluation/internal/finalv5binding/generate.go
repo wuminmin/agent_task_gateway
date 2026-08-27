@@ -252,14 +252,10 @@ func validateContractRuntimeClosure(runtime *finalv5contracts.Runtime) (bool, er
 	if len(seenScale) != len(wantedScale) {
 		return false, fmt.Errorf("Scale Contract runtime has %d dependency cells; expected exactly 24", len(seenScale))
 	}
-	extremeCells, err := runtime.ProtocolProfileCells("scale-extreme")
-	if err != nil {
-		return false, fmt.Errorf("load fixed Scale extreme protocol cells: %w", err)
-	}
-	enableExtreme, err := scaleExtremeFeatureEnabled(extremeCells)
-	if err != nil {
-		return false, err
-	}
+	// scale-extreme was removed in contract v1.11; its extreme feature is
+	// permanently off. scaleExtremeFeatureEnabled remains the source-controlled
+	// oracle for the two-cell grid and is still exercised in isolation.
+	enableExtreme := false
 
 	provSQLCells, err := runtime.ProtocolProfileCells("provsql")
 	if err != nil {

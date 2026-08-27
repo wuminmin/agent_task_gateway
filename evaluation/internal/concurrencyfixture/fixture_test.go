@@ -37,7 +37,7 @@ func TestFrozenConcurrencyFixtureIsExactAndDeterministic(t *testing.T) {
 	if err := Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(FrozenCells) != 9 {
+	if len(FrozenCells) != 5 {
 		t.Fatalf("cells = %d", len(FrozenCells))
 	}
 	for _, cell := range FrozenCells {
@@ -46,13 +46,13 @@ func TestFrozenConcurrencyFixtureIsExactAndDeterministic(t *testing.T) {
 			t.Fatalf("lookup %+v = %+v, %v", cell, got, ok)
 		}
 	}
-	if _, ok := Lookup("shared-root", "500", "client_barrier"); ok {
+	if _, ok := Lookup("shared-root", "50", "client_barrier"); ok {
 		t.Fatal("client-only concurrency mode was accepted")
 	}
 }
 
 func TestNaturalContentionWidthsUseTheRetainedTenRequestWindow(t *testing.T) {
-	wantQueued := map[int]int{10: 0, 50: 40, 100: 90, 500: 490}
+	wantQueued := map[int]int{10: 0, 50: 40}
 	for _, cell := range FrozenCells {
 		if cell.Mode != "natural_contention" {
 			continue
@@ -75,7 +75,7 @@ func TestNaturalContentionWidthsUseTheRetainedTenRequestWindow(t *testing.T) {
 func TestRoundAndParticipantBindingsAreStableAndUnique(t *testing.T) {
 	operation := RoundIdentity{
 		CampaignID: "campaign", DeploymentID: "deployment-01", ExperimentID: "concurrency",
-		CellID: "shared-root/500/natural_contention", SampleID: "sample", Iteration: 1,
+		CellID: "shared-root/50/natural_contention", SampleID: "sample", Iteration: 1,
 		ProcessReplicate: 1, PairID: "pair", RootGroupID: "root",
 	}
 	first := RoundSHA256(operation)
@@ -83,7 +83,7 @@ func TestRoundAndParticipantBindingsAreStableAndUnique(t *testing.T) {
 	if first != second {
 		t.Fatal("round binding is nondeterministic")
 	}
-	participants := ParticipantSHA256s(first, 500)
+	participants := ParticipantSHA256s(first, 50)
 	seen := map[string]bool{}
 	for _, participant := range participants {
 		if seen[participant] {
@@ -91,7 +91,7 @@ func TestRoundAndParticipantBindingsAreStableAndUnique(t *testing.T) {
 		}
 		seen[participant] = true
 	}
-	if ParticipantSetSHA256(first, 500) == ParticipantSetSHA256(first, 499) {
+	if ParticipantSetSHA256(first, 50) == ParticipantSetSHA256(first, 49) {
 		t.Fatal("participant-set digest does not bind width")
 	}
 }

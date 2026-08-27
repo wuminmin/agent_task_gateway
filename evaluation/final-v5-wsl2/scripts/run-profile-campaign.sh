@@ -1253,7 +1253,6 @@ else
     nonprofile_experiment="$(jq -er --arg id "$nonprofile_id" '.non_profile_campaigns[] | select(.id == $id) | .experiment_id' "$plan")"
     case "$nonprofile_id" in
       scale-outcome-merkle) nonprofile_config_source=evaluation/final-v5-wsl2/config/scale.example.json ;;
-      scale-kernel-storage) nonprofile_config_source=evaluation/final-v5-wsl2/config/scale-extreme.example.json ;;
       compiler) nonprofile_config_source=evaluation/final-v5-wsl2/config/compiler-scale.example.json ;;
       *) echo "unknown non-profile campaign $nonprofile_id" >&2; exit 1 ;;
     esac

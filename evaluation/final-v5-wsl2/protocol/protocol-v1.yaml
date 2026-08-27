@@ -7,7 +7,10 @@ campaign:
   fresh_wsl_restart_between_deployments: true
   replicate_contracts:
     standard:
-      profiles: [baseline, scale, scale-extreme, artifact, provsql, concurrency]
+      # scale-extreme carried 10m/100m kernel-storage cells. The paper states the
+      # radix results are not million-scale latency, and no hypothesis here covers
+      # those cells, so the profile is withdrawn rather than measured.
+      profiles: [baseline, scale, artifact, provsql, concurrency]
       process_replicates: 1
       warmups_per_cell_per_process: 5
       measured_samples_per_cell_per_process: 30

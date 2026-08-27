@@ -48,7 +48,6 @@ source_paths="$campaign_root/source/source-paths.txt"
   printf '%s\n' \
     evaluation/final-v5-wsl2/scripts/run-nonprofile-smoke.sh \
     evaluation/final-v5-wsl2/config/scale.example.json \
-    evaluation/final-v5-wsl2/config/scale-extreme.example.json \
     evaluation/final-v5-wsl2/config/compiler-scale.example.json \
     db/init/08-final-v5-compiler-fixture.sql \
     evaluation/final-v5-wsl2/protocol/protocol-v1.yaml \
@@ -172,10 +171,6 @@ for nonprofile_id in "${nonprofile_ids[@]}"; do
       nonprofile_config_source=evaluation/final-v5-wsl2/config/scale.example.json
       nonprofile_runner=v5-scale
       ;;
-    scale-kernel-storage)
-      nonprofile_config_source=evaluation/final-v5-wsl2/config/scale-extreme.example.json
-      nonprofile_runner=v5-scale
-      ;;
     compiler)
       nonprofile_config_source=evaluation/final-v5-wsl2/config/compiler-scale.example.json
       nonprofile_runner=view-scale
@@ -183,7 +178,7 @@ for nonprofile_id in "${nonprofile_ids[@]}"; do
     *) echo "unknown non-profile campaign $nonprofile_id" >&2; exit 1 ;;
   esac
   nonprofile_binding_path=""
-  if [[ "$nonprofile_id" == scale-outcome-merkle || "$nonprofile_id" == scale-kernel-storage ]]; then
+  if [[ "$nonprofile_id" == scale-outcome-merkle ]]; then
     # Static audit: both Scale branches call loadAdapterDeploymentBinding;
     # Compiler does not. Inject only into the two actual consumers.
     nonprofile_binding_path="$dataset_binding"
@@ -342,22 +337,21 @@ jq -s --arg campaign_id "$TASKGATE_CAMPAIGN_ID" --arg baseline_commit "$TASKGATE
 chmod 600 "$campaign_manifest"
 jq -e '
   .status == "pass" and .campaign_class == "pilot" and .publication_eligible == false and
-  .formal_campaign == false and .deployments == 0 and (.groups | length) == 3 and
-  ([.groups[].id] | sort) == ["compiler","scale-kernel-storage","scale-outcome-merkle"] and
+  .formal_campaign == false and .deployments == 0 and (.groups | length) == 2 and
+  ([.groups[].id] | sort) == ["compiler","scale-outcome-merkle"] and
   .private_dataset_binding.current_valid == true and
   .private_dataset_binding.sha256 == "3ae86ce4d2b7a94916dc11e5e0092ec5e5280ec6e27a2964a50bda43bcc13380" and
   .private_dataset_binding.section_sha256 == "b088b75e2c81a39ad5219ea36a4d1c8c8abf3e11e32570ddce3ad0b8bb756d5c" and
-  ([.groups[] | select(.id == "scale-outcome-merkle" or .id == "scale-kernel-storage") |
-    .private_dataset_binding.consumed] == [true,true]) and
+  ([.groups[] | select(.id == "scale-outcome-merkle") |
+    .private_dataset_binding.consumed] == [true]) and
   ([.groups[] | select(.id == "compiler") | .private_dataset_binding.consumed] == [false]) and
-  (.cell_results | length) == 49 and ([.cell_results[].cell] | unique | length) == 49 and
+  (.cell_results | length) == 47 and ([.cell_results[].cell] | unique | length) == 47 and
   all(.cell_results[]; .result == "pass" and .failed == 0 and .invalid == 0) and
   ([.groups[] | select(.id == "scale-outcome-merkle") | .cell_results | length] == [36]) and
-  ([.groups[] | select(.id == "scale-kernel-storage") | .cell_results | length] == [2]) and
-  ([.groups[] | select(.id == "compiler") | .cell_results | length] == [11])' \
+    ([.groups[] | select(.id == "compiler") | .cell_results | length] == [11])' \
   "$campaign_manifest" >/dev/null
 jq -r '.cell_results | sort_by(.cell)[] |
   "P63E-CELL: cell=\(.cell) result=\(.result) n=\(.n) p50_ms=\(.p50_ms) p95_ms=\(.p95_ms) failed=\(.failed) invalid=\(.invalid)"' \
   "$campaign_manifest"
-echo "P63E-STAGE: nonprofile_smoke=pass cells=49/49 scale_outcome=36/36 scale_extreme=2/2 compiler=11/11 fresh_executions=3 binding_current_valid=true binding_file_sha256=$binding_file_sha binding_section_sha256=$binding_section_sha deployments=0 campaign_class=pilot publication_eligible=false evidence=$campaign_manifest"
+echo "P63E-STAGE: nonprofile_smoke=pass cells=47/47 scale_outcome=36/36 compiler=11/11 fresh_executions=3 binding_current_valid=true binding_file_sha256=$binding_file_sha binding_section_sha256=$binding_section_sha deployments=0 campaign_class=pilot publication_eligible=false evidence=$campaign_manifest"
 trap - EXIT

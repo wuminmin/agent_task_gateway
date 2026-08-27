@@ -29,7 +29,7 @@ func TestBenchmarkS2S4S5QueriesAndCanonicalNormalizerRemainFrozen(t *testing.T) 
 		// rationale in the S2 workload spec. The query and normalizer pins
 		// below are deliberately NOT regenerated: they are the historical
 		// author-approved constants that prove v1.5 moved prose only.
-		"contracts/baseline-v1.json":     "d9ace81d1430565d3500a6263ce5a15f3676095ecb21a5e4d323537bb2d6518d",
+		"contracts/baseline-v1.json":     "d045698711b46195d975057f9ebec3c8c76cb6401dd9539cab4591c7a64ae90a",
 		"sql/contracts/S2-bdg.sql":       "78c29c7cc060923df4c25b3290a87d15a49a918f2b9718a3dc3d03a48df81480",
 		"sql/contracts/S2-direct.sql":    "53e6875c7797e6d2bd5500623f63a62e7e52ab5cda1a79141266254519e32f81",
 		"sql/contracts/S4-bdg.sql":       "fafc7435240891dd33bdb5da679fc3b5dded2ae441166c5d8a1bfceb3325ce5a",

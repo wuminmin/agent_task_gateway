@@ -46,8 +46,8 @@ or permission to generate a Campaign ID or set `TASKGATE_SUBMISSION_COMMIT`.
 
 | Bound bytes | Current SHA-256 | What the binding currently proves |
 | --- | --- | --- |
-| `protocol/protocol-v1.yaml` | `b652e81ee669f0a54a0b5f954d2803e3119707ce0ea415472d6993871c284f3f` | Claim boundary, deployment count, profile-specific replicate matrix, general protocol rules, and the current status string |
-| `protocol/workloads-v1.yaml` | `c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7` | Ordered workload/scale/mode matrices |
+| `protocol/protocol-v1.yaml` | `a7cd2cd4bcc18b9a1b6e4cfccb4d9782576bee7769d4b0a707bed94467d17419` | Claim boundary, deployment count, profile-specific replicate matrix, general protocol rules, and the current status string |
+| `protocol/workloads-v1.yaml` | `b698b0362d195152d728b1670c7840079056adfd503f79eb954464c83a0bd1f3` | Ordered workload/scale/mode matrices |
 | `protocol/acceptance-rules-v1.yaml` | `16b5e3d5712d2498325b8bedc79d827c6547e1517bda89156cc2e7f1191cfcd1` | Publication acceptance text, invalid rules, and Pilot exclusion |
 | `protocol/statistics-v1.yaml` | `4c296e35d693c78d40048ea2fbb8500754b35d17a3ea85a11cb25cc60ba64a59` | Type-7 p50/p95/raw-n reporting, paired estimands, deterministic bootstrap, and failure retention |
 

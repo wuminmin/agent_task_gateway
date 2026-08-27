@@ -30,7 +30,7 @@ const (
 	// natural-contention window that produced real OutcomeRadix CAS telemetry
 	// without saturating the 32-connection Control and Connector pools.
 	ServiceActiveWindow        = 10
-	MaximumOfferedWidth        = 500
+	MaximumOfferedWidth        = 50
 	MinimumServiceQueue        = MaximumOfferedWidth - ServiceActiveWindow
 	MinimumProductionPoolWidth = 32
 
@@ -68,10 +68,6 @@ var FrozenCells = []Cell{
 	{WorkloadID: "shared-root", Scale: "10", Mode: "natural_contention", Width: 10},
 	{WorkloadID: "shared-root", Scale: "50", Mode: "forced_queue_safety", Width: 50},
 	{WorkloadID: "shared-root", Scale: "50", Mode: "natural_contention", Width: 50},
-	{WorkloadID: "shared-root", Scale: "100", Mode: "forced_queue_safety", Width: 100},
-	{WorkloadID: "shared-root", Scale: "100", Mode: "natural_contention", Width: 100},
-	{WorkloadID: "shared-root", Scale: "500", Mode: "forced_queue_safety", Width: 500},
-	{WorkloadID: "shared-root", Scale: "500", Mode: "natural_contention", Width: 500},
 	{WorkloadID: "serial-control", Scale: "1", Mode: "serial", Width: 1},
 }
 
@@ -196,8 +192,8 @@ func jsonSHA256(value any) string {
 }
 
 func Validate() error {
-	if len(FrozenCells) != 9 || len(PrefixSQL) != 3 || ServiceActiveWindow != 10 ||
-		MaximumOfferedWidth != 500 || MinimumServiceQueue != 490 ||
+	if len(FrozenCells) != 5 || len(PrefixSQL) != 3 || ServiceActiveWindow != 10 ||
+		MaximumOfferedWidth != 50 || MinimumServiceQueue != 40 ||
 		ServiceActiveWindow >= MinimumProductionPoolWidth {
 		return fmt.Errorf("concurrency fixture matrix or prefix is incomplete")
 	}

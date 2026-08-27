@@ -30,7 +30,7 @@ const (
 	authorApproved      = "AUTHOR_APPROVED_FOR_IMPLEMENTATION"
 	notApproved         = "NOT_APPROVED"
 	notGenerated        = "NOT_GENERATED"
-	workloadManifestSHA = "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7"
+	workloadManifestSHA = "b698b0362d195152d728b1670c7840079056adfd503f79eb954464c83a0bd1f3"
 
 	// Reviewed contract releases. v1.1 corrects the int4 overflow in the
 	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md. v1.3 is a
@@ -51,6 +51,7 @@ const (
 	contractReleaseV18  = "final-v5-contracts-v1.8"
 	contractReleaseV19  = "final-v5-contracts-v1.9"
 	contractReleaseV110 = "final-v5-contracts-v1.10"
+	contractReleaseV111 = "final-v5-contracts-v1.11"
 )
 
 var (
@@ -1113,6 +1114,7 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 		contractReleaseV18:  {contractReleaseV17, "contracts/AMENDMENT-v1.8.md"},
 		contractReleaseV19:  {contractReleaseV18, "contracts/AMENDMENT-v1.9.md"},
 		contractReleaseV110: {contractReleaseV19, "contracts/AMENDMENT-v1.10.md"},
+		contractReleaseV111: {contractReleaseV110, "contracts/AMENDMENT-v1.11.md"},
 	}
 	expected, reviewed := chain[index.ContractRelease]
 	if !reviewed || index.SupersedesContractRelease != expected[0] {

@@ -8,7 +8,7 @@
   "protocol_profile": "scale",
   "protocol_matrix": {
     "source": "protocol/workloads-v1.yaml#profiles.scale",
-    "workload_manifest_sha256": "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7",
+    "workload_manifest_sha256": "b698b0362d195152d728b1670c7840079056adfd503f79eb954464c83a0bd1f3",
     "bytes_and_labels_unchanged": true,
     "expected_expanded_cell_count": 60,
     "scale_extreme_default_cell_count": 0

@@ -86,7 +86,7 @@ func validateConcurrencyVerificationWithNaturalConflict(sample Sample, requireNa
 		evidence.HTTPQueueCapacity < int64(concurrencyfixture.MinimumServiceQueue) ||
 		evidence.ControlPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) ||
 		evidence.ConnectorPoolCapacity < int64(concurrencyfixture.MinimumProductionPoolWidth) {
-		return errors.New("concurrency run lacks the preregistered 500-client production capacity")
+		return errors.New("concurrency run lacks the preregistered 50-client production capacity")
 	}
 	if evidence.ServiceArrivals != width || evidence.ServiceUniqueParticipants != width ||
 		evidence.ServiceParticipantSetSHA256 != concurrencyfixture.ParticipantSetSHA256(expectedRound, int(width)) ||

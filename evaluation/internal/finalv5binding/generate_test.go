@@ -235,8 +235,8 @@ func TestVerifiedRuntimeClosesScaleAndProvSQLPublicMatrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !enableExtreme {
-		t.Fatal("verified runtime did not enable its exact Scale extreme grid")
+	if enableExtreme {
+		t.Fatal("verified runtime enabled the Scale extreme grid removed in contract v1.11")
 	}
 }
 

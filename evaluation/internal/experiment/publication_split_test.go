@@ -12,7 +12,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5publication"
 )
 
-func TestSplitPublicationPlanRequires129Plus38Plus11WithoutProfileFiction(t *testing.T) {
+func TestSplitPublicationPlanRequires125Plus36Plus11WithoutProfileFiction(t *testing.T) {
 	plan := splitPublicationPlanFixture()
 	if err := ValidateSplitPublicationPlan(plan); err != nil {
 		t.Fatalf("valid split publication plan: %v", err)
@@ -26,7 +26,7 @@ func TestSplitPublicationPlanRequires129Plus38Plus11WithoutProfileFiction(t *tes
 		{"scale denominator", func(value *finalv5profile.CampaignPlan) {
 			value.NonProfileCampaigns[0].Cells = value.NonProfileCampaigns[0].Cells[1:]
 		}},
-		{"compiler processes", func(value *finalv5profile.CampaignPlan) { value.NonProfileCampaigns[2].ProcessReplicates = 1 }},
+		{"compiler processes", func(value *finalv5profile.CampaignPlan) { value.NonProfileCampaigns[1].ProcessReplicates = 1 }},
 		{"state inheritance", func(value *finalv5profile.CampaignPlan) { value.NonProfileCampaigns[0].StateInheritance = true }},
 		{"profile binding fiction", func(value *finalv5profile.CampaignPlan) { value.NonProfileCampaigns[0].ProfileBinding = "required" }},
 		{"pilot aggregate", func(value *finalv5profile.CampaignPlan) {
@@ -137,10 +137,10 @@ func TestPublicationFinalizerMaterialDispatchIsClosedAndHashBound(t *testing.T) 
 }
 
 func splitPublicationPlanFixture() finalv5profile.CampaignPlan {
-	plan := finalv5profile.CampaignPlan{ContractRelease: "final-v5-contracts-v1.10"}
+	plan := finalv5profile.CampaignPlan{ContractRelease: "final-v5-contracts-v1.11"}
 	for deployment := 0; deployment < 11; deployment++ {
 		cells := 11
-		if deployment < 8 {
+		if deployment < 4 {
 			cells = 12
 		}
 		entry := finalv5profile.PlannedDeploy{Alias: fmt.Sprintf("profile-%02d", deployment), Ready: true}
@@ -151,9 +151,6 @@ func splitPublicationPlanFixture() finalv5profile.CampaignPlan {
 	}
 	add := func(id, experiment string, count, processes, warmups, samples int) {
 		profile := experiment
-		if id == "scale-kernel-storage" {
-			profile = "scale-extreme"
-		}
 		entry := finalv5profile.PlannedNonProfileCampaign{ID: id, ExperimentID: experiment,
 			ProtocolProfile: profile,
 			ExecutionModel:  "deployment_free_process", FreshExecutions: 3, ProcessReplicates: processes,
@@ -166,7 +163,6 @@ func splitPublicationPlanFixture() finalv5profile.CampaignPlan {
 		plan.NonProfileCampaigns = append(plan.NonProfileCampaigns, entry)
 	}
 	add("scale-outcome-merkle", "scale", 36, 1, 5, 30)
-	add("scale-kernel-storage", "scale", 2, 1, 5, 30)
 	add("compiler", "compiler", 11, 5, 1, 100)
 	return plan
 }

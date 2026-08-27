@@ -24,8 +24,8 @@ approved those bytes.
 | `paper/tkde/main.tex` | `a20a26ece45b6f9f09b351f8b916bf399e26237539526e62c19f7fe83e3c0be2` | `NOT_CONFIRMED` |
 | `paper/tkde/supplement.tex` | `e973c665db1b933950e6e968976b7ee1ea018c0bcce86ef68a2a0bb24d764a80` | `NOT_CONFIRMED` |
 | `docs/m3_clearance_accounting_claim_matrix.md` | `ae6da63cd537639708d7eb211dff317e2b37440fa0b32e726642032f31a76c48` | `NOT_CONFIRMED` |
-| `evaluation/final-v5-wsl2/protocol/protocol-v1.yaml` | `b652e81ee669f0a54a0b5f954d2803e3119707ce0ea415472d6993871c284f3f` | `NOT_CONFIRMED` |
-| `evaluation/final-v5-wsl2/protocol/workloads-v1.yaml` | `c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7` | `NOT_CONFIRMED` |
+| `evaluation/final-v5-wsl2/protocol/protocol-v1.yaml` | `a7cd2cd4bcc18b9a1b6e4cfccb4d9782576bee7769d4b0a707bed94467d17419` | `NOT_CONFIRMED` |
+| `evaluation/final-v5-wsl2/protocol/workloads-v1.yaml` | `b698b0362d195152d728b1670c7840079056adfd503f79eb954464c83a0bd1f3` | `NOT_CONFIRMED` |
 | `config/catalog.yaml` | `190f9b1096eb4ea182fdca107395a725de655656c117d771853d5578ddf54566` | `NOT_CONFIRMED` |
 
 ## Research design approved by the current instruction

@@ -48,8 +48,8 @@ type SplitPublicationCampaignSummary struct {
 // The values are deliberately exact: changing any denominator or execution
 // model requires a new source-controlled plan rather than a permissive reader.
 func ValidateSplitPublicationPlan(plan finalv5profile.CampaignPlan) error {
-	if plan.ContractRelease != "final-v5-contracts-v1.10" {
-		return fmt.Errorf("publication plan names contract release %q, want final-v5-contracts-v1.10", plan.ContractRelease)
+	if plan.ContractRelease != "final-v5-contracts-v1.11" {
+		return fmt.Errorf("publication plan names contract release %q, want final-v5-contracts-v1.11", plan.ContractRelease)
 	}
 	profileCells := 0
 	profileSeen := map[string]bool{}
@@ -65,8 +65,8 @@ func ValidateSplitPublicationPlan(plan finalv5profile.CampaignPlan) error {
 			profileCells++
 		}
 	}
-	if len(plan.Deployments) != 11 || profileCells != 129 || len(plan.PreregisteredAggregates) != 0 {
-		return fmt.Errorf("publication profile plan is %d deployments/%d cells/%d pilot aggregates, want 11/129/0",
+	if len(plan.Deployments) != 11 || profileCells != 125 || len(plan.PreregisteredAggregates) != 0 {
+		return fmt.Errorf("publication profile plan is %d deployments/%d cells/%d pilot aggregates, want 11/125/0",
 			len(plan.Deployments), profileCells, len(plan.PreregisteredAggregates))
 	}
 	nonProfileSeen := map[string]bool{}
@@ -76,7 +76,6 @@ func ValidateSplitPublicationPlan(plan finalv5profile.CampaignPlan) error {
 		cells, processes, warmups, samples int
 	}{
 		"scale-outcome-merkle": {"scale", "scale", 36, 1, 5, 30},
-		"scale-kernel-storage": {"scale", "scale-extreme", 2, 1, 5, 30},
 		"compiler":             {"compiler", "compiler", 11, 5, 1, 100},
 	}
 	for _, campaign := range plan.NonProfileCampaigns {
@@ -104,9 +103,9 @@ func ValidateSplitPublicationPlan(plan finalv5profile.CampaignPlan) error {
 			}
 		}
 	}
-	if len(plan.NonProfileCampaigns) != 3 || len(nonProfileSeen) != 49 || scaleCells != 38 || compilerCells != 11 ||
+	if len(plan.NonProfileCampaigns) != 2 || len(nonProfileSeen) != 47 || scaleCells != 36 || compilerCells != 11 ||
 		len(plan.NonProfileCells) != len(nonProfileSeen) {
-		return fmt.Errorf("publication non-profile plan is groups/cells/scale/compiler=%d/%d/%d/%d, want 3/49/38/11",
+		return fmt.Errorf("publication non-profile plan is groups/cells/scale/compiler=%d/%d/%d/%d, want 2/47/36/11",
 			len(plan.NonProfileCampaigns), len(nonProfileSeen), scaleCells, compilerCells)
 	}
 	for _, cell := range plan.NonProfileCells {
@@ -196,7 +195,7 @@ func FinalizeSplitPublicationCampaign(root, planPath string) (SplitPublicationCa
 			FreshExecutions: 3, ProfileBinding: "required", StateInheritance: false, EvidenceSHA256: profileDigests},
 		NonProfile: nonProfile,
 	}
-	if summary.ProfileCells != 129 || summary.ScaleNonProfile != 38 || summary.CompilerNonProfile != 11 || summary.TotalCells != 178 {
+	if summary.ProfileCells != 125 || summary.ScaleNonProfile != 36 || summary.CompilerNonProfile != 11 || summary.TotalCells != 178 {
 		return SplitPublicationCampaignSummary{}, errors.New("publication evidence does not close the 129+38+11 denominator")
 	}
 	return summary, nil
@@ -244,8 +243,8 @@ func finalizePublicationProfiles(root string, plan finalv5profile.CampaignPlan) 
 		}
 	}
 	sort.Strings(recordDigests)
-	if len(seenRecords) != 33 || len(seenCells) != 129 || campaignID == "" || !fullSHA.MatchString(commit) {
-		return 0, "", "", nil, fmt.Errorf("profile publication evidence is records/cells=%d/%d, want 33/129", len(seenRecords), len(seenCells))
+	if len(seenRecords) != 33 || len(seenCells) != 125 || campaignID == "" || !fullSHA.MatchString(commit) {
+		return 0, "", "", nil, fmt.Errorf("profile publication evidence is records/cells=%d/%d, want 33/125", len(seenRecords), len(seenCells))
 	}
 	return len(seenCells), campaignID, commit, recordDigests, nil
 }
