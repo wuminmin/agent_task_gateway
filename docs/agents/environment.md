@@ -46,6 +46,8 @@ WSL2 出网走 **Tailscale exit node = NAS（`ds423plus` `100.72.87.34`）**，�
 
 ## 磁盘与重启后核灾（2026-08-28 事故后立）
 
+2026-08-28 07:33–07:43 作者把 WSL VHD 从 C 盘迁到 D 盘（同一台机器、同一 VHD 文件）。迁后实测顺序写 4.8 GB/s、读 6.2 GB/s、4k fdatasync ~880 IOPS，不慢于旧盘（P77 记 1.8 GB/s）。
+
 WSL 根 VHD（`/dev/sdc`, ext4, `errors=remount-ro`）曾在正式 campaign 中进入 `emergency_ro`。重启后必查：
 `grep " / " /proc/mounts` 无 `emergency_ro`、`dmesg | grep -iE "ext4|I/O error"` 为 0、写探针成功、
 worktree `git fsck --no-dangling`、私有材料摘要（P45 signed binding `3bb2771f…` 110584B、`.env`）、
