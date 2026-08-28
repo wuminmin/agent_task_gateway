@@ -100,22 +100,22 @@ const baselineRealSystemValidated = true
 // real-system evidence; source parseability remains necessary and never
 // sufficient to advertise those governed TaskGate cells.
 var scalePublicationRequirements = expandPublicationWorkloads([]publicationWorkload{
-		{ID: "dependency-e2e", Scales: []string{
-			"10k-overlap-0", "10k-overlap-50", "10k-overlap-90", "10k-overlap-100",
-			"100k-overlap-0", "100k-overlap-50", "100k-overlap-90", "100k-overlap-100",
-			"1035000-overlap-0", "1035000-overlap-50", "1035000-overlap-90", "1035000-overlap-100",
-		}, Modes: []string{"novel", "semantic_replay"}},
-		{ID: "outcome-merkle", Scales: []string{
-			"10k-x1-o0", "10k-x1-o50", "10k-x1-o90", "10k-x1-o100",
-			"10k-x100-o0", "10k-x100-o50", "10k-x100-o90", "10k-x100-o100",
-			"10k-x10k-o0", "10k-x10k-o50", "10k-x10k-o90", "10k-x10k-o100",
-			"100k-x1-o0", "100k-x1-o50", "100k-x1-o90", "100k-x1-o100",
-			"100k-x100-o0", "100k-x100-o50", "100k-x100-o90", "100k-x100-o100",
-			"100k-x10k-o0", "100k-x10k-o50", "100k-x10k-o90", "100k-x10k-o100",
-			"1m-x1-o0", "1m-x1-o50", "1m-x1-o90", "1m-x1-o100",
-			"1m-x100-o0", "1m-x100-o50", "1m-x100-o90", "1m-x100-o100",
-			"1m-x10k-o0", "1m-x10k-o50", "1m-x10k-o90", "1m-x10k-o100",
-		}, Modes: []string{"merkle_control"}},
+	{ID: "dependency-e2e", Scales: []string{
+		"10k-overlap-0", "10k-overlap-50", "10k-overlap-90", "10k-overlap-100",
+		"100k-overlap-0", "100k-overlap-50", "100k-overlap-90", "100k-overlap-100",
+		"1035000-overlap-0", "1035000-overlap-50", "1035000-overlap-90", "1035000-overlap-100",
+	}, Modes: []string{"novel", "semantic_replay"}},
+	{ID: "outcome-merkle", Scales: []string{
+		"10k-x1-o0", "10k-x1-o50", "10k-x1-o90", "10k-x1-o100",
+		"10k-x100-o0", "10k-x100-o50", "10k-x100-o90", "10k-x100-o100",
+		"10k-x10k-o0", "10k-x10k-o50", "10k-x10k-o90", "10k-x10k-o100",
+		"100k-x1-o0", "100k-x1-o50", "100k-x1-o90", "100k-x1-o100",
+		"100k-x100-o0", "100k-x100-o50", "100k-x100-o90", "100k-x100-o100",
+		"100k-x10k-o0", "100k-x10k-o50", "100k-x10k-o90", "100k-x10k-o100",
+		"1m-x1-o0", "1m-x1-o50", "1m-x1-o90", "1m-x1-o100",
+		"1m-x100-o0", "1m-x100-o50", "1m-x100-o90", "1m-x100-o100",
+		"1m-x10k-o0", "1m-x10k-o50", "1m-x10k-o90", "1m-x10k-o100",
+	}, Modes: []string{"merkle_control"}},
 	// taskgate_scale_extreme (10m/100m kernel_storage_only) left the frozen
 	// protocol in v1.11 (author decision, 2026-08-27; 172-cell scope).
 })

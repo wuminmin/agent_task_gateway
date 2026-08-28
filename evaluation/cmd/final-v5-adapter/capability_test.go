@@ -195,8 +195,10 @@ func TestScaleRetainedRunsEnableCompleteCapability(t *testing.T) {
 	if dependencyCells != 24 {
 		t.Fatalf("Scale registry contains %d dependency-e2e cells, want 24", dependencyCells)
 	}
-	if len(coverage.implemented) != 62 {
-		t.Fatalf("Scale registry contains %d cells, want the complete 62-cell profile", len(coverage.implemented))
+	// 60 = 24 dependency-e2e + 36 outcome-merkle; the two scale-extreme cells
+	// left the frozen protocol in v1.11 (172-cell scope, 2026-08-27).
+	if len(coverage.implemented) != 60 {
+		t.Fatalf("Scale registry contains %d cells, want the complete 60-cell profile", len(coverage.implemented))
 	}
 	if !implementedCapabilities()["scale"] {
 		t.Fatal("Scale capability stayed false after source resolution and retained-run evidence both completed")
