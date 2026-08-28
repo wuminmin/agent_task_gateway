@@ -17,6 +17,7 @@ from v4_evidence import validate_v4_evidence
 from v4_supplemental_evidence import validate_v4_supplemental_evidence
 from rq5_evidence import validate_rq5_evidence
 from final_v5_pilot_evidence import validate_final_v5_pilot_evidence
+from final_v5_publication_evidence import validate_final_v5_publication_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -1112,6 +1113,7 @@ def main(argv: list[str] | None = None) -> None:
     v4_supplemental = validate_v4_supplemental_evidence(ROOT)
     rq5 = validate_rq5_evidence()
     pilot = validate_final_v5_pilot_evidence(ROOT)
+    publication = validate_final_v5_publication_evidence(ROOT)
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     outcome_formal = validate_formal(FORMAL_OUTCOME, "abstract outcome-set settlement")
@@ -1497,6 +1499,52 @@ def main(argv: list[str] | None = None) -> None:
     # closing brace adds no trailing token: booktabs' \bottomrule is a \noalign
     # and anything between it and the last terminator lands inside a cell.
     lines.append(r"\newcommand{\FinalVFivePilotBaselineTableBody}{%" + "\n" +
+                 "\n".join(rows) + "%\n}")
+    # The frozen publication campaign (campaign_class=publication,
+    # publication_eligible=true): one submission commit, every profile deployed
+    # three times fresh, plus the deployment-free Scale and Compiler
+    # sub-campaigns. Every number is re-derived from the retained sample bytes
+    # the campaign's own deployment records digest.
+    pub_baseline = publication["baseline"]
+    pub_s_one = pub_baseline["cell_medians"]["S1/SF10"]
+    pub_s_two = pub_baseline["cell_medians"]["S2/SF10"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationCampaign}}{{\texttt{{{publication['campaign_id']}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationCommit}}{{\texttt{{{publication['commit'][:12]}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationDeployments}}{{{publication['deployments']}}}",
+        rf"\newcommand{{\FinalVFivePublicationProfiles}}{{{publication['profiles']}}}",
+        rf"\newcommand{{\FinalVFivePublicationFreshExecutions}}{{{publication['fresh_executions']}}}",
+        rf"\newcommand{{\FinalVFivePublicationProfileCells}}{{{publication['profile_cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleNonProfileCells}}{{{publication['scale_non_profile_cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCompilerNonProfileCells}}{{{publication['compiler_non_profile_cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationTotalCells}}{{{publication['total_cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationMeasuredSamples}}{{{comma(publication['measured_samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationBaselineCells}}{{{pub_baseline['cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationBaselineSamples}}{{{comma(pub_baseline['samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationBaselinePerCell}}{{{pub_baseline['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePublicationReplayZeroSQLSamples}}{{{comma(pub_baseline['replay_zero_sql_samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationOverheadMin}}{{{decimal(pub_baseline['overhead_min'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationOverheadMax}}{{{decimal(pub_baseline['overhead_max'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationSOneNovelS}}{{{decimal(pub_s_one['novel_ms'] / 1000, 2)}}}",
+        rf"\newcommand{{\FinalVFivePublicationSOneReleaseFacts}}{{{comma(pub_baseline['exposure']['S1/SF10']['release'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationSTwoNovelS}}{{{decimal(pub_s_two['novel_ms'] / 1000, 2)}}}",
+        rf"\newcommand{{\FinalVFivePublicationSTwoRows}}{{{comma(pub_baseline['exposure']['S2/SF10']['rows'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationSTwoDependencyFacts}}{{{comma(pub_baseline['exposure']['S2/SF10']['dependency'])}}}",
+    ])
+    rows = []
+    for cell in sorted(pub_baseline["cell_medians"]):
+        medians = pub_baseline["cell_medians"][cell]
+        facts = pub_baseline["exposure"][cell]
+        def replay(key: str) -> str:
+            return decimal(medians[key], 2) if key in medians else "--"
+        rows.append(" & ".join([
+            cell.replace("_", r"\_"),
+            comma(facts["rows"]), comma(facts["release"]), comma(facts["dependency"]),
+            decimal(medians["direct_ms"], 2), decimal(medians["novel_ms"], 2),
+            replay("semantic_ms"), replay("idempotent_ms"),
+            decimal(medians["novel_over_direct"], 1) + r"$\times$",
+        ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationBaselineTableBody}{%" + "\n" +
                  "\n".join(rows) + "%\n}")
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
