@@ -55,13 +55,14 @@ func TestEveryPublicationRequirementMatchesFrozenProtocol(t *testing.T) {
 		cellCount    int
 	}{
 		{experimentID: "baseline", profiles: []string{"baseline"}, required: baselinePublicationRequirements, cellCount: 58},
-		{experimentID: "scale", profiles: []string{"scale", "scale-extreme"}, required: scalePublicationRequirements, cellCount: 62},
+		// scale-extreme left the frozen protocol in v1.11 (172-cell scope, 2026-08-27).
+		{experimentID: "scale", profiles: []string{"scale"}, required: scalePublicationRequirements, cellCount: 60},
 		{experimentID: "artifact", profiles: []string{"artifact"}, required: artifactPublicationRequirements, cellCount: 6},
 		{experimentID: "rls", profiles: []string{"rls"}, required: rlsPublicationRequirements, cellCount: 6},
 		{experimentID: "attack", profiles: []string{"attack"}, required: attackPublicationRequirements, cellCount: 15},
 		{experimentID: "provsql", profiles: []string{"provsql"}, required: provSQLPublicationRequirements, cellCount: 9},
 		{experimentID: "compiler", profiles: []string{"compiler"}, required: compilerPublicationRequirements, cellCount: 11},
-		{experimentID: "concurrency", profiles: []string{"concurrency"}, required: concurrencyPublicationRequirements, cellCount: 9},
+		{experimentID: "concurrency", profiles: []string{"concurrency"}, required: concurrencyPublicationRequirements, cellCount: 5},
 		{experimentID: "rq5", profiles: []string{"rq5"}, required: rq5PublicationRequirements, cellCount: 2},
 	}
 	for _, test := range tests {

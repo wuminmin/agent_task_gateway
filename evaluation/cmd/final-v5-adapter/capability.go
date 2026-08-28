@@ -118,9 +118,8 @@ var scalePublicationRequirements = append(
 			"1m-x10k-o0", "1m-x10k-o50", "1m-x10k-o90", "1m-x10k-o100",
 		}, Modes: []string{"merkle_control"}},
 	}),
-	expandPublicationWorkloads([]publicationWorkload{
-		{ID: "taskgate_scale_extreme", Scales: []string{"10m", "100m"}, Modes: []string{"kernel_storage_only"}},
-	})...,
+	// taskgate_scale_extreme (10m/100m kernel_storage_only) left the frozen
+	// protocol in v1.11 (author decision, 2026-08-27; 172-cell scope).
 )
 
 // scaleRealSystemValidated records whether retained, non-publication

@@ -54,6 +54,12 @@ worktree `git fsck --no-dangling`、私有材料摘要（P45 signed binding `3bb
 `docker info`、formal 镜像、go 模块缓存、残留 compose 项目清零、模块代理重启。
 私有材料不得由 Claude 复制出 WSL（权限策略），由作者从 Windows `\\wsl$` 自备份。
 
+## WSL ssh 会话的 umask 是 0002（2026-08-29 实测）
+
+非登录 ssh 会话下新建文件 664 / 目录 775；`finalv5publication` 的安全谓词（`approval.go:339/348`，`Perm()&0o022 != 0`）
+会把组可写的仓库文件/目录判为不安全，`git worktree add` 出来的第二工作树因此整包测试失败，`t.TempDir()` 下
+`MkdirAll(0o777)` 也会被拒。**所有跑测试/门禁的包装脚本一律先 `umask 022`**；新工作树检出后 `chmod -R g-w`。
+
 ## 正式 campaign 期间的硬约束
 
 - **不 push**：`final-v5-attestation-footprint`（`provenance.go`）与 `formalbuild.MaterializeHead`（`source.go`）都要求 HEAD==origin，
