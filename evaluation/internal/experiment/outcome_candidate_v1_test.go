@@ -511,11 +511,19 @@ func TestFinalizerRejectsAnEntirelyWrongButInternallyCoherentFiveMemberOutcomeSe
 	if err != nil {
 		t.Fatalf("identify prepared companion target: %v", err)
 	}
+	// The Outcome candidate is verified through the domain linker since
+	// 928ca83, so the trusted inputs must carry the linker, the frozen Catalog
+	// digest the oracle was generated from, and the candidate fact count;
+	// without them the finalizer refuses at "linker input is incomplete" before
+	// the member assertion this test is about.
 	trusted := TrustedInputsV3{
 		CatalogPath: material.CatalogPath, Footprint: footprint,
 		PostgreSQL: testRuntimeIdentity(), OperationID: inputs.OperationID,
 		ContractIdentity: inputs.ContractIdentity, Material: &material,
-		OutcomeCandidate: &expected, SettlementWroteExecutionBindingRow: true,
+		OutcomeCandidate: &expected, OutcomeCandidateCatalogSHA256: logicalCatalog.SHA256,
+		OutcomeCandidateFacts: finalv5oracle.DependencyScale10K,
+		OutcomeCandidateLinker: newOutcomeCandidateDomainLinkerV1(),
+		SettlementWroteExecutionBindingRow: true,
 	}
 	_, err = finalizeTaskGateObservationV3Core(receipt, verifier, carried, trusted)
 	if err == nil {
