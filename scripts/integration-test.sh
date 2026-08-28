@@ -130,6 +130,13 @@ COMPOSE_PORT_OVERRIDE="services:
       - control-plane
       - business-data
       - result-storage
+    # The runner image is built with **/raw dockerignored, so the retained
+    # qualification artifacts the Catalog-digest discovery looks for
+    # (evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-*/
+    # snapshot-index-artifacts-full) only exist on the evidence host. Mount that
+    # directory read-only so those tests run here instead of skipping.
+    volumes:
+      - ./evaluation/final-v5-wsl2/raw:/src/evaluation/final-v5-wsl2/raw:ro
     command: [\"go\", \"test\", \"-race\", \"./...\"]
 networks:
   integration-host:"
