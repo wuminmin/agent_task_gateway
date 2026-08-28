@@ -538,25 +538,36 @@ func validatePublicationAdapterStderr(root string, stderrFile, scanFile finalv5p
 	return nil
 }
 
+// publicationFormalBuildManifest is the strict wire copy of the formal Gateway
+// build manifest (formalbuild.BuildManifest). Importing formalbuild would create
+// a package cycle because formalbuild already uses experiment.GatewayRuntimeIdentityV1,
+// so every field the builder writes must be mirrored here: readStrictFile
+// rejects unknown fields, and a field added on the builder side without a mirror
+// here refuses an otherwise valid publication campaign at its very last step
+// (formal-v111-publication-03, 2026-08-29: module_proxy, added by d87fafe as a
+// transport-only record, was missing).
+type publicationFormalBuildManifest struct {
+	SchemaVersion        int    `json:"schema_version"`
+	SubmissionCommit     string `json:"submission_commit"`
+	CleanTreeAtBuild     bool   `json:"clean_tree_at_build"`
+	BuildContextSHA256   string `json:"build_context_sha256"`
+	SourceManifestSHA256 string `json:"source_manifest_sha256"`
+	ImageID              string `json:"image_id"`
+	ImageTag             string `json:"image_tag"`
+	Platform             string `json:"platform"`
+	BuildTarget          string `json:"build_target"`
+	BuilderBaseImage     string `json:"builder_base_image"`
+	RuntimeBaseImage     string `json:"runtime_base_image"`
+	DatasetBindingSHA256 string `json:"dataset_binding_sha256,omitempty"`
+	ProfileRegistrySHA   string `json:"profile_registry_sha256,omitempty"`
+	// ModuleProxy records the GOPROXY the builder was pointed at. It is
+	// transport only (go.sum decides the bytes) and takes no part in validation.
+	ModuleProxy string `json:"module_proxy,omitempty"`
+}
+
 func validatePublicationFormalGateway(root string, files map[publicationFileKey]finalv5profile.CampaignEvidenceFile,
 	binding ProfileBinding, record finalv5profile.ProfileCampaignDeploymentRecord, rawSummary json.RawMessage) error {
-	// Keep this wire copy exact. Importing formalbuild would create a package
-	// cycle because formalbuild already uses experiment.GatewayRuntimeIdentityV1.
-	var manifest struct {
-		SchemaVersion        int    `json:"schema_version"`
-		SubmissionCommit     string `json:"submission_commit"`
-		CleanTreeAtBuild     bool   `json:"clean_tree_at_build"`
-		BuildContextSHA256   string `json:"build_context_sha256"`
-		SourceManifestSHA256 string `json:"source_manifest_sha256"`
-		ImageID              string `json:"image_id"`
-		ImageTag             string `json:"image_tag"`
-		Platform             string `json:"platform"`
-		BuildTarget          string `json:"build_target"`
-		BuilderBaseImage     string `json:"builder_base_image"`
-		RuntimeBaseImage     string `json:"runtime_base_image"`
-		DatasetBindingSHA256 string `json:"dataset_binding_sha256,omitempty"`
-		ProfileRegistrySHA   string `json:"profile_registry_sha256,omitempty"`
-	}
+	var manifest publicationFormalBuildManifest
 	manifestFile := files[publicationFileKey{"formal_gateway_build_manifest", ""}]
 	runtimeFile := files[publicationFileKey{"formal_gateway_runtime", ""}]
 	overrideFile := files[publicationFileKey{"formal_gateway_compose_override", ""}]
