@@ -1346,6 +1346,7 @@ RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \R
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic and \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; Join/Union/Group paths \\
 RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, and \RQFourVFourOracleFacts{}-Fact oracle pass \\
 RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions \\
+Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} measured samples, all passing \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1357,25 +1358,42 @@ races. Outcome regressions cover empty probes, replay, radix tamper, and digest
 binding. Detailed fixtures, logs, and broad-SQL result-equivalence tests are
 supplemental.
 
-A retained non-publication run measured Baseline S1/S2's
-\FinalVFivePilotBaselineCells{} frozen cells. A novel governed query costs
-\FinalVFivePilotOverheadMin{}--\FinalVFivePilotOverheadMax{} times its direct
-PostgreSQL equivalent, and that cost follows the Dependency set, not the answer:
-S2/SF10 returns \FinalVFivePilotSTwoRows{} grouped rows over
-\FinalVFivePilotSTwoDependencyFacts{} dependencies in
-\FinalVFivePilotSTwoNovelS{}~s, longer than S1/SF10 needs to release
-\FinalVFivePilotSOneReleaseFacts{} Facts (\FinalVFivePilotSOneNovelS{}~s). All
-\FinalVFivePilotReplayZeroSQLSamples{} replay samples issued zero business SQL;
-the supplement tabulates every cell.
+The frozen publication campaign (\FinalVFivePublicationCampaign{}, commit
+\FinalVFivePublicationCommit{}) executed all \FinalVFivePublicationTotalCells{}
+frozen cells---\FinalVFivePublicationProfileCells{} profile cells across
+\FinalVFivePublicationDeployments{} fresh deployments of
+\FinalVFivePublicationProfiles{} profiles, each deployed
+\FinalVFivePublicationFreshExecutions{} times, plus
+\FinalVFivePublicationScaleNonProfileCells{} Scale and
+\FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
+cells---and every one of its \FinalVFivePublicationMeasuredSamples{} measured
+samples passed with a verified Receipt. On Baseline S1/S2's
+\FinalVFivePublicationBaselineCells{} cells a novel governed query costs
+\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{} times
+its direct PostgreSQL equivalent, and that cost follows the Dependency set, not
+the answer: S2/SF10 returns \FinalVFivePublicationSTwoRows{} grouped rows over
+\FinalVFivePublicationSTwoDependencyFacts{} dependencies in
+\FinalVFivePublicationSTwoNovelS{}~s, longer than S1/SF10 needs to release
+\FinalVFivePublicationSOneReleaseFacts{} Facts
+(\FinalVFivePublicationSOneNovelS{}~s). All
+\FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
+business SQL; the supplement tabulates every cell.
 
 \subsection{Reproducibility Boundary}
 
-The frozen publication campaign has not run, so no measurement here is
-publication-class: the runs above are \FinalVFivePilotArtifactSamples{} artifact
-samples over
+Every performance number above is publication-class: one submission commit
+(\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
+isolated deployments on one host, three independent executions per profile,
+and no state carried between them. The earlier retained pilot runs
+(\FinalVFivePilotArtifactSamples{} artifact samples over
 \FinalVFivePilotArtifactCells{} result-heavy cells across
 \FinalVFivePilotArtifactDeployments{} deployments of commit
-\FinalVFivePilotArtifactCommit{}, plus one Baseline deployment.
+\FinalVFivePilotArtifactCommit{}, plus one Baseline deployment) remain
+non-publication mechanism evidence and are cited only as such in the
+supplement. One residual freedom lies outside the mechanism: an Adapter may
+open several windows and submit only one; the experiment protocol, not the
+Gateway, forbids that, and every retained sample here is the single window the
+protocol allowed.
 RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host, and
 TPC-H-derived (not official). Archived V4 used one index build and deployment rather than
 \RQFourVFourRoots{} independent deployments. Retained raw data reconstructs each

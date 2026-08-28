@@ -926,6 +926,37 @@ Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Ov
 \end{tabular}
 \end{table}
 
+\section{Publication Campaign: Per-Cell Governed Cost}
+\label{sec:baseline-publication-supp}
+
+Table~\ref{tab:baseline-publication} expands the main text's summary of the
+frozen publication campaign \FinalVFivePublicationCampaign{}
+(\texttt{campaign\_class=publication},
+\texttt{publication\_eligible=true}): \FinalVFivePublicationDeployments{}
+fresh deployments of commit \FinalVFivePublicationCommit{},
+\FinalVFivePublicationBaselinePerCell{} measured samples per Baseline cell
+across three independent executions, all
+\FinalVFivePublicationBaselineSamples{} samples passing with a verified
+Receipt on every governed arm. The retained pilot of
+Section~\ref{sec:baseline-pilot-supp} is the earlier single-deployment run of
+the same cells and is kept only as mechanism evidence.
+
+\begin{table}[t]
+\centering
+\caption{Publication campaign Baseline, per cell. Medians in milliseconds over
+\FinalVFivePublicationBaselinePerCell{} samples (three fresh executions).
+Overhead is novel over direct.}
+\label{tab:baseline-publication}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Overhead \\
+\midrule
+\FinalVFivePublicationBaselineTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
 Charging separates cleanly from latency. Across every replay sample the business
 database was not contacted, and the semantic and normalized-rewrite modes
 settled all three Fact budgets at zero while recording the same actual Result,
