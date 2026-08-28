@@ -26,7 +26,14 @@ const (
 	run04JSONBScope   = `{"category": ["alpha", "beta", "delta", "gamma"]}`
 
 	run04GrantSHA256              = "646a66b82e4e2196481198a64583925acdd1a866d9710835cf2be7aa27602163"
-	run04PreparationInputsSHA256  = "87dbe20076297104b0a5c12f01a80a4515f4e4cad8fa9b208da026b9a9d40c42"
+	// Re-pinned 2026-08-29: the only change to the result-heavy profile Catalog
+	// since the 2026-08-10 pin is 900fc96 (v1.11 release-freeze reprojection of
+	// the default route budget summary-manual-v5 -> final-v5-baseline-low-v1),
+	// which moves the Catalog view these inputs embed. The grant digest and the
+	// predicate footprint below are unchanged, and the compact/JSONB and
+	// source/retained assertions were re-run under the new digest before it was
+	// pinned.
+	run04PreparationInputsSHA256  = "a10c985473bbc60a636e8ebb271414121536792567df4a344c9a6b3c13fd31f7"
 	run04PredicateFootprintSHA256 = "09d696f60327552c01da5a43d240059de493b3a21baae932e341a8bbdd6fb840"
 	run04SnapshotRowCount         = uint64(100000)
 )

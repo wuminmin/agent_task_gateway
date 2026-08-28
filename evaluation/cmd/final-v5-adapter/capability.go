@@ -203,7 +203,10 @@ var compilerPublicationRequirements = expandPublicationWorkloads([]publicationWo
 })
 
 var concurrencyPublicationRequirements = expandPublicationWorkloads([]publicationWorkload{
-	{ID: "shared-root", Scales: []string{"10", "50", "100", "500"}, Modes: []string{"forced_queue_safety", "natural_contention"}},
+	// Widths 100 and 500 left the frozen protocol in v1.11 (author decision,
+	// 2026-08-27; 172-cell scope). concurrencyfixture carries only 10 and 50, so
+	// requiring the removed widths here reported the capability false.
+	{ID: "shared-root", Scales: []string{"10", "50"}, Modes: []string{"forced_queue_safety", "natural_contention"}},
 	{ID: "serial-control", Scales: []string{"1"}, Modes: []string{"serial"}},
 })
 
