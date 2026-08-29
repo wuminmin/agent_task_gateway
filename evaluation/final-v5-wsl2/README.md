@@ -1,6 +1,6 @@
 # TaskGate final V5 WSL2 experiment framework
 
-This is the preregistered, fail-closed home for the future TKDE V5 + Parquet + Receipt V8 campaign. It contains no publication result. Historical V4, V5 Outcome, RQ5, and ProvSQL evidence is read-only and is never copied or relabeled here.
+This is the preregistered, fail-closed home for the TKDE V5 + Parquet + Receipt V8 campaign. The v1.11 publication campaign `formal-v111-publication-03` (sealed 2026-08-29, 172 cells x 3 rounds) is bound by `publication-evidence-v1.json`; its raw samples and retained deployment bytes live outside git under `raw/` on the WSL2 host. Historical V4, V5 Outcome, RQ5, and ProvSQL evidence is read-only and is never copied or relabeled here.
 
 ## Safety boundary
 
