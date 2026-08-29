@@ -186,9 +186,13 @@ its technical content around that evolution history.
 
 ## Submission-length check
 
-The containerized IEEE-template build is currently 12 main-paper pages plus a
-12-page supplement. The main-paper abstract is 182 words when counted from the
-rendered PDF after joining line-break hyphenation.
+The containerized IEEE-template build at commit 4a24c2f (2026-08-29, after the
+formal-v111-publication-03 campaign paragraph, table row, and reproducibility
+boundary rewrite were added) is 13 main-paper pages plus a 13-page supplement;
+the P7.5 target is 12 main-paper pages including references and biographies.
+The main-paper abstract is 179 words when counted from `main.tex` with macros
+and commands stripped (182 when counted from an earlier rendered PDF after
+joining line-break hyphenation).
 Before upload, the corresponding author must confirm the current TKDE category,
 initial-submission limit, supplementary-material rules, and any overlength
 acknowledgement in the submission portal. A successful local build alone does
