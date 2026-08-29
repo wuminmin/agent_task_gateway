@@ -529,10 +529,13 @@ summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
 assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v5"' "summary V5 profile"
-assert_contains "$summary_request" '"max_outcome_facts":10' "summary V5 outcome ceiling"
+# Since the reviewed routing (config/catalog.yaml approval_routes, 2026-08-16) a
+# low-sensitivity summary shares the default low route, final-v5-baseline-low-v1.
+assert_contains "$summary_request" '"budget_profile":"final-v5-baseline-low-v1"' "summary default low route"
+assert_contains "$summary_request" '"max_outcome_facts":128' "summary V5 outcome ceiling"
 assert_contains "$summary_request" '"predicate_footprint":' "summary V5 predicate limits"
 assert_contains "$summary_request" '"budget_source":"catalog_profile"' "summary Catalog budget source"
-assert_contains "$summary_request" '"max_queries":10' "summary complete Catalog query budget"
+assert_contains "$summary_request" '"max_queries":128' "summary complete Catalog query budget"
 summary_task=$(json_string "$summary_request" task_id)
 summary_oa_url=$(json_string "$summary_request" oa_url)
 [ -n "$summary_task" ] && [ -n "$summary_oa_url" ] || fail "summary request omitted task_id or oa_url"
@@ -661,11 +664,11 @@ assert_contains "$summary_preview_after_restart" '"rows":[[' "Parquet preview af
 assert_contains "$summary_preview_after_restart" '"offset":0' "Parquet preview after Gateway restart"
 pass "Gateway restart preserves Control metadata/audit state and reads the canonical Parquet from object storage"
 
-# The complete Catalog profile allows ten queries. The final allowed query is
+# final-v5-baseline-low-v1 allows 128 queries. The final allowed query is
 # returned and atomically exhausts max_queries; no smaller client-selected
 # budget is involved.
 summary_query_index=2
-while [ "$summary_query_index" -le 10 ]; do
+while [ "$summary_query_index" -le 128 ]; do
   summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
     "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-$summary_query_index\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
   assert_contains "$summary_last_query" '"isError":false' "Catalog-budget query $summary_query_index"
