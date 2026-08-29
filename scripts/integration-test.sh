@@ -184,6 +184,12 @@ trap cleanup EXIT INT TERM
 
 fail() {
   echo "integration test failed: $*" >&2
+  # cleanup tears the project down, so keep the Gateway and OA logs in this
+  # run's own output (the retained raw log) for the failure diagnosis.
+  if [ -n "${PROJECT_NAME:-}" ] && [ -n "${COMPOSE_PORT_OVERRIDE:-}" ]; then
+    echo "--- gateway and oa-demo logs (last 300 lines each) ---" >&2
+    compose logs --no-color --tail 300 gateway oa-demo >&2 2>/dev/null || true
+  fi
   exit 1
 }
 
