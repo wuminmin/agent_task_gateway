@@ -157,9 +157,6 @@ cleanup() {
   case "$TMP_FILE" in
     /tmp/taskbound-integration.*) rm -f "$TMP_FILE" ;;
   esac
-  case "$COMPOSE_ENV_FILE" in
-    /tmp/taskbound-compose-env.*) rm -f "$COMPOSE_ENV_FILE" ;;
-  esac
   case "$ALICE_COOKIE" in
     /tmp/taskbound-alice-cookie.*) rm -f "$ALICE_COOKIE" ;;
   esac
@@ -186,6 +183,10 @@ cleanup() {
       echo "warning: failed to remove integration Compose project $PROJECT_NAME" >&2
     fi
   fi
+  # Removed last: compose down above still needs the hermetic env file.
+  case "$COMPOSE_ENV_FILE" in
+    /tmp/taskbound-compose-env.*) rm -f "$COMPOSE_ENV_FILE" ;;
+  esac
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -651,7 +652,9 @@ assert_structured_field_absent "$stored_result" rows "persisted metadata-only re
 assert_not_contains "$stored_result" '"object_key":' "persisted object-key redaction"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
-assert_contains "$stored_result" '"version":"8"' "V5 artifact query receipt version"
+# One signed receipt shape since 29ee3fc; the version lives in
+# internal/queryreceipt/queryreceipt.go.
+assert_contains "$stored_result" '"version":"10"' "V5 artifact query receipt version"
 assert_contains "$stored_result" '"artifact_intent":' "V5 artifact intent receipt binding"
 assert_contains "$stored_result" '"result_metadata_sha256":' "V5 result metadata receipt binding"
 assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
