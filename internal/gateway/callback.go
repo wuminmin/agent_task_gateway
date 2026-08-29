@@ -136,7 +136,12 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 	case "approved", "narrowed":
 		finalGrant, err := s.validateApprovedGrant(event, persistedPending.Manifest)
 		if err != nil {
-			writeCallbackError(w, http.StatusConflict, "approval grant or receipt is invalid")
+			// The OA only retries and logs this status; name the failed check so an
+			// operator can tell a stale key from a changed envelope.
+			if s.logger != nil {
+				s.logger.Warn("OA approval callback rejected", "task_id", task.ID, "event_id", event.EventID, "error", err)
+			}
+			writeCallbackError(w, http.StatusConflict, "approval grant or receipt is invalid: "+err.Error())
 			return
 		}
 		if pending.ViewBinding != nil {
