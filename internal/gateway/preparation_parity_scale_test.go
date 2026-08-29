@@ -8,29 +8,16 @@ package gateway
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
-	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
-	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
-	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
 // Every named shape must prepare, and must prepare something complete.

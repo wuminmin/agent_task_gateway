@@ -10,28 +10,13 @@ package gateway
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
-	"taskbound.local/agent-data-gateway/internal/apierr"
-	"taskbound.local/agent-data-gateway/internal/approval"
-	"taskbound.local/agent-data-gateway/internal/catalog"
-	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
-	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
-	"taskbound.local/agent-data-gateway/internal/mcp"
-	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
-	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
-	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 

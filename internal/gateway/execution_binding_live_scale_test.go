@@ -12,18 +12,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"os"
 	"testing"
-	"time"
 
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
-	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
-	"taskbound.local/agent-data-gateway/internal/resultartifact"
 	"taskbound.local/agent-data-gateway/internal/sqlidentity"
 )
 

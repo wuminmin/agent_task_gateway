@@ -10,12 +10,9 @@ package gateway
 
 import (
 	"errors"
-	"sort"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 )
 
 // Every extracted shape must prepare identically in both implementations.

@@ -7,12 +7,9 @@
 package gateway
 
 import (
-	"sort"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 )
 
 // Preparation must not reach a registry, a store or a clock.

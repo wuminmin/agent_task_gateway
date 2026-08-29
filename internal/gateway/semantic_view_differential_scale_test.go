@@ -11,20 +11,13 @@ package gateway
 import (
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/catalog"
-	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 
-	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
-	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
 func TestSemanticViewPredicateFootprintIgnoresScopeJSONEncoding(t *testing.T) {

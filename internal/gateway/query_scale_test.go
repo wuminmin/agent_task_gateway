@@ -11,27 +11,18 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
-	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
-	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
-	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
-	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
-	"taskbound.local/agent-data-gateway/internal/semanticcache"
-	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
 func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
