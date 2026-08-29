@@ -64,6 +64,11 @@ DOWNLOAD_FILE=$(mktemp /tmp/taskbound-result-download.XXXXXX)
 DOWNLOAD_HEADERS=$(mktemp /tmp/taskbound-result-headers.XXXXXX)
 GO_TEST_JSON=$(mktemp /tmp/taskbound-go-test.XXXXXX)
 GO_TEST_REPORT=$(mktemp /tmp/taskbound-go-test-report.XXXXXX)
+# Compose reads the working tree's private .env for every variable this script
+# leaves unset (an operator keyring there made the Gateway reject the OA's
+# integration receipt key on 2026-08-29). An empty --env-file keeps the gate
+# hermetic: only this script's defaults and the caller's environment apply.
+COMPOSE_ENV_FILE=$(mktemp /tmp/taskbound-compose-env.XXXXXX)
 
 COMPOSE_PORT_OVERRIDE="services:
   control-postgres:
@@ -143,7 +148,7 @@ networks:
 
 compose() {
   printf '%s\n' "$COMPOSE_PORT_OVERRIDE" | \
-    docker compose --project-name "$PROJECT_NAME" --file compose.yaml --file - "$@"
+    docker compose --project-name "$PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" --file compose.yaml --file - "$@"
 }
 
 cleanup() {
@@ -151,6 +156,9 @@ cleanup() {
   trap - EXIT INT TERM
   case "$TMP_FILE" in
     /tmp/taskbound-integration.*) rm -f "$TMP_FILE" ;;
+  esac
+  case "$COMPOSE_ENV_FILE" in
+    /tmp/taskbound-compose-env.*) rm -f "$COMPOSE_ENV_FILE" ;;
   esac
   case "$ALICE_COOKIE" in
     /tmp/taskbound-alice-cookie.*) rm -f "$ALICE_COOKIE" ;;
