@@ -1,11 +1,15 @@
 {
+  "compose_execution": {
+    "receipt": "evaluation/v5-outcome/compose-receipt.json",
+    "receipt_sha256": "6dc6d5cc84f9df155d4f27790f843c2691afe18480a1f48429fdcfd5caf5d81a"
+  },
   "deterministic_set": {
     "duplicate_idempotent": true,
     "members": 10000,
     "permutation_deterministic": true,
     "tamper_rejected": true
   },
-  "implementation_base_commit": "030c1f6c42abf67dac3fb512ca7206bf694827ec",
+  "implementation_base_commit": "368343760d0e783b3cca47a31a49a5ebaf4d650d",
   "postgres_committed_graph": {
     "blocks_loaded": 1,
     "blocks_reused": 255,
@@ -34,7 +38,7 @@
     "packages_passed": 2,
     "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "d46e571fc0f836bbb7d6739b74b62c5a0948fdc83c910baa3cacc4148d306f24",
+    "raw_log_sha256": "69f1c2dd94e62f20932e6bf9eddfac6f63ab0810ce7171215bef6cd8a9e10b4f",
     "tests_failed": 0,
     "tests_passed": 11,
     "tests_skipped": 0
@@ -54,7 +58,7 @@
     "prefix16": "4224",
     "replay_changed_objects": 0
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "source_manifest": {
     "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
     "files": [
@@ -127,16 +131,12 @@
         "sha256": "2ff8c2d823a664d5af00f445eda8d29d3f5e3e5ce5f54919c4f06a81165dbbb4"
       },
       {
-        "path": "internal/gateway/ordinal_single_product_postgres_test.go",
-        "sha256": "2b7bf46eeb7416c60104cdceb56b7d8b826fa611d713950a2269f967e860bdd5"
-      },
-      {
         "path": "internal/gateway/query.go",
         "sha256": "2fb6e3ee96e6d1dc37472cf81823fefa6d5df2d89d11fe0d801eff7ff53c6700"
       },
       {
         "path": "internal/gateway/query_test.go",
-        "sha256": "9e2edf819b8f5829f91b580c008fab541a69aebc0887a79a36b30b19a24f1fbf"
+        "sha256": "4e63168a470325929832e2e6d3172b7e482fef953134e1a808b725627fd305d0"
       },
       {
         "path": "internal/gateway/result_artifact.go",
@@ -144,7 +144,7 @@
       },
       {
         "path": "internal/gateway/result_artifact_test.go",
-        "sha256": "4f0aed2d6b8b5097a70cf4acdac6f3d336a1859c558f23fbdc6d9d21ab1b9190"
+        "sha256": "349446ed975d41fc7b9bca0285f0fb73d6853580302027f79e818e9d4a65a385"
       },
       {
         "path": "internal/gateway/service.go",
@@ -180,13 +180,14 @@
       },
       {
         "path": "scripts/integration-test.sh",
-        "sha256": "96c82419293ae3043bb38757cc68c12e7c7f6a097e8ae8770962ad1af6609481"
+        "sha256": "bc6c6f582ee6da7456ea554ca437fe5948a25bc4694829ed36002541d07d9e66"
       },
       {
         "path": "scripts/record-compose-e2e.sh",
-        "sha256": "4138e35d6a26815cf2dbf30463de6e4953ca2e9b0a8e15654582f08948d6999d"
+        "sha256": "dbb5dfd5839feec55f102c4f02d2ff069e0312d99abd99812620dfd02ff87ffd"
       }
     ],
-    "sha256": "9513c6bfc732782da2e01a35b9c5cd47e4e63300d01996e880baee263462419d"
-  }
+    "sha256": "58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449"
+  },
+  "submission_commit": "368343760d0e783b3cca47a31a49a5ebaf4d650d"
 }

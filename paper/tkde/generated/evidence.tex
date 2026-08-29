@@ -222,9 +222,9 @@
 \newcommand{\ArtifactFormalStates}{1,324}
 \newcommand{\ArtifactFormalDistinct}{441}
 \newcommand{\ArtifactFormalDepth}{17}
-\newcommand{\VFiveImplementationCommit}{\texttt{030c1f6c42abf67dac3fb512ca7206bf694827ec}}
-\newcommand{\VFiveImplementationSourceHash}{\nolinkurl{9513c6bfc732782da2e01a35b9c5cd47e4e63300d01996e880baee263462419d}}
-\newcommand{\VFiveRawLogHash}{\nolinkurl{d46e571fc0f836bbb7d6739b74b62c5a0948fdc83c910baa3cacc4148d306f24}}
+\newcommand{\VFiveImplementationCommit}{\texttt{368343760d0e783b3cca47a31a49a5ebaf4d650d}}
+\newcommand{\VFiveImplementationSourceHash}{\nolinkurl{58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449}}
+\newcommand{\VFiveRawLogHash}{\nolinkurl{69f1c2dd94e62f20932e6bf9eddfac6f63ab0810ce7171215bef6cd8a9e10b4f}}
 \newcommand{\VFiveRawTestsPassed}{11}
 \newcommand{\VFiveDeterministicMembers}{10,000}
 \newcommand{\VFiveRootCardinality}{100,000}
@@ -316,6 +316,45 @@ S6/100x16 & 100 & 1,600 & 1,700 & 0.67 & 137.07 & -- & -- & 206.1$\times$ \\
 S6/100x4 & 100 & 400 & 500 & 0.48 & 100.32 & -- & -- & 208.8$\times$ \\
 S6/10k-x16 & 10,000 & 160,000 & 170,000 & 13.48 & 1737.33 & -- & -- & 128.8$\times$ \\
 S6/10k-x4 & 10,000 & 40,000 & 50,000 & 4.98 & 377.61 & -- & -- & 75.8$\times$ \\%
+}
+\newcommand{\FinalVFivePublicationCampaign}{\texttt{formal-v111-publication-03}}
+\newcommand{\FinalVFivePublicationCommit}{\texttt{649eadb42ae6}}
+\newcommand{\FinalVFivePublicationDeployments}{33}
+\newcommand{\FinalVFivePublicationProfiles}{11}
+\newcommand{\FinalVFivePublicationFreshExecutions}{3}
+\newcommand{\FinalVFivePublicationProfileCells}{125}
+\newcommand{\FinalVFivePublicationScaleNonProfileCells}{36}
+\newcommand{\FinalVFivePublicationCompilerNonProfileCells}{11}
+\newcommand{\FinalVFivePublicationTotalCells}{172}
+\newcommand{\FinalVFivePublicationMeasuredSamples}{9,393}
+\newcommand{\FinalVFivePublicationBaselineCells}{58}
+\newcommand{\FinalVFivePublicationBaselineSamples}{5,220}
+\newcommand{\FinalVFivePublicationBaselinePerCell}{90}
+\newcommand{\FinalVFivePublicationReplayZeroSQLSamples}{2,340}
+\newcommand{\FinalVFivePublicationOverheadMin}{37.7}
+\newcommand{\FinalVFivePublicationOverheadMax}{157.1}
+\newcommand{\FinalVFivePublicationSOneNovelS}{0.85}
+\newcommand{\FinalVFivePublicationSOneReleaseFacts}{100,000}
+\newcommand{\FinalVFivePublicationSTwoNovelS}{3.43}
+\newcommand{\FinalVFivePublicationSTwoRows}{3}
+\newcommand{\FinalVFivePublicationSTwoDependencyFacts}{1,200,000}
+\newcommand{\FinalVFivePublicationBaselineTableBody}{%
+S1/SF1 & 5,000 & 10,000 & 20,000 & 2.73 & 148.32 & 58.72 & 26.96 & 54.4$\times$ \\
+S1/SF10 & 50,000 & 100,000 & 200,000 & 12.62 & 849.19 & 104.74 & 48.86 & 67.3$\times$ \\
+S2/SF1 & 3 & 9 & 120,000 & 12.75 & 480.95 & 60.41 & 24.08 & 37.7$\times$ \\
+S2/SF10 & 3 & 9 & 1,200,000 & 28.28 & 3431.45 & 61.21 & 24.07 & 121.3$\times$ \\
+S3/10k-50k & 10,000 & 10,000 & 50,000 & 2.45 & 212.70 & 61.85 & 28.48 & 87.0$\times$ \\
+S3/1k-5k & 1,000 & 1,000 & 5,000 & 0.84 & 101.38 & 56.67 & 24.94 & 120.3$\times$ \\
+S3/45k-225k & 45,000 & 45,000 & 225,000 & 8.62 & 600.78 & 86.31 & 42.45 & 69.7$\times$ \\
+S4/depth-4 & 3 & 9 & 120,000 & 12.85 & 533.70 & 71.35 & -- & 41.5$\times$ \\
+S5/SF1 & 5,000 & 10,000 & 20,000 & 4.36 & 269.29 & 61.96 & 25.62 & 61.8$\times$ \\
+S5/SF10 & 50,000 & 100,000 & 200,000 & 19.20 & 1941.66 & 111.41 & 48.68 & 101.1$\times$ \\
+S6/100k-x16 & 100,000 & 1,600,000 & 1,700,000 & 156.02 & 17673.94 & -- & -- & 113.3$\times$ \\
+S6/100k-x4 & 100,000 & 400,000 & 500,000 & 47.06 & 4401.64 & -- & -- & 93.5$\times$ \\
+S6/100x16 & 100 & 1,600 & 1,700 & 0.79 & 124.16 & -- & -- & 157.1$\times$ \\
+S6/100x4 & 100 & 400 & 500 & 0.69 & 80.98 & -- & -- & 116.8$\times$ \\
+S6/10k-x16 & 10,000 & 160,000 & 170,000 & 15.00 & 1899.77 & -- & -- & 126.6$\times$ \\
+S6/10k-x4 & 10,000 & 40,000 & 50,000 & 4.95 & 382.08 & -- & -- & 77.2$\times$ \\%
 }
 \newcommand{\FinalVFivePilotSOneNovelS}{0.770}
 \newcommand{\FinalVFivePilotSOneReleaseFacts}{100,000}

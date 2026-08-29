@@ -1,39 +1,90 @@
 {
   "assertions": {
-    "caller_predicate": false,
-    "go_test_no_skips": false,
-    "parquet_available": false,
-    "promotion_recovery": false,
-    "semantic_replay": false
+    "caller_predicate": true,
+    "go_test_skips_declared": true,
+    "parquet_available": true,
+    "promotion_recovery": true,
+    "semantic_replay": true
   },
   "catalog_file_sha256": "ac2dc5cf30ef500a96c15bbbe2d6e067a4ed9eedb18c93970c40cea652eb88b6",
-  "catalog_runtime_digest": "",
+  "catalog_runtime_digest": "ac2dc5cf30ef500a96c15bbbe2d6e067a4ed9eedb18c93970c40cea652eb88b6",
   "command": [
     "./scripts/integration-test.sh"
   ],
-  "compose_images": [],
+  "compose_images": [
+    {
+      "image_id": "sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+      "reference": "postgres:16-bookworm",
+      "service": "business-postgres"
+    },
+    {
+      "image_id": "sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+      "reference": "postgres:16-bookworm",
+      "service": "control-postgres"
+    },
+    {
+      "image_id": "sha256:5563205a48b2525d9d9da4c2ec6f1e3d3a08bb51475621eb9267475a732769b7",
+      "reference": "taskbound-gateway-integration-gateway",
+      "service": "gateway"
+    },
+    {
+      "image_id": "sha256:dcb06be58a7b2b886dbae3994860da342dc545e8350ed32b4b20ae9580616552",
+      "reference": "taskbound-gateway-integration-mcp-probe",
+      "service": "mcp-probe"
+    },
+    {
+      "image_id": "sha256:5465441c7372cf64a6570be001737a3aaddff608e49847b22fa9617def05895e",
+      "reference": "taskbound-gateway-integration-oa-demo",
+      "service": "oa-demo"
+    },
+    {
+      "image_id": "sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e",
+      "reference": "minio/minio:RELEASE.2025-04-22T22-12-26Z",
+      "service": "result-object-store"
+    },
+    {
+      "image_id": "sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3",
+      "reference": "minio/mc:RELEASE.2025-04-16T18-13-26Z",
+      "service": "result-object-store-init"
+    },
+    {
+      "image_id": "sha256:a2942cabf4fba79bfb3727a5768c5808522076ad3f72ac1d862d95fcb4614324",
+      "reference": "taskbound-gateway-integration-snapshot-index-detail",
+      "service": "snapshot-index-detail"
+    },
+    {
+      "image_id": "sha256:3255972e8be9302724ec943c93cee15a5e7dbd77631b1b8a718444e5499340a1",
+      "reference": "taskbound-gateway-integration-snapshot-index-summary",
+      "service": "snapshot-index-summary"
+    },
+    {
+      "image_id": "sha256:dd9c48496acc5e3ca61da5ceb037188d5ee71301b469c47373baf33a5f79bd3d",
+      "reference": "taskbound-gateway-integration-test-runner",
+      "service": "test-runner"
+    }
+  ],
   "evidence_tooling": {
     "algorithm": "sha256-canonical-json-v1",
     "files": [
       {
         "path": "paper/tkde/generate_evidence.py",
-        "sha256": "fcebe19feba91118bf401fc7bf6e0f3e8894ea815d7bd8b38dcb89b66aaa0ada"
+        "sha256": "459f40ffc1f2fa032c561229a83d00ad6cd52f63d6f06749b8a33fc5b03f8b88"
       },
       {
         "path": "scripts/integration-test.sh",
-        "sha256": "96c82419293ae3043bb38757cc68c12e7c7f6a097e8ae8770962ad1af6609481"
+        "sha256": "bc6c6f582ee6da7456ea554ca437fe5948a25bc4694829ed36002541d07d9e66"
       },
       {
         "path": "scripts/record-compose-e2e.sh",
-        "sha256": "4138e35d6a26815cf2dbf30463de6e4953ca2e9b0a8e15654582f08948d6999d"
+        "sha256": "dbb5dfd5839feec55f102c4f02d2ff069e0312d99abd99812620dfd02ff87ffd"
       }
     ],
-    "sha256": "17b4b2eac09b4068df7d08bf52f3a45d78132a19ee95fc98c80840644c74eba0"
+    "sha256": "8e03e19d924931fe0a381acfa117b4e4fddfcc9c295db251ea4b63e8a5907b12"
   },
-  "executed_at": "2026-08-26T05:05:41Z",
-  "exit_code": 1,
+  "executed_at": "2026-08-29T07:42:13Z",
+  "exit_code": 0,
   "raw_log": "evaluation/v5-outcome/raw/compose-e2e.log",
-  "raw_log_sha256": "c978dd6c93bad9765cfe9d06bb85b7b3b91ec446e72fee7dea1c0ef15351f97b",
+  "raw_log_sha256": "e55b57d0d5c88475491ff8481afbc34258889571fb332169a20f35dc370f0389",
   "schema_version": 2,
-  "submission_commit": "12554ee33ba93ad535187bfc2d5658ac2b3c2e8f"
+  "submission_commit": "368343760d0e783b3cca47a31a49a5ebaf4d650d"
 }
