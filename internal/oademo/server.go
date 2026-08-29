@@ -460,9 +460,15 @@ func (s *Server) sendCallback(ctx context.Context, event callbackEvent) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("callback status %d", resp.StatusCode)
+		// The Gateway explains a rejection only in its response body; keep an
+		// excerpt so the retry log says why activation did not happen.
+		excerpt := strings.TrimSpace(string(responseBody))
+		if len(excerpt) > 512 {
+			excerpt = excerpt[:512]
+		}
+		return fmt.Errorf("callback status %d: %s", resp.StatusCode, excerpt)
 	}
 	return nil
 }
