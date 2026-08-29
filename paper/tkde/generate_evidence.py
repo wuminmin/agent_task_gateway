@@ -60,7 +60,6 @@ V5_SOURCE_PATHS = (
     "internal/exposure/outcome_v5_test.go",
     "internal/gateway/exposure.go",
     "internal/gateway/ordinal_derivation_scale_test.go",
-    "internal/gateway/ordinal_single_product_postgres_test.go",
     "internal/gateway/query.go",
     "internal/gateway/query_test.go",
     "internal/gateway/result_artifact.go",
