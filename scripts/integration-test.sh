@@ -398,8 +398,13 @@ if ! go run ./evaluation/cmd/final-v5-dbtest-report -scope compose-gate \
 fi
 cat "$GO_TEST_REPORT"
 pass "complete PostgreSQL-backed unit and race tests accepted: every skip declared with a due milestone"
+# The crash-window case lives on the taskgate_scale lane since 436c119 (it
+# prepares an ordinal-program plan); without the tag the build simply does not
+# contain it and this step reports "did not execute". Measured 2026-08-29 on
+# the evidence host: 114.7 s, 7.1 GB peak RSS.
 promotion_recovery_output=$(compose --profile integration-tools run --rm test-runner \
-  go test -json -count=1 -run '^TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce$' \
+  go test -json -count=1 -tags=taskgate_scale \
+  -run '^TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce$' \
   ./internal/gateway)
 printf '%s\n' "$promotion_recovery_output"
 if ! printf '%s\n' "$promotion_recovery_output" | python3 -c '
