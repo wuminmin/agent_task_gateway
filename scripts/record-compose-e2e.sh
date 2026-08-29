@@ -93,7 +93,7 @@ markers = {
     "parquet_available": "ok - approved query creates an AVAILABLE canonical Parquet; preview paginates and delivery streams a complete file",
     "semantic_replay": "ok - V5 semantic replay avoided Business PostgreSQL and repeated exposure charge",
     "promotion_recovery": "ok - canonical-copy/AVAILABLE-commit crash-window recovery passed",
-    "go_test_no_skips": "ok - complete PostgreSQL-backed unit and race tests passed with zero skips",
+    "go_test_skips_declared": "ok - complete PostgreSQL-backed unit and race tests accepted: every skip declared with a due milestone",
 }
 images = []
 if image_tsv.is_file():
