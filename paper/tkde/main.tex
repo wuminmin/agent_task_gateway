@@ -76,7 +76,7 @@ computes profile-relative exact set novelty against the root-family ledger and
 atomically settles all three budgets, so within one root family on one
 publication epoch no more than the approved number of distinct facts of each
 kind can become retrievable; a rejected attempt reveals only a threshold bit
-bounded by the request budget. Failed promotion remains recoverable without
+bounded by the task's request budget. Failed promotion remains recoverable without
 re-executing the business query. The admitted positive relational fragment supports connected
 inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
 ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
@@ -261,8 +261,8 @@ the typed FactID semantics and closed algebra, the same-snapshot ordinal
 companion and bitmap/Merkle-radix ledgers, canonical Outcome atoms and
 composites, exact profile-relative novelty with atomic three-budget settlement
 before \code{AVAILABLE}, root-family delegation conservation, the theorems and
-bounded models, and the publication campaign. Its five implementation-backed
-contributions are:
+bounded models, and the publication campaign. This article's five
+implementation-backed contributions are:
 
 \begin{enumerate}
 \item A typed FactID semantics for accounted Result, positive-output
@@ -276,7 +276,8 @@ compressed bitmaps, and an exact Merkle-radix Outcome set; settlement precedes
 \code{AVAILABLE}, semantic replay is zero-novelty, and rejection leaks a
 threshold bit bounded by the request budget.
 \item Signed, monotonic delegation whose descendants share one root-family
-ledger, preventing task-tree fan-out from multiplying capacity.
+ledger, so task-tree fan-out cannot multiply exposure capacity; request
+budgets remain per task and bound only each task's probing.
 \item Algebraic theorems, an abstract settlement-safety property whose
 transition system is sanity-checked by small bounded TLA+ models, and
 executable Go/PostgreSQL differential and fault-injection evidence.
@@ -302,9 +303,13 @@ protects denial
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
 reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
-Inference control in statistical databases studied trackers and query-set
-overlap \cite{denning1980tracker,adam1989security}, which is why counting
-distinct predicates bounds probing capacity but not inference. BDG charges
+Inference control in statistical databases studied trackers, query-set
+overlap, and cumulative query auditing
+\cite{denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
+which is why counting distinct predicates bounds probing capacity but not
+inference; PINQ enforces a cumulative per-analyst privacy budget as
+$\epsilon$ \cite{mcsherry2009pinq}, whereas BDG's budget is a set of
+declared facts. BDG charges
 declared facts and successful outcomes within one signed root, withholds
 delivery unless settlement succeeds, releases exact answers, and models
 neither prior knowledge, denial leakage, nor $\epsilon$; its zero-novelty
@@ -351,16 +356,13 @@ untrusted, and claims neither result sanitization, prompt/tool flow tracking,
 nor inference safety.
 
 \textbf{Governed data products over MCP.} Data Product MCP
-\cite{tonnarelli2026dataproductmcp} and the access-request assistant it builds
-on \cite{dietz2025automating} automate discovery, purpose review, and
-pre-execution contract guards at a data-product marketplace whose contracts
-follow open standards \cite{bitol2025odcs}; enforcement is per query and the
-purpose check is probabilistic. BDG is complementary and downstream: it assumes
-a marketplace or Catalog has already bound Product, contract, and approved
-purpose, and adds a deterministic, task-scoped ledger with atomic settlement
-before availability. The two could compose---marketplace discovery and purpose
-review upstream, BDG settlement at the serving tier---but the prototype does
-not evaluate that composition.
+\cite{tonnarelli2026dataproductmcp} and the access-request assistant it
+builds on \cite{dietz2025automating} automate discovery, purpose review, and
+pre-execution contract guards over open-standard contracts
+\cite{bitol2025odcs}, per query and with a probabilistic purpose check; BDG is
+downstream and complementary, assuming a bound Product, contract, and purpose
+and adding a deterministic task-scoped ledger settled before availability.
+Their composition is not evaluated here.
 
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
 controls. BDG adds three-set FactID novelty and shared-root settlement after
@@ -426,7 +428,8 @@ The goal is per root and per epoch, and the settlement decision itself is
 observable: a rejected attempt reveals that its novel effect exceeded the
 remaining budget and charges only one unit of the request budget
 (Section~\ref{sec:online}), so the threshold information an agent can extract
-through rejections is bounded by that budget, not by $B_X$. The model assumes
+through rejections is bounded by that budget, summed over the approved task
+tree, not by $B_X$. The model assumes
 trusted identity, organizational-attribute, and approval assertions; Catalog
 and Exposure-Profile authors and the immutable publication pipeline;
 PostgreSQL execution and snapshot semantics; enforcement and Control services;
@@ -827,9 +830,21 @@ afterthought:
 \rieffect_\Pi(e,D,V)&=\operatorname{normalize}
   \langle\facts_R(R,V),\facts_D(R,V)\rangle.       \label{eq:observe}
 \end{align}
-Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
-type and bundle, plus support for a base fact or expression/witness for a
-derived fact, against the pre-existing release fact.
+Here $\Pi;D\vdash e\Downarrow R$; $S_r(t)$ is row $t$'s support, the base
+row facts and the predicate, join-key, group-key, and aggregate-argument cells
+its derivation read, and $S_a(t)$ is the support of its cell $a$;
+$\operatorname{valid}$ checks value, type and bundle, plus support for a base
+fact or expression/witness for a derived fact, against the pre-existing
+release fact.
+\emph{Example.} Over a five-row Product with fields $(id,dept,amt)$, the
+query $\pi_{id,amt}\sigma_{dept='S'}$ selects rows $r_1$--$r_3$ and charges
+$6$ Result cells, $12$ Dependency facts (each selected row's row fact, its
+$dept$ cell read by the predicate, and its two visible cells), and $2$
+Outcome facts (the atom $dept{=}\text{'S'}$ and the composite). Splitting it
+into $\pi_{id}$ and $\pi_{amt}$ charges $0/0/2$ (two new composites, the same
+atom); a page returning $r_2,r_3$ charges $0/0/1$; adding $amt>5$ charges
+one new atom and one composite and no new base facts; an exact replay by the
+root or by a delegated child charges $0/0/0$.
 Thus query bags and witness multiplicity are retained during composition, while
 the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
@@ -929,7 +944,7 @@ canonical Fact bytes, and its \emph{sidecar} is the PostgreSQL table mapping
 attested entity keys to ordinals; the \emph{root head} is the Control row
 holding a root family's three set digests and epoch, advanced only by
 compare-and-swap (\emph{CAS}); the \emph{receipt} is the signed settlement
-record of Section~\ref{sec:online}-D.
+record of the receipts subsection below.
 
 Formal semantics and the RQ1 oracle cover scan/select/project, group with
 four aggregates, inner equijoin, union-distinct, and page. Online lowering
@@ -1070,12 +1085,15 @@ database time and is recorded terminally.
 
 \begin{proposition}[Probing bound]
 Each rejected attempt reveals one comparison outcome---whether its novel
-effect fits the remaining budgets---and consumes one unit of $B_Q$; hence a
-root family obtains at most $B_Q$ such comparisons in total, independently of
-$B_R$, $B_D$, and $B_O$.
+effect fits the remaining budgets---and consumes one unit of the attempting
+task's own $B_Q$, which the prototype accounts per task; a delegated child
+signs its own $B_Q$ no larger than its parent's, so a task tree of $k$ tasks
+obtains at most $\sum_{i\le k}B_Q^{(i)}$ comparisons in total, independently
+of $B_R$, $B_D$, and $B_O$.
 \end{proposition}
 The bound is on comparisons, not on what a comparison reveals about
-unreleased facts. Charging Outcome atoms on rejection would close the oracle at the
+unreleased facts, and it grows with the approved task tree because request
+budgets, unlike exposure budgets, are not pooled at the root. Charging Outcome atoms on rejection would close the oracle at the
 cost of penalizing legitimate near-boundary queries and is left to policy. The
 current protocol is not a simulatable auditor and makes no
 denial-noninterference claim.
@@ -1211,13 +1229,6 @@ colluding independent roots, and external-tool leakage are not. BDG enforces an
 approved organizational policy; it does not judge whether that policy is
 appropriate.
 
-\textbf{Governance responsibility.} Owners decide purpose and releasable
-scope, security teams define sensitive fields and prohibited combinations,
-IAM/HR and OA/BPM attest identity and approval, DBAs validate tables, Views,
-stable keys, types, and collations, and auditors reconcile approval,
-settlement, receipt, and AVAILABLE evidence; BDG validates structure and
-versions and enforces the supported signed portion, while broader flow policy
-remains a DFC responsibility.
 
 \section{Three-Layer Assurance}
 \label{sec:formal}
@@ -1317,12 +1328,16 @@ samples passed with a verified Receipt. Across the
 scale, and mode; the supplement collapses them to workload/scale rows) a novel
 governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{} times
-its direct PostgreSQL equivalent, and that cost follows the Dependency set, not
-the answer: S2/SF10 returns \FinalVFivePublicationSTwoRows{} grouped rows over
+its direct PostgreSQL equivalent, and that cost follows the total Fact effect
+the query materializes, not its visible row count: S2/SF10 returns
+\FinalVFivePublicationSTwoRows{} grouped rows over
 \FinalVFivePublicationSTwoDependencyFacts{} dependencies in
 \FinalVFivePublicationSTwoNovelS{}~s, longer than S1/SF10 needs to release
 \FinalVFivePublicationSOneReleaseFacts{} Facts
-(\FinalVFivePublicationSOneNovelS{}~s). All
+(\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells,
+whose Release sets dominate their Dependency sets, cost more per Fact than
+S2 (supplement per-cell table), so Release materialization is at least as
+expensive per Fact as Dependency derivation. All
 \FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
 business SQL and charged no Facts---that, not latency, is what replay buys---but
 replay is not a latency win at these scales: semantic replay exceeds direct re-execution in every cell, and only
@@ -1348,8 +1363,8 @@ round of 50 under natural contention drains in
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95, i.e.,
 \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
 requests per second through one root head, of which one per round settles
-novel work; every generated round is retained and counted (30 per cell and
-deployment, none discarded), and the supplement tabulates every width and
+novel work; every generated round met the natural-contention condition and is
+counted (30 per cell and deployment, none discarded), and the supplement tabulates every width and
 mode. Because every
 descendant settles on one root head, a task tree's settlement throughput is
 bounded by that head; per-dimension or batched settlement could relax the
