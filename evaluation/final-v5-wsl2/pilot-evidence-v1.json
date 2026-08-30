@@ -58,6 +58,16 @@
       "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
       "measured_samples": 138,
       "note": "Sub-phase amendment repeated: analytics-orders, analytics-orders-lineitem, result-heavy, three deployments each, one measured sample per cell per deployment, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-06 for the sub-phase medians. Pilot class; not publication evidence."
+    },
+    {
+      "id": "provsql-leaf-pilot-04",
+      "family": "provsql_leaves",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/provsql-leaf-pilot-04",
+      "campaign_evidence_sha256": "8b91b818a8cad8fb41d52574d026495912b4c12232fce10c7cb213747bcaf9c4",
+      "submission_commit": "ad44537a26f45073a4a85bafd6f9040f6afa8b9d",
+      "measured_samples": 9,
+      "note": "ProvSQL profile rerun with the adapter expanding ProvSQL's provenance circuit to its input gates after each paired measurement (outside every timing boundary), mapping them to base rows and comparing their canonical row facts with the oracle's base-row enumeration (base_tuple_link). Pilot class; not publication evidence; cited only for the cross-check."
     }
   ]
 }
