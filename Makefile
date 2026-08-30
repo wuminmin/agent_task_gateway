@@ -54,6 +54,9 @@ eval-provenance-baseline:
 eval-tpch-lowerability:
 	go run ./evaluation/cmd/tpch-lowerability
 
+eval-generated-algebra:
+	go run ./evaluation/cmd/generated-algebra
+
 eval-daily-publication-validate:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest evaluation/daily-publication/test_harness.py
 	PYTHONDONTWRITEBYTECODE=1 python3 evaluation/daily-publication/evidence/validate.py
