@@ -75,8 +75,9 @@ provenance companion share one PostgreSQL snapshot. Before release, BDG
 computes profile-relative exact set novelty against the root-family ledger and
 atomically settles all three budgets, so within one root family on one
 publication epoch no more than the approved number of distinct facts of each
-kind can become retrievable; a rejected attempt reveals only a threshold bit
-bounded by the task's request budget. Failed promotion remains recoverable without
+kind can become retrievable; a rejected attempt reveals only a threshold
+bit, and the number of such bits is bounded by the request budgets of the
+approved task tree. Failed promotion remains recoverable without
 re-executing the business query. The admitted positive relational fragment supports connected
 inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
 ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
@@ -588,6 +589,16 @@ $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
 query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
 
+\emph{Example (charged by the operator rules below).} Over a five-row Product with fields $(id,dept,amt)$, the
+query $\pi_{id,amt}\sigma_{dept='S'}$ selects rows $r_1$--$r_3$ and charges
+$6$ Result cells, $12$ Dependency facts (each selected row's row fact, its
+$dept$ cell read by the predicate, and its two visible cells), and $2$
+Outcome facts (the atom $dept{=}\text{'S'}$ and the composite). Splitting it
+into $\pi_{id}$ and $\pi_{amt}$ charges $0/0/2$ (two new composites, the same
+atom); a page returning $r_2,r_3$ charges $0/0/1$; adding $amt>5$ charges
+one new atom and one composite and no new base facts; an exact replay by the
+root or by a delegated child charges $0/0/0$.
+
 For a successful $q$, settlement commits the complete candidate Result set
 before the later, recoverable publication, so
 $F_R^{\mathrm{available}}(q)\subseteq F_R^{\mathrm{accounted}}(q)
@@ -836,15 +847,6 @@ its derivation read, and $S_a(t)$ is the support of its cell $a$;
 $\operatorname{valid}$ checks value, type and bundle, plus support for a base
 fact or expression/witness for a derived fact, against the pre-existing
 release fact.
-\emph{Example.} Over a five-row Product with fields $(id,dept,amt)$, the
-query $\pi_{id,amt}\sigma_{dept='S'}$ selects rows $r_1$--$r_3$ and charges
-$6$ Result cells, $12$ Dependency facts (each selected row's row fact, its
-$dept$ cell read by the predicate, and its two visible cells), and $2$
-Outcome facts (the atom $dept{=}\text{'S'}$ and the composite). Splitting it
-into $\pi_{id}$ and $\pi_{amt}$ charges $0/0/2$ (two new composites, the same
-atom); a page returning $r_2,r_3$ charges $0/0/1$; adding $amt>5$ charges
-one new atom and one composite and no new base facts; an exact replay by the
-root or by a delegated child charges $0/0/0$.
 Thus query bags and witness multiplicity are retained during composition, while
 the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
@@ -1174,17 +1176,21 @@ Products of $10^5$ rows. Because a global aggregate depends on every input
 row, $B_D$ must be sized to the product's row count times the fields an
 approved purpose may legitimately aggregate, and it then bounds how many
 \emph{distinct} base facts any sequence of aggregates can touch rather than
-how many aggregates may run; $B_O$ is the operative bound on probing. One
-sequence this blocks and per-query authorization with row limits admits: a
-threshold ladder \code{amount > t} over a hidden field, each step a legal
-query, is charged one atom and one composite per step and stops at $B_O$
-(about sixty steps here), whereas the ladder never exceeds a row limit. One it
-does not block: \code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals
-the salary ordering while charging no dependency on \code{salary}, because
-order-only fields are outside this profile (Section~\ref{sec:model}); a
-profile that charges sort keys as dependencies is a policy choice the
-prototype does not implement, so an administrator must withhold sortable
-sensitive fields from the approved scope.
+how many aggregates may run. One sequence this blocks and per-query
+authorization with row limits admits: paging through the whole
+$10^5\times16$ Product releases $1.6\times10^6$ Facts, each page a legal query
+under any row limit, and a second such sweep of another Product is refused
+at $B_R$ although every page still passes the row limit. $B_O$ bounds how
+many \emph{distinct} predicates a task may probe (a threshold ladder
+\code{amount > t} is charged one atom and one composite per step), not what
+one probe reveals: a binary search on one hidden value fits within
+$B_O=128$, which is the inference-control limit of Section~\ref{sec:related}.
+One sequence it does not block: \code{SELECT id ... ORDER BY salary LIMIT k},
+paged, reveals the salary ordering while charging no dependency on
+\code{salary}, because order-only fields are outside this profile
+(Section~\ref{sec:model}); charging sort keys as dependencies is a
+one-rule change the prototype does not implement, so an administrator must
+withhold sortable sensitive fields from the approved scope.
 
 \section{System Realization}
 \label{sec:system}
@@ -1307,8 +1313,8 @@ S3, a one-column projection over 1,000--45,000 rows of the 414,000-row
 exposure-scale Product, where every retained row carries five Dependency
 facts; S4, the depth-4 semantic-View form of S2/SF1; S5, a two-branch
 union-distinct with S1's shape; and S6, result-heavy releases of
-100--100,000 rows with 4 or 16 columns. Modes are direct (raw PostgreSQL),
-novel (first governed execution), and the replays. ``Publication-class'' is
+100--100,000 rows with 4 or 16 columns. Modes are direct (the same SQL against PostgreSQL without BDG), novel (the
+first governed execution), and the replays. ``Publication-class'' is
 the frozen protocol's campaign class, as opposed to pilot runs, which are
 never publication-eligible. The frozen publication campaign
 (\FinalVFivePublicationCampaign{}, commit
@@ -1436,11 +1442,21 @@ subqueries, materialized Views are opaque leaves, stable keys and publications
 are trusted declarations, and View drift is checked at request, approval, and
 execution rather than continuously.
 
+\textbf{Applicability envelope.} Publication artifacts cost
+\RQFiveBytesPerFact{}~B per Fact and build at
+\RQFiveBuildMicrosPerFact{}~$\mu$s per Fact on this host (Day~0 of RQ5,
+\RQFiveFacts{} Facts), and derivation costs microseconds per Fact
+(Table~\ref{tab:phase-breakdown}); a $10^9$-Fact Product would therefore need
+hundreds of gigabytes per publication and hours per build and per global
+aggregate, so the evaluated envelope is reporting Products of $10^5$--$10^6$
+rows, not warehouse-scale tables.
+
 \textbf{Throughput scope.} Every settlement of a root family serializes on
-its head; the measured ceiling is
+its head; measured same-root throughput falls from
+\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
 \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
-requests per second per root on one host, and multi-root throughput is not
-measured.
+requests per second as the round width grows from 10 to 50 on one host, and
+multi-root throughput is not measured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
 validates structural and version bindings for administrator-attested identities,

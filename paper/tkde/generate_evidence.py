@@ -1443,6 +1443,13 @@ def main(argv: list[str] | None = None) -> None:
             rf"\newcommand{{\RQFive{label}CycleMaxS}}{{{decimal(value['cycle_ms']['max'] / 1000, 3)}}}",
             rf"\newcommand{{\RQFive{label}ArtifactGiB}}{{{decimal(value['artifact_bytes'] / 1073741824, 2)}}}",
         ])
+    # Per-Fact publication cost from the Day-0 build (artifact bytes and build
+    # median over the publication's Fact count) for the applicability envelope.
+    day_zero = rq5_days["day0"]
+    lines.extend([
+        rf"\newcommand{{\RQFiveBytesPerFact}}{{{comma(round(day_zero['artifact_bytes'] / rq5_offline['facts_per_publication']))}}}",
+        rf"\newcommand{{\RQFiveBuildMicrosPerFact}}{{{decimal(day_zero['build_ms']['p50'] * 1000 / rq5_offline['facts_per_publication'], 1)}}}",
+    ])
     for value, label in zip(
         rq5_online["transitions"],
         ("DayZeroToOne", "DayOneToTwo", "DayTwoToThree"),
@@ -1610,11 +1617,13 @@ def main(argv: list[str] | None = None) -> None:
     ])
     serial = publication["concurrency"]["serial-control/1/serial"]
     fifty = publication["concurrency"]["shared-root/50/natural_contention"]
+    ten = publication["concurrency"]["shared-root/10/natural_contention"]
     lines.extend([
         rf"\newcommand{{\FinalVFivePublicationConcurrencySerialDrainPFiftyMS}}{{{decimal(serial['drain_p50_ms'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS}}{{{decimal(fifty['drain_p50_ms'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS}}{{{decimal(fifty['drain_p95_ms'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond}}{{{decimal(fifty['requests_per_second_at_p50'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond}}{{{decimal(ten['requests_per_second_at_p50'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyRounds}}{{{comma(sum(item['rounds'] for item in publication['concurrency'].values()))}}}",
     ])
     lines.extend([
