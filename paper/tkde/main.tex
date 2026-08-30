@@ -678,10 +678,10 @@ implementation.
 $(t,a)\in R\times V$ of a successful result satisfies
 $\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (Eq.~\eqref{eq:observe});
 normalization may merge equal identities, so coverage is not row count.
-\item[\textbf{O2}] \textbf{Positive dependency coverage.}
-$\facts_D^\pi$ is exactly the declared inductive footprint, including retained
-predicate fields, join-key annotations, group keys, and complete aggregate
-arguments; it excludes rejected rows and non-output pages under this profile.
+\item[\textbf{O2}] \textbf{Positive dependency coverage.} $\facts_D^\pi$
+is exactly the declared inductive footprint (retained predicate fields,
+join-key annotations, group keys, complete aggregate arguments), excluding
+rejected rows and non-output pages.
 \item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
 projection splits, complete page partitions, idempotent overlaps/retries, join
 support, and root-ledger delegation cannot reduce cumulative charge; arbitrary
@@ -717,11 +717,10 @@ derivation, settlement, replay, audit, and receipt all bind one
 task/Catalog/publication/dictionary context, so a changed context cannot
 reuse an old semantic replay.
 
-\textbf{Three-way reconciliation.} The effect manifest, the root-ledger heads,
-and the artifact/receipt/availability evidence must identify the same settled
-observation and intent; a hash, binding, or audit mismatch fails closed, and
-neither a receipt alone nor an availability event without settlement suffices
-(the supplement tabulates the reconciliation).
+\textbf{Three-way reconciliation.} The effect manifest, root-ledger heads,
+and artifact/receipt/availability evidence must identify the same settled
+observation and intent; any mismatch fails closed, and neither a receipt
+alone nor an availability event without settlement suffices.
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
@@ -1436,13 +1435,11 @@ are trusted declarations, and View drift is checked at request, approval, and
 execution rather than continuously.
 
 \textbf{Applicability envelope.} Publication artifacts cost
-\RQFiveBytesPerFact{}~B per Fact and build at
-\RQFiveBuildMicrosPerFact{}~$\mu$s per Fact on this host (Day~0 of RQ5,
-\RQFiveFacts{} Facts), and derivation costs microseconds per Fact
-(Table~\ref{tab:phase-breakdown}); a $10^9$-Fact Product would therefore need
-hundreds of gigabytes per publication and hours per build and per global
-aggregate, so the evaluated envelope is reporting Products of $10^5$--$10^6$
-rows, not warehouse-scale tables.
+\RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact on
+this host (RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per
+Fact (Table~\ref{tab:phase-breakdown}), so a $10^9$-Fact Product would need
+hundreds of gigabytes and hours per build and per global aggregate; the
+evaluated envelope is reporting Products of $10^5$--$10^6$ rows.
 
 \textbf{Throughput scope.} Every settlement of a root family serializes on
 its head; measured same-root throughput falls from
