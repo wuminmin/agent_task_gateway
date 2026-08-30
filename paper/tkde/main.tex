@@ -759,32 +759,23 @@ and every operator preserves
  \operatorname{support}(W_a)=S_a.                 \label{eq:anninv}
 \end{equation}
 Same-proof composition unions support and adds multiplicities; alternative
-proofs union support and take pointwise maximum. Thus alternatives are
-idempotent while join fanout remains visible.
-
-Let
-\begin{equation}
- \operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k).
- \label{eq:rid}
-\end{equation}
-$H$ is typed, length-delimited, and domain-separated. Scan uses the Catalog
-entity key; unary operators preserve keys; join, union-distinct, and group bind
-their complete canonical child/class/group identities. Derived Facts also bind
-source/snapshot, expression, value, and witness. Complete key construction and
-collision checks are supplemental.
+proofs union support and take pointwise maximum, so alternatives are
+idempotent while join fanout remains visible. Row identity is
+$\operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k)$ with
+$H$ typed, length-delimited, and domain-separated: Scan uses the Catalog
+entity key, unary operators preserve keys, and join, union-distinct, and
+group bind their complete canonical child/class/group identities; derived
+Facts also bind source/snapshot, expression, value, and witness (key
+construction and collision checks are supplemental).
 
 \subsection{Operator Evaluation and Effect Extraction}
 
 Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$: a failed
-premise yields no relation, effect, settlement, or release. A cell is the
-5-tuple $c_a=\langle v_a,\tau_a,\alpha_a,x_a,\rho_a\rangle$ (value, type,
-annotation pair $\alpha_a=(S_a,W_a)$, normalized lineage expression, optional
-materialized release fact), and every rule constructs each output cell
-explicitly; the complete rules, auxiliary functions, NULL/empty-input cases,
-and page bounds are in the supplement.
-
-
-Union is bag-aware and idempotent only when its typed tuples are proven
+premise yields no relation, effect, settlement, or release. A cell carries
+value, type, annotation pair $(S_a,W_a)$, normalized lineage expression, and
+an optional materialized release fact $\rho_a$; every rule constructs each
+output cell explicitly (complete rules, NULL/empty-input cases, and page
+bounds are in the supplement). Union is bag-aware and idempotent only when its typed tuples are proven
 duplicate-free, grouping/distinct equivalence is \code{IS NOT DISTINCT FROM},
 floating-point \code{SUM} is rejected because the bag fixes no fold order,
 and pagination appends Catalog keys until the order is total; the relation is
@@ -837,9 +828,6 @@ $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{proposition}
 \emph{Proof in the supplement.}
 
-Group-key, union-distinct, and aggregate-input completeness statements and
-proofs are given in the supplement together with their effect on selected
-output rows.
 
 \subsection{Conservation Properties}
 
@@ -890,7 +878,7 @@ accepted acyclic DAG preserves the visible bag and all three effect sets when
 the internal query retains $\beta_v$ (proof in the supplement), while a direct
 terminal query can carry different Outcome FactIDs.
 
-\begin{theorem}[Base-ledger split/page/join conservation]
+\begin{proposition}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
 Merging release/dependency observations for disjoint projections or a complete
 page partition equals observing the combined result. Overlapping pages and
@@ -899,7 +887,7 @@ once; join fanout changes witness multiplicity but not the union of dependency
 support. Composite facts remain per normalized query/result outcome;
 predicate atoms are reused exactly when their canonical footprint components
 agree, so a family of page or threshold questions does not collapse wholesale.
-\end{theorem}
+\end{proposition}
 \emph{Proof in the supplement.}
 
 \section{Online Accounting}
@@ -951,7 +939,7 @@ overflow, or truncation fail closed. For each segment, publication defines a Fac
 $D_j$; portable Roaring compression changes representation, not membership
 \cite{chambi2016roaring}.
 
-\begin{theorem}[Exact bitmap refinement]
+\begin{proposition}[Exact bitmap refinement]
 \label{thm:bitmap-refinement}
 For canonical bitmaps $A$ and $B$ in one dictionary segment,
 $\operatorname{Decode}(A\mathbin{\mathrm{OR}}B)=
@@ -961,17 +949,17 @@ $\operatorname{Decode}(A\mathbin{\mathrm{ANDNOT}}B)=
 $\operatorname{popcount}(A)=|\operatorname{Decode}(A)|$. For every successful
 query in the closed online algebra, decoding the streamed bitmap components
 yields exactly the release and dependency components of $\effect(q,D_s)$.
-\end{theorem}
-\emph{Intuition.} Bijective decoding turns OR, ANDNOT, and popcount into exact
-set operations; induction over the closed algebra then substitutes ordinals
-for singleton facts without changing support or witness commitments. The full
-proof is in the supplement.
+\end{proposition}
+\emph{Argument.} Bijective decoding turns OR, ANDNOT, and popcount into exact
+set operations, and induction over the closed algebra substitutes ordinals
+for singleton facts without changing support or witness commitments
+(supplement).
 
 For Outcome, hash prefixes route immutable, content-addressed leaves and
 blocks, but membership always compares the full SHA-256 value. Physical
 leaf/block encodings are supplemental.
 
-\begin{theorem}[Exact incremental Outcome-set refinement]
+\begin{proposition}[Exact incremental Outcome-set refinement]
 \label{thm:outcome-radix-refinement}
 Let $K_O$ be a valid Outcome root and $C_O$ a canonical candidate. Loading every
 leaf family whose 16-bit prefix occurs in $C_O$, performing full-hash exact
@@ -981,11 +969,10 @@ $\operatorname{Decode}(K'_O)=\operatorname{Decode}(K_O)\cup C_O$ and charges
 $C_O\setminus\operatorname{Decode}(K_O)$ exactly. Any changed member, count,
 prefix, chunk, block, or root manifest changes a verified digest except with a
 SHA-256 collision.
-\end{theorem}
-\emph{Intuition.} Prefix routing partitions the full-hash universe; therefore
-an inserted candidate can affect only its own partitions. Exact comparison is
-still over all 256 hash bits, while the Merkle path authenticates reused
-partitions. The refinement does not use truncated hashes as membership keys.
+\end{proposition}
+\emph{Argument.} Prefix routing partitions the full-hash universe, so an
+inserted candidate affects only its own partitions; comparison is over all
+256 bits and the Merkle path authenticates reused partitions.
 
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
@@ -1115,7 +1102,7 @@ In every execution of this system, every committed head equals the
 componentwise union of the effects of exactly the queries whose swap
 succeeded and satisfies $|K_X|\le B_X$ for all $X\in\{R,D,O\}$; the
 property is unchanged when $K_X$ is represented by dictionary bitmaps or the
-Merkle-radix set (Theorems~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
+Merkle-radix set (Propositions~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
 \end{property}
 \emph{Argument.} Induct on successful swaps in their linearization order: the
 initial head is empty, each successful swap extends the head by exactly the
@@ -1280,10 +1267,9 @@ campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationScaleNonProfileCells{} Scale and
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
 cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
-samples passing with a verified Receipt. Across the
-\FinalVFivePublicationBaselineCells{} Baseline cells (one workload, scale,
-and mode each; the supplement collapses them to workload/scale rows) a novel
-governed query costs
+samples passing with a verified Receipt. Table~\ref{tab:baseline-main} gives
+the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
+Baseline cells a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
 times its direct PostgreSQL equivalent, and that cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
@@ -1292,8 +1278,26 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSTwoNovelS{}~s, longer than S1/SF10 needs to release
 \FinalVFivePublicationSOneReleaseFacts{} Facts
 (\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells cost
-more per Fact than S2 (supplement per-cell table), so Release
-materialization is at least as expensive per Fact as Dependency derivation.
+more per Fact than S2, so Release materialization is at least as expensive
+per Fact as Dependency derivation.
+
+\begin{table}[t]
+\centering
+\caption{Core workloads, per cell: rows, Release and Dependency Facts, and
+medians (ms) of direct PostgreSQL, novel governed, semantic replay, and
+idempotent replay over \FinalVFivePublicationBaselinePerCell{} samples;
+overhead is novel over direct.}
+\label{tab:baseline-main}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Cell & Rows & Rel. & Dep. & Direct & Novel & Sem. & Idem. & Over. \\
+\midrule
+\FinalVFivePublicationBaselineTableBody
+\bottomrule
+\end{tabular}
+\end{table}
 All \FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
 business SQL and charged no Facts, but replay is not a latency win at these
 scales: semantic replay exceeds direct re-execution in every cell, and only
