@@ -642,8 +642,12 @@ and never exceed the root's ceiling; a settlement is admitted exactly when
 the family total after it stays within both the root's and the settling
 task's ceiling (Section~5.1's narrowed-child rule); for sequential steps the head delta must equal
 the observation's novelty against the union at that moment (zero for
-replays from any task in the family); and every refusal must still exceed a
-limit when unioned with the final committed set, since the union only grows.
+replays from any task in the family), and a sequential step is refused
+exactly when a dimension it adds to would exceed the root's or the settling
+task's ceiling. Refusals inside a concurrent burst are not re-judged
+afterwards: a sibling committing later can shrink the refused observation's
+novelty, so the final union says nothing about the state the refusal was
+decided against.
 Over \VFiveFamilyPropertyQueries{} settlements
 (\VFiveFamilyPropertyCommitted{} committed, \VFiveFamilyPropertyRefused{}
 refused) no check failed. The test drives the V4 ordinal settlement engine

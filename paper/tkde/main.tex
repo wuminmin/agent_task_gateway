@@ -1168,10 +1168,10 @@ of them with ceilings drawn below their parent's) in sequential steps and
 concurrent bursts against the live Control store, checking after every step
 that the committed head equals a separately kept plain-set union in all
 three dimensions and never exceeds the root's or the settling task's
-ceiling, that each sequential charge is exactly the novelty, and that each
-of the \VFiveFamilyPropertyRefused{} refusals exceeds a ceiling even against
-the final union; it drives the settlement engine directly, not SQL lowering
-or the companion statement. We claim bounded
+ceiling, and that every sequential step is admitted or refused exactly as
+the ceiling rule predicts and charged exactly its novelty
+(\VFiveFamilyPropertyRefused{} refusals in all); it drives the settlement
+engine directly, not SQL lowering or the companion statement. We claim bounded
 model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}

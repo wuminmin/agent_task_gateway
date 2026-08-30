@@ -28,13 +28,16 @@ import (
 //     observations in every dimension (the model below is an ordinary Go map,
 //     independent of the bitmap and radix code under test);
 //  2. the head never exceeds the root limits in any dimension;
-//  3. every refusal was necessary: the refused observation, unioned with the
-//     final committed set, exceeds a limit (the committed set only grows, so an
-//     observation that fits at the end fit when it was refused).
+//  3. for sequential steps, the refusal decision is exactly the model's: a
+//     settlement is admitted iff every dimension it adds to stays within the
+//     root's and the settling task's ceiling, and an admitted one is charged
+//     exactly its novelty against the union at that moment (zero for replays
+//     from any task in the family).
 //
-// For sequential steps the per-query charge is also checked to be exactly the
-// novelty of the observation against the union at that moment, including zero
-// for replays from any task in the family.
+// Refusals inside a concurrent burst are not re-judged afterwards: a sibling
+// that commits later can shrink the refused observation's novelty (to zero in
+// a dimension, which is then unchecked), so fitting the final union says
+// nothing about the state the refusal was decided against.
 func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 41))
 	const ordinalsPerSegment = 24
@@ -182,12 +185,6 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 				if head.Used.ReleaseFacts > limits.ReleaseFacts || head.Used.InfluenceFacts > limits.InfluenceFacts ||
 					head.Used.OutcomeFacts > limits.OutcomeFacts {
 					t.Fatalf("seed %d round %d: head %+v exceeds limits %+v", seed, round, head.Used, limits)
-				}
-			}
-			for _, step := range refused {
-				if model.fits(step, taskLimits[step.taskID]) {
-					t.Fatalf("seed %d: refused %s would fit the final union %+v under %+v",
-						seed, step.queryID, model.used(), limits)
 				}
 			}
 			t.Logf("seed %d: tasks=%d queries=%d committed=%d refused=%d final=%+v limits=%+v narrowed=%d",
