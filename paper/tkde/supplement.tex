@@ -1188,9 +1188,12 @@ The Gateway reports finer component timers than the six pipeline phases
 (\code{component_ms}), but the publication campaign's adapter did not retain
 them. A pilot-class amendment at the submission commit re-ran the
 \code{analytics-orders}, \code{analytics-orders-lineitem}, and
-\code{result-heavy} profiles once each (one measured sample per cell, the
-adapter retaining the component map; \code{campaign_class} \code{pilot},
-\code{publication_eligible} \code{false}; run \code{subphase-pilot-06}).
+\code{result-heavy} profiles with the adapter retaining the component map:
+one deployment each in run \code{subphase-pilot-06} and three deployments
+each in run \code{subphase-pilot-07}, so
+\FinalVFiveSubphaseSamplesSTwoSFTen{} novel samples per cell, all pilot
+class (\code{campaign_class} \code{pilot}, \code{publication_eligible}
+\code{false}); the table reports medians over the pooled samples.
 Table~\ref{tab:subphase-supp} lists the atomic components of the novel arm
 for the three cells the main text discusses. Two Gateway timers are
 composites and are not tabulated: \code{ordinal_stream} equals the companion
@@ -1203,13 +1206,14 @@ and witness merging, not in PostgreSQL: the companion statement is
 \FinalVFiveSubphaseExecuteMSSTwoSFTen{}~ms phase at S2/SF10 and
 \FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms of
 \FinalVFiveSubphaseExecuteMSSSixHundredKByteSixteen{}~ms at S6/100k-x16.
-These are single-sample pilot measurements and are cited only for the
+These are pilot measurements on one host and are cited only for the
 breakdown, not for latency.
 
 \begin{table}[t]
 \centering
-\caption{Sub-phase pilot: Gateway component timings (ms, one sample per
-cell, novel arm) for S1/SF1, S2/SF10, and S6/100k-x16.}
+\caption{Sub-phase pilot: Gateway component timings (ms, medians over
+\FinalVFiveSubphaseSamplesSTwoSFTen{} novel samples per cell) for S1/SF1,
+S2/SF10, and S6/100k-x16.}
 \label{tab:subphase-supp}
 \small
 \begin{tabular}{lrrr}

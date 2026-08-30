@@ -220,21 +220,15 @@ func randomFamilyObservation(t *testing.T, random *rand.Rand, ordinals int, task
 	if err != nil {
 		t.Fatal(err)
 	}
-	var dynamic []OrdinalDynamicFact
-	var outcomeKeys []string
-	seen := make(map[string]struct{})
-	for count := random.Intn(3); count > 0; count-- {
-		payload := fmt.Sprintf("outcome-%c", 'a'+random.Intn(6))
-		if _, duplicate := seen[payload]; duplicate {
-			continue
-		}
-		seen[payload] = struct{}{}
-		dynamic = append(dynamic, OrdinalDynamicFact{
-			SHA256: digestDynamic(OrdinalDynamicOutcome, []byte(payload)), Kind: OrdinalDynamicOutcome,
-			CanonicalPayload: []byte(payload),
-		})
-		outcomeKeys = append(outcomeKeys, payload)
-	}
+	// A V4 observation carries exactly one dynamic Outcome fact (the settled
+	// composite); a small payload pool makes repeats, and so zero-novelty
+	// Outcome charges, frequent.
+	payload := fmt.Sprintf("outcome-%c", 'a'+random.Intn(6))
+	dynamic := []OrdinalDynamicFact{{
+		SHA256: digestDynamic(OrdinalDynamicOutcome, []byte(payload)), Kind: OrdinalDynamicOutcome,
+		CanonicalPayload: []byte(payload),
+	}}
+	outcomeKeys := []string{payload}
 	return familyObservation{
 		taskID: taskID, queryID: queryID, release: releaseKeys, influence: influenceKeys, outcome: outcomeKeys,
 		observation: OrdinalExposureObservation{ProfileVersion: exposure.ProfileV4, DictionarySetDigest: testOrdinalSet,

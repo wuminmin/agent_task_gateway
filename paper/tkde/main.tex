@@ -1262,9 +1262,10 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 more per Fact than S2, so Release materialization is at least as expensive
 per Fact as Dependency derivation. Settlement is not where exactness is
 paid: the Scale profile below settles against a million-Fact history in
-\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot at the submission commit (one deployment per
-profile, one sample per cell, Gateway component timers retained; not
-publication-class) splits execute-and-derive: the companion SQL takes
+\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot at the submission commit (four deployments per
+profile, \FinalVFiveSubphaseSamplesSTwoSFTen{} samples per cell, Gateway
+component timers retained; not publication-class) splits
+execute-and-derive: the companion SQL takes
 \FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
 at S1/SF1, S2/SF10, S6/100k-x16, while Go-side ordinal consumption and
 witness merging take

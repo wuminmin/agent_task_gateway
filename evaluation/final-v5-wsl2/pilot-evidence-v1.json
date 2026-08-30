@@ -48,6 +48,16 @@
       "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
       "measured_samples": 46,
       "note": "Sub-phase amendment: analytics-orders, analytics-orders-lineitem, result-heavy, one deployment each, one measured sample per cell, adapter retaining the Gateway component_ms map. Pilot class; not publication evidence."
+    },
+    {
+      "id": "subphase-pilot-07",
+      "family": "subphase",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/subphase-pilot-07",
+      "campaign_evidence_sha256": "0153fe56f946abce0ead723670bf29c1153cb3656e2f9fde35c9cc995db69eb8",
+      "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
+      "measured_samples": 138,
+      "note": "Sub-phase amendment repeated: analytics-orders, analytics-orders-lineitem, result-heavy, three deployments each, one measured sample per cell per deployment, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-06 for the sub-phase medians. Pilot class; not publication evidence."
     }
   ]
 }
