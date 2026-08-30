@@ -223,9 +223,9 @@ Let $\mathcal R$ be a finite registry keyed by canonical schema-qualified
 relation names. A record contains a kind, ordered column contract, and either
 (i) an ordinary-View definition and sorted direct dependencies, or (ii) the
 Catalog Product identity of an opaque terminal publication. Discovery reads
-\code{pg\_class}, \code{pg\_rewrite}, \code{pg\_depend},
-\code{pg\_attribute}, type/collation metadata, and exact
-\code{pg\_get\_viewdef} output in one read-only \code{REPEATABLE READ}
+\code{pg_class}, \code{pg_rewrite}, \code{pg_depend},
+\code{pg_attribute}, type/collation metadata, and exact
+\code{pg_get_viewdef} output in one read-only \code{REPEATABLE READ}
 transaction. It also parses the definition independently; the parsed relation
 set must equal the catalog-derived dependency set. This second path exposes,
 and then rejects, recursive self references and unsupported built-in/object
@@ -305,7 +305,7 @@ domain-separated input.
 \toprule
 Digest & Committed payload \\
 \midrule
-Definition & Exact root \code{pg\_get\_viewdef} bytes; no whitespace normalization \\
+Definition & Exact root \code{pg_get_viewdef} bytes; no whitespace normalization \\
 Dependency & Sorted reachable nodes/edges, exact per-node definitions, compiled interfaces, kinds/Product leaves, and PostgreSQL major version \\
 Canonical plan & Shared typed query normal form of the fully expanded base-relation plan; syntactic View layers, relation aliases, and accepted join order are absent \\
 Interface & Ordered public output name, canonical SQL type, collation name, and collation version \\
@@ -327,7 +327,7 @@ content-addressed, the binding digest on Grant and query record, and a reverse
 index from each task/Product to every reachable schema-qualified dependency.
 
 Task binding begins \code{ACTIVE}. Any current compile failure or mismatch of
-the persisted set makes \code{REQUIRE\_REBIND} durable; database constraints
+the persisted set makes \code{REQUIRE_REBIND} durable; database constraints
 prevent a transition back to \code{ACTIVE}. Exact terminal replay is looked up
 before this new-work gate. Otherwise the enforcement layer re-resolves the current set,
 reserves ordinary resources, and the connector rechecks the registry revision
@@ -589,7 +589,7 @@ recorded submission-commit blobs rather than the current working tree.}
 Binding & Identity \\
 \midrule
 Implementation base commit & \VFiveImplementationCommit \\
-Evidence snapshot commit & Schema-3 \code{submission\_commit} in \code{evaluation/v5-outcome/evidence.json} \\
+Evidence snapshot commit & Schema-3 \code{submission_commit} in \code{evaluation/v5-outcome/evidence.json} \\
 Implementation source-set SHA-256 & \VFiveImplementationSourceHash \\
 Raw \code{go test -json} SHA-256 & \VFiveRawLogHash \\
 Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
@@ -733,7 +733,7 @@ recovery path for a terminal query, artifact row, and registration event that
 already exist while the receipt row is absent.  This path first validates the
 original registration event against the immutable audit chain and then emits a
 \emph{recovered attestation}. Such an attestation authenticates the same
-PENDING intent, but its \code{signed\_at} can postdate the original
+PENDING intent, but its \code{signed_at} can postdate the original
 settlement and the receipt itself was not co-committed with that settlement.
 Both forms prove intent rather than availability; the normal Compose path
 produces the co-committed form. They share one wire format and verification
@@ -789,7 +789,7 @@ receipt verification, and audit must agree on the task, Grant, Catalog,
 publication/dictionary, profile, normal form, View contract, type/collation,
 and result handling. The receipt directly records the profile version and
 observation/component digests; the complete environment is transitively bound,
-not represented by a \code{profile\_digest} field.
+not represented by a \code{profile_digest} field.
 
 Table~\ref{tab:soundness-evidence-supp} is the claim-evidence matrix. ``TLA+''
 means a bounded invariant in the stated finite configuration. A blank semantic
@@ -862,7 +862,7 @@ the Control-PG sequence that co-commits root observation/effect settlement,
 terminal and registration audits, a \code{PENDING} artifact intent, and the V8
 receipt, followed by canonical-object verification and a second transaction
 that co-commits \code{AVAILABLE} with
-\code{QUERY\_RESULT\_CONSUMED}. The source-controlled final-campaign adapter
+\code{QUERY_RESULT_CONSUMED}. The source-controlled final-campaign adapter
 uses one fail-closed verifier to compare the signed Grant/Catalog/profile and
 effect fields with an independent Control projection, prove the terminal,
 registration, and availability events on one audit path, re-hash the raw
@@ -880,19 +880,19 @@ SDK, mechanized cross-module refinement, or liveness guarantee.
 \toprule
 Layer & Bound evidence & Required reconciliation & Insufficient alone \\
 \midrule
-Effect manifest & Three candidate sets, \code{observation\_sha256}, component digests, profile and publication context & Same query observation must be the effect settled under the bound root & Does not prove ledger commit or availability \\
+Effect manifest & Three candidate sets, \code{observation_sha256}, component digests, profile and publication context & Same query observation must be the effect settled under the bound root & Does not prove ledger commit or availability \\
 Root-family ledger & Three committed heads, exact novelty/cardinalities, root epoch, settlement and terminal audit & Head transition and query observation must identify the manifest and remain within all bounds & Does not prove object promotion \\
 Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 receipt, canonical verification, availability audit & One final-campaign verifier reconciles the same query, signed intent, Control projection, canonical bytes, Parquet schema, and AVAILABLE event & Receipt alone proves PENDING intent; availability event cannot replace settlement \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The receipt uses \code{observation\_\allowbreak sha256} and the component
-digests \code{release\_set\_\allowbreak sha256},
-\code{influence\_set\_\allowbreak sha256}, and
-\code{outcome\_set\_\allowbreak sha256}; it has no field named
-\code{candidate\_\allowbreak digest}, \code{effect\_\allowbreak digest}, or
-\code{profile\_\allowbreak digest}.
+The receipt uses \code{observation_\allowbreak sha256} and the component
+digests \code{release_set_\allowbreak sha256},
+\code{influence_set_\allowbreak sha256}, and
+\code{outcome_set_\allowbreak sha256}; it has no field named
+\code{candidate_\allowbreak digest}, \code{effect_\allowbreak digest}, or
+\code{profile_\allowbreak digest}.
 Hash, binding, or audit mismatch fails closed. Residual quantities and channels
 remain outside the manifest: differential privacy, total/background knowledge,
 timing, uncharged refusal, information content of
@@ -931,8 +931,8 @@ Full, replay $(r,i)$ & \BaseReplay{} \\
 \label{sec:baseline-pilot-supp}
 
 Table~\ref{tab:baseline-pilot} expands the main text's summary of the retained
-Baseline run. It is \texttt{campaign\_class=pilot} and
-\texttt{publication\_eligible=false}: one deployment,
+Baseline run. It is a pilot-class run (\texttt{campaign\_class} \texttt{pilot},
+\texttt{publication\_eligible} \texttt{false}): one deployment,
 \FinalVFivePilotBaselinePerCell{} samples per cell after warmups, all
 \FinalVFivePilotBaselineSamples{} samples passing with a verified Receipt on
 every governed arm. It is not a completed publication campaign and must not be
@@ -972,8 +972,8 @@ Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Ov
 
 Table~\ref{tab:baseline-publication} expands the main text's summary of the
 frozen publication campaign \FinalVFivePublicationCampaign{}
-(\texttt{campaign\_class=publication},
-\texttt{publication\_eligible=true}): \FinalVFivePublicationDeployments{}
+(\texttt{campaign\_class} \texttt{publication},
+\texttt{publication\_eligible} \texttt{true}): \FinalVFivePublicationDeployments{}
 fresh deployments of commit \FinalVFivePublicationCommit{},
 \FinalVFivePublicationBaselinePerCell{} measured samples per Baseline cell
 across three independent executions, all
@@ -1020,10 +1020,10 @@ rounds of concurrent governed requests at its budget boundary: the root has
 one unit of capacity left, so exactly one contender per round can settle
 novel work while the others settle zero novelty or are refused. One
 sample is one round, and its drain time runs from launching all contenders
-until every one has returned. In \code{forced\_queue\_safety} a blocker
+until every one has returned. In \code{forced_queue_safety} a blocker
 transaction holds the root-head row lock until every contender has arrived and
 is waiting on it, then releases the whole round at once; in
-\code{natural\_contention} the contenders run freely and the round counts only
+\code{natural_contention} the contenders run freely and the round counts only
 if the production Outcome set reported at least one CAS conflict.
 Table~\ref{tab:concurrency-publication} reports round drain time per cell
 over \FinalVFivePublicationConcurrencyRounds{} rounds; requests per second is
@@ -1115,7 +1115,7 @@ measured HOT artifact is \RQFiveHotArtifactMiB{}~MiB, well below the
 compiler's 2~GiB total-artifact and 1024~MiB HOT limits. The memory value is the direct
 offline compiler child process's Linux \code{VmHWM}, sampled at 1~ms; it is not
 a cgroup, PostgreSQL, page-cache, swap, or full-system peak. It exceeds the
-the configured builder envelope; this run instead has a 6~GiB Compose
+configured builder envelope; this run instead has a 6~GiB Compose
 phase-container declaration, but no retained cgroup \code{memory.max}, peak,
 swap, or OOM record. Timings similarly
 exclude Compose/container startup, orchestration, and calibration, and sum
