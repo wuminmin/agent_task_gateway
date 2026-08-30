@@ -432,7 +432,11 @@ func streamWriteUint64(target hash.Hash, value uint64) {
 
 func streamSetRole(role string) bool {
 	switch role {
-	case "candidate", "existing", "overlap", "novel", "union":
+	case "candidate", "existing", "overlap", "novel", "union",
+		// The refused-footprint ladder corpus commits its per-rung Dependency
+		// and Release sets; a role only labels the digest domain, so adding
+		// roles never changes any existing role-bound digest.
+		"dependency", "release":
 		return true
 	default:
 		return false
