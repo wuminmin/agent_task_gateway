@@ -71,4 +71,7 @@
   charged_dependency==语料基数；每步 client_ms）。验证器：`validateRLSVerificationStrict` 在语料绑定检查**之前**按 WorkloadID 分支——
   ladder 样本绑定 finalv5footprint（CorpusID/sha、每阶期望），不撞 finalv5rls 的 CorpusSHA256 钉。capability 矩阵与 frozen 协议
   workloads 在 slice c（激活）时一并动，capability_test 的 cellCount 6→8 同步。
+- 2026-08-31 08:00 CST：链 #8c 全绿, v1.12 树四道门禁(DB 套件/全量 evaluation/链/终检)收口(台账 P8-C2-CHAIN8)。
+  链 #8 的三次尝试暴露并修复两类流程缺陷：E1 装置无指纹 reuse 硬钉、冻结引导撤销未成对恢复(P8-C2-CHAIN8A/8B)。
+  当前进行：slice b(阶梯 adapter runner + 校验器语料分支, 休眠)。
 
