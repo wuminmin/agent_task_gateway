@@ -139,8 +139,8 @@ func TestReleaseObservationFailsClosedOnHashCollision(t *testing.T) {
 	t.Run("within a run", func(t *testing.T) {
 		observation := newReleaseObservation(1<<20, t.TempDir(), 1<<12)
 		defer observation.Close()
-		observation.resident = append(observation.resident, releaseEntry{hash: hash, payload: leftPayload},
-			releaseEntry{hash: hash, payload: rightPayload})
+		observation.resident = append(observation.resident, releaseEntry{hash: hash, payload: append([]byte(nil), leftPayload...)},
+			releaseEntry{hash: hash, payload: append([]byte(nil), rightPayload...)})
 		if _, err := observation.Digest(1); err == nil || !strings.Contains(err.Error(), "collision") {
 			t.Fatalf("collision within a run: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestReleaseObservationFailsClosedOnHashCollision(t *testing.T) {
 	t.Run("across runs", func(t *testing.T) {
 		observation := newReleaseObservation(1<<20, t.TempDir(), 1<<12)
 		defer observation.Close()
-		observation.resident = append(observation.resident, releaseEntry{hash: hash, payload: leftPayload})
+		observation.resident = append(observation.resident, releaseEntry{hash: hash, payload: append([]byte(nil), leftPayload...)})
 		if err := observation.spillRun(); err != nil {
 			t.Fatal(err)
 		}

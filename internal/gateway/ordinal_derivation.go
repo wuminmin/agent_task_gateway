@@ -336,7 +336,7 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 		leafFields:  make(map[string][]string, len(program.Sources)),
 		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
 		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(),
-		derived:     derived, observed: exposure.NewReleaseObservation(),
+		derived: derived, observed: exposure.NewReleaseObservation(),
 		visibleRows: make(map[string]ordinalVisibleRow), groupKeys: make(map[string]string),
 		seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
 	}
