@@ -109,9 +109,10 @@ type ordinalDeriver struct {
 	derived   exposure.FactSet
 	observed  *exposure.ReleaseObservation
 	builders  map[string]map[string]*exposure.BaseCellFactBuilder
-	// pipelined marks the plain ungrouped path (no grouping, no UNION
-	// DISTINCT), whose rows are prepared in parallel batches and committed
-	// in arrival order; pending holds the rows of the open batch.
+	// pipelined marks every non-UNION program: rows are prepared in parallel
+	// batches (member construction, outer-field merge, and either the
+	// ungrouped release facts or the group-key components) and committed in
+	// arrival order; pending holds the rows of the open batch.
 	pipelined bool
 	pending   [][]any
 	finished  bool
@@ -343,7 +344,7 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 		program: program, indexes: indexes, multi: multi, visible: visible, visiblePos: visiblePos,
 		planDigest: planDigest, bundle: bundle,
 		grouped:     len(program.Groups) != 0 || len(program.Aggregates) != 0,
-		pipelined:   len(program.Groups) == 0 && len(program.Aggregates) == 0 && program.Kind != "union_distinct",
+		pipelined:   program.Kind != "union_distinct",
 		leafFields:  make(map[string][]string, len(program.Sources)),
 		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
 		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(),
@@ -498,9 +499,10 @@ const (
 // happens sequentially in arrival order, so the effect is identical to the
 // row-at-a-time path.
 type ordinalPreparedRow struct {
-	member ordinalMember
-	cells  []ordinalPreparedCell
-	err    error
+	member          ordinalMember
+	cells           []ordinalPreparedCell
+	groupComponents []string
+	err             error
 }
 
 type ordinalPreparedCell struct {
@@ -557,6 +559,13 @@ func (d *ordinalDeriver) prepareRow(values []any, visiblePosition int) ordinalPr
 	if err != nil {
 		return ordinalPreparedRow{err: err}
 	}
+	if d.grouped {
+		components, err := d.groupKeyComponents(member)
+		if err != nil {
+			return ordinalPreparedRow{err: err}
+		}
+		return ordinalPreparedRow{member: member, groupComponents: components}
+	}
 	if visiblePosition >= len(d.visible.Rows) {
 		return ordinalPreparedRow{err: errors.New("provenance contains more rows than the visible result")}
 	}
@@ -573,6 +582,14 @@ func (d *ordinalDeriver) commitRow(row *ordinalPreparedRow) error {
 		return row.err
 	}
 	d.memberCount++
+	if d.grouped {
+		key, err := d.canonicalGroupKey(row.groupComponents, false)
+		if err != nil {
+			return err
+		}
+		row.member.groupKey = key
+		return d.acceptGrouped(row.member)
+	}
 	d.visibleIndex++
 	return d.commitUngrouped(row.member, row.cells)
 }
@@ -777,11 +794,20 @@ func (d *ordinalDeriver) sourceEntityKey(source queryplan.OrdinalSource, values 
 
 func (d *ordinalDeriver) memberGroupKey(member ordinalMember) (string, error) {
 	if d.pipelined {
-		// Only the grouped and UNION DISTINCT paths read member.groupKey; the
-		// pipelined path prepares rows in parallel and must not touch the
-		// shared one-entry key cache.
+		// The pipelined path computes the components in parallel and resolves
+		// the key sequentially at commit, through the shared one-entry cache.
 		return "", nil
 	}
+	components, err := d.groupKeyComponents(member)
+	if err != nil {
+		return "", err
+	}
+	return d.canonicalGroupKey(components, false)
+}
+
+// groupKeyComponents canonicalizes the member's group cells; it reads only
+// the member and the program.
+func (d *ordinalDeriver) groupKeyComponents(member ordinalMember) ([]string, error) {
 	components := make([]string, 0, len(d.program.Groups))
 	for _, group := range d.program.Groups {
 		cell, present := member.cells[group.Field.FieldID]
@@ -797,7 +823,7 @@ func (d *ordinalDeriver) memberGroupKey(member ordinalMember) (string, error) {
 	if len(components) == 0 {
 		components = []string{"global"}
 	}
-	return d.canonicalGroupKey(components, false)
+	return components, nil
 }
 
 // canonicalGroupKey memoizes visible output groups plus one most-recent
@@ -1184,7 +1210,17 @@ func (d *ordinalDeriver) flushGroup() error {
 	if len(d.program.Groups) != 0 && d.current.members == 0 {
 		return errors.New("visible group has no positive provenance member")
 	}
-	for _, output := range d.program.Visible {
+	// Freeze every output witness in order, then compute the commitments
+	// concurrently (each reads only its frozen witness and the immutable
+	// index), then build and record the facts in output order.
+	type groupOutput struct {
+		position   int
+		witness    ordinal.WeightedSet
+		commitment string
+		err        error
+	}
+	outputs := make([]groupOutput, len(d.program.Visible))
+	for index, output := range d.program.Visible {
 		position, present := d.visiblePos[output.ResultAlias]
 		if !present || position >= len(d.current.visible.values) {
 			return fmt.Errorf("visible group output %q is unavailable", output.ResultAlias)
@@ -1200,9 +1236,34 @@ func (d *ordinalDeriver) flushGroup() error {
 		if err != nil {
 			return err
 		}
-		commitment, err := ordinalWitnessCommitment(witness, d.multi)
-		if err != nil {
-			return err
+		outputs[index] = groupOutput{position: position, witness: witness}
+	}
+	workers := min(runtime.GOMAXPROCS(0), ordinalPipelineWorkers, len(outputs))
+	if workers > 1 {
+		var wait sync.WaitGroup
+		var next atomic.Int64
+		for worker := 0; worker < workers; worker++ {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				for {
+					index := int(next.Add(1)) - 1
+					if index >= len(outputs) {
+						return
+					}
+					outputs[index].commitment, outputs[index].err = ordinalWitnessCommitment(outputs[index].witness, d.multi)
+				}
+			}()
+		}
+		wait.Wait()
+	} else {
+		for index := range outputs {
+			outputs[index].commitment, outputs[index].err = ordinalWitnessCommitment(outputs[index].witness, d.multi)
+		}
+	}
+	for index, output := range d.program.Visible {
+		if outputs[index].err != nil {
+			return outputs[index].err
 		}
 		expression := output.CanonicalExpression
 		if output.Kind == "field" {
@@ -1214,7 +1275,7 @@ func (d *ordinalDeriver) flushGroup() error {
 			}
 		}
 		fact, err := exposure.NewDerivedFactV2(d.bundle, d.current.key, expression,
-			output.SQLType, d.current.visible.values[position], commitment)
+			output.SQLType, d.current.visible.values[outputs[index].position], outputs[index].commitment)
 		if err != nil {
 			return err
 		}
