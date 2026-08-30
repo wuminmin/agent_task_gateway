@@ -1379,10 +1379,9 @@ All measurements ran on one WSL2 guest (Ubuntu 22.04.5, Linux 6.18) of an
 Intel Core i9-13900HX (16 cores, 32 threads) with 29~GiB of visible memory,
 Docker 29.7.2, PostgreSQL 16.14 from a digest-pinned image, and Go 1.25.14.
 The repository at the cited commits, the evidence pack, and the retained raw
-samples (48 JSONL files, 591~MB) are provided as the artifact [artifact
-DOI/URL]; a third party can re-verify every digest chain and recompute every
-macro from the raw samples, but the pack omits HOT/COLD/sidecar payload bytes,
-so those payloads cannot be re-hashed from it.
+samples (48 JSONL files, 591~MB) form the artifact [artifact DOI/URL]; a
+third party can re-verify every digest chain and recompute every macro from
+the raw samples but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
@@ -1440,10 +1439,10 @@ roots is not measured.
 validates structural and version bindings for administrator-attested identities,
 plus supported semantics and settlement; it does not decide policy
 appropriateness. Its single primary database path and demo approval adapter
-provide no production Data Lake/IAM/workflow/SIEM study, integration-cost
-measurement, or practitioner study of budget calibration of the kind
-marketplace-integrated agents have reported \cite{tonnarelli2026dataproductmcp};
-multi-engine connectors and Policy Studio remain future work.
+provide no production integration study, integration-cost measurement, or
+practitioner study of budget calibration of the kind marketplace-integrated
+agents report \cite{tonnarelli2026dataproductmcp}; multi-engine connectors
+and Policy Studio remain future work.
 Archived V4 used \RQFourVFourBuildRuns{} build; every run reported here is
 single-host. The radix results establish touched-branch I/O shape, not million-scale latency,
 sustained contention, distributed behavior, or live-agent performance.
