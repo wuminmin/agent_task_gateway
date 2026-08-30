@@ -233,13 +233,11 @@ authorization, metering, audit, receipt, and commit-before-release still run.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
-Our unsubmitted SessionBound working manuscript, available as a preliminary
-preprint, introduced the task-scoped authorization substrate
+A preliminary preprint introduced the task-scoped authorization substrate
 \cite{wu2026sessionbound}: a control plane that turns an approved task into a
 signed, budgeted, auditable database session with safe views, row scope,
-denied fields, operation limits, per-session counters, and receipts (not
-accepted or submitted to TDSC). Everything that makes the budget a set rather
-than a counter is new here: the typed FactID semantics and closed
+denied fields, operation limits, per-session counters, and receipts.
+Everything that makes the budget a set rather than a counter is new here: the typed FactID semantics and closed
 algebra, the same-snapshot ordinal companion and bitmap/Merkle-radix ledgers,
 canonical Outcome atoms and composites, exact novelty with atomic
 three-budget settlement before \code{AVAILABLE}, root-family delegation
@@ -250,7 +248,8 @@ This article's five implementation-backed contributions are:
 \item A typed FactID semantics for accounted Result, positive-output
 Dependency, and canonical-atom/composite Outcome sets in a restricted algebra.
 \item A same-snapshot ordinal companion for admitted one-Product, connected
-2--16-role equijoins, two-branch union, grouping, and aggregates; bounded nested
+equijoins (two-source joins evaluated end to end; up to 16 roles admitted by
+the compiler), two-branch union, grouping, and aggregates; bounded nested
 Views flatten into this same core.
 \item Profile-relative exact novelty and atomic three-budget settlement per
 root family and publication epoch, refined by immutable ordinal dictionaries,
@@ -1052,7 +1051,9 @@ effect fits the remaining budgets---and consumes one unit of the attempting
 task's own $B_Q$, which the prototype accounts per task; a delegated child
 signs its own $B_Q$ no larger than its parent's, so a task tree of $k$ tasks
 obtains at most $\sum_{i\le k}B_Q^{(i)}$ comparisons in total, independently
-of $B_R$, $B_D$, and $B_O$.
+of $B_R$, $B_D$, and $B_O$. Each successful novel query additionally
+returns its charge $|\Delta_X|$, the size of its footprint outside the
+ledger; at most $B_O$ such counts exist per root family.
 \end{proposition}
 The bound is on comparisons, not on what a comparison reveals about
 unreleased facts, and it grows with the approved task tree because request
@@ -1241,8 +1242,7 @@ covers split, page, retry, snapshot identity, joins/unions, delegation, and
 races; RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
-\FinalVFivePublicationRQFiveBuildS{}~s p50 and route a retained one in
-\FinalVFivePublicationRQFiveRouteS{}~s); Outcome regressions cover empty
+\FinalVFivePublicationRQFiveBuildS{}~s p50); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding, and the supplement's
 evidence table labels the source state of every line.
 
