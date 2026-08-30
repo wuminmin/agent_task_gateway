@@ -304,13 +304,12 @@ protects denial
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
 reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
-Inference control in statistical databases studied trackers, query-set
-overlap, and cumulative query auditing
+Statistical-database inference control studied trackers, query-set overlap,
+and cumulative auditing
 \cite{denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
-which is why counting distinct predicates bounds probing capacity but not
-inference; PINQ enforces a cumulative per-analyst privacy budget as
-$\epsilon$ \cite{mcsherry2009pinq}, whereas BDG's budget is a set of
-declared facts. BDG charges
+which is why counting distinct predicates bounds probing capacity, not
+inference; PINQ's cumulative budget is $\epsilon$ \cite{mcsherry2009pinq},
+BDG's is a set of declared facts. BDG charges
 declared facts and successful outcomes within one signed root, withholds
 delivery unless settlement succeeds, releases exact answers, and models
 neither prior knowledge, denial leakage, nor $\epsilon$; its zero-novelty
@@ -675,11 +674,10 @@ models plus transaction tests, O6 binding); none alone proves the
 implementation.
 
 \begin{enumerate}
-\item[\textbf{O1}] \textbf{Output coverage.} For successful result bag $R$ and
-requested fields $V$, every selected cell $(t,a)\in R\times V$ satisfies
-$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ by Eq.~\eqref{eq:observe}.
-Normalization may merge equal identities, so coverage is not row count;
-\code{SELECT id} and \code{SELECT id,revenue} differ.
+\item[\textbf{O1}] \textbf{Output coverage.} Every selected cell
+$(t,a)\in R\times V$ of a successful result satisfies
+$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (Eq.~\eqref{eq:observe});
+normalization may merge equal identities, so coverage is not row count.
 \item[\textbf{O2}] \textbf{Positive dependency coverage.}
 $\facts_D^\pi$ is exactly the declared inductive footprint, including retained
 predicate fields, join-key annotations, group keys, and complete aggregate
@@ -715,11 +713,9 @@ fault-injection, receipt, and availability tests, not a mechanized composition.
 
 \textbf{O6: Profile binding.} $C$ binds effect/normal-form profiles,
 type/collation, View contract, replay identity, and result handling;
-derivation, settlement, and replay revalidate one task/Catalog/publication/
-dictionary context that audit and receipt evidence also bind, so a changed
-context cannot reuse an old semantic replay. The receipt carries the profile
-version and binds the environment transitively through the signed Grant and
-its Catalog, observation, dictionary-set, and component-set digests.
+derivation, settlement, replay, audit, and receipt all bind one
+task/Catalog/publication/dictionary context, so a changed context cannot
+reuse an old semantic replay.
 
 \textbf{Three-way reconciliation.} The effect manifest, the root-ledger heads,
 and the artifact/receipt/availability evidence must identify the same settled
@@ -941,12 +937,10 @@ agree, so a family of page or threshold questions does not collapse wholesale.
 \label{sec:online}
 
 Terms: a publication's \emph{hot artifact} holds its entity-key-to-ordinal
-map and verified hashes, its \emph{cold} payloads are the content-addressed
-canonical Fact bytes, and its \emph{sidecar} is the PostgreSQL table mapping
-attested entity keys to ordinals; the \emph{root head} is the Control row
-holding a root family's three set digests and epoch, advanced only by
-compare-and-swap (\emph{CAS}); the \emph{receipt} is the signed settlement
-record of the receipts subsection below.
+map and verified hashes, its \emph{cold} payloads the content-addressed Fact
+bytes, and its \emph{sidecar} the PostgreSQL table mapping attested entity
+keys to ordinals; the \emph{root head} is the Control row holding a family's
+three set digests and epoch, advanced only by compare-and-swap (\emph{CAS}).
 
 Formal semantics and the RQ1 oracle cover scan/select/project, group with
 four aggregates, inner equijoin, union-distinct, and page. Online lowering
@@ -1173,10 +1167,9 @@ or DP accounting.
 \textbf{Worked policy.} The campaign's default low route grants
 $B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$, $B_O=128$, and $B_Q=128$ on
 Products of $10^5$ rows. Because a global aggregate depends on every input
-row, $B_D$ must be sized to the product's row count times the fields an
-approved purpose may legitimately aggregate, and it then bounds how many
-\emph{distinct} base facts any sequence of aggregates can touch rather than
-how many aggregates may run. One sequence this blocks and per-query
+row, $B_D$ is sized to row count times the fields a purpose may aggregate
+and then bounds how many \emph{distinct} base facts any sequence of
+aggregates can touch, not how many aggregates may run. One sequence this blocks and per-query
 authorization with row limits admits: paging through the whole
 $10^5\times16$ Product releases $1.6\times10^6$ Facts, each page a legal query
 under any row limit, and a second such sweep of another Product is refused
