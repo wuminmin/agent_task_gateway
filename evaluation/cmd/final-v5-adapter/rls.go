@@ -16,7 +16,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
-const rlsAdapterEvidenceVersion = "taskgate-final-v5-rls-evidence-v1"
+const rlsAdapterEvidenceVersion = "taskgate-final-v5-rls-evidence-v2"
 
 type rlsAdapter struct {
 	real         *realAdapter
@@ -307,7 +307,9 @@ func (adapter *rlsAdapter) runDirectTrace(ctx context.Context, operation experim
 	evidence.Steps = make([]experiment.RLSStepEvidence, 0, len(adapter.steps))
 	var totalRows int64
 	for index, wanted := range adapter.steps {
+		queryStarted := time.Now()
 		rows, err := queryRows(ctx, tx, wanted.DirectSQL)
+		clientMS := durationMS(time.Since(queryStarted))
 		if err != nil {
 			return adapter.partialDirectSample(operation, evidence, started), err
 		}
@@ -316,6 +318,7 @@ func (adapter *rlsAdapter) runDirectTrace(ctx context.Context, operation experim
 			return adapter.partialDirectSample(operation, evidence, started), &rlsInvariantError{reason: "direct RLS result differs from the frozen typed oracle"}
 		}
 		step := directRLSStep(index, wanted, adapter.prefixes[index], rows)
+		step.ClientMS = clientMS
 		evidence.Steps = append(evidence.Steps, step)
 		totalRows += int64(len(rows))
 	}
@@ -413,6 +416,7 @@ func (adapter *rlsAdapter) runTaskgateTrace(ctx context.Context, operation exper
 		callErr := adapter.real.alice.call(ctx, "query_sql", map[string]any{
 			"task_id": created.TaskID, "request_id": requestID, "sql": wanted.LogicalSQL(product),
 		}, &response)
+		step.ClientMS = durationMS(time.Since(queryStarted))
 		if callErr != nil {
 			var structured *mcpCallError
 			if !errors.As(callErr, &structured) {
@@ -677,7 +681,9 @@ func (adapter *rlsAdapter) runDirectPolicyFilter(ctx context.Context, operation 
 	if err != nil {
 		return experiment.Sample{}, err
 	}
+	policyQueryStarted := time.Now()
 	rows, err := queryRows(ctx, tx, wanted.DirectSQL)
+	policyClientMS := durationMS(time.Since(policyQueryStarted))
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -686,6 +692,8 @@ func (adapter *rlsAdapter) runDirectPolicyFilter(ctx context.Context, operation 
 		return experiment.Sample{}, &rlsInvariantError{reason: "direct FORCE RLS policy-control target was not filtered to an empty result"}
 	}
 	policyStep := directRLSStep(0, wanted, evidence.OraclePrefixes[0], rows)
+	policyStep.ClientMS = policyClientMS
+	deniedStarted := time.Now()
 	deniedRows, deniedErr := tx.Query(ctx, authorization.DirectSQL)
 	if deniedRows != nil {
 		// pgx may defer a PostgreSQL execution error until Rows is advanced.
@@ -697,6 +705,7 @@ func (adapter *rlsAdapter) runDirectPolicyFilter(ctx context.Context, operation 
 		}
 		deniedRows.Close()
 	}
+	deniedClientMS := durationMS(time.Since(deniedStarted))
 	var pgErr *pgconn.PgError
 	if !errors.As(deniedErr, &pgErr) || pgErr.Code != "42501" {
 		return experiment.Sample{}, &rlsInvariantError{reason: "direct authorization control was not rejected with SQLSTATE 42501"}
@@ -705,7 +714,7 @@ func (adapter *rlsAdapter) runDirectPolicyFilter(ctx context.Context, operation 
 		Index: 2, StepID: authorization.ID, Family: authorization.Family, Variant: authorization.Variant,
 		LogicalSQLSHA256: sha(authorization.LogicalSQL(finalv5rls.UnlimitedProduct)), DirectSQLSHA256: sha(authorization.DirectSQL),
 		Rejected: true, ObservedErrorCode: "42501", ObservedErrorReason: "UNAPPROVED_COLUMN",
-		OraclePrefix: evidence.OraclePrefixes[1],
+		ClientMS: deniedClientMS, OraclePrefix: evidence.OraclePrefixes[1],
 	}
 	evidence.Steps = []experiment.RLSStepEvidence{policyStep, deniedStep}
 	evidence.NegativeControl.AuthorizationSQLSHA256 = sha(authorization.DirectSQL)
@@ -760,6 +769,7 @@ func (adapter *rlsAdapter) runTaskgatePolicyFilter(ctx context.Context, operatio
 	}, &response); err != nil {
 		return experiment.Sample{}, err
 	}
+	step.ClientMS = durationMS(time.Since(started))
 	rootAfterQuery, err := adapter.real.rootLedgerSnapshot(ctx, created.TaskID)
 	if err != nil {
 		return experiment.Sample{}, err
@@ -783,9 +793,11 @@ func (adapter *rlsAdapter) runTaskgatePolicyFilter(ctx context.Context, operatio
 	deniedSQL := authorization.LogicalSQL(product)
 	deniedRequestID := "final-v5-rls-authorization-denied-" + sha(operation.SampleID)[:16]
 	var deniedResponse queryResponse
+	deniedStarted := time.Now()
 	deniedErr := adapter.real.alice.call(ctx, "query_sql", map[string]any{
 		"task_id": created.TaskID, "request_id": deniedRequestID, "sql": deniedSQL,
 	}, &deniedResponse)
+	deniedClientMS := durationMS(time.Since(deniedStarted))
 	var structured *mcpCallError
 	if !errors.As(deniedErr, &structured) || structured.Code != "COLUMN_NOT_APPROVED" {
 		return experiment.Sample{}, &rlsInvariantError{reason: "TaskGate authorization control was not rejected as COLUMN_NOT_APPROVED"}
@@ -801,7 +813,7 @@ func (adapter *rlsAdapter) runTaskgatePolicyFilter(ctx context.Context, operatio
 	deniedStep := experiment.RLSStepEvidence{
 		Index: 2, StepID: authorization.ID, Family: authorization.Family, Variant: authorization.Variant,
 		LogicalSQLSHA256: sha(deniedSQL), DirectSQLSHA256: sha(authorization.DirectSQL),
-		Rejected: true, ObservedErrorCode: structured.Code, ObservedErrorReason: "UNAPPROVED_COLUMN",
+		Rejected: true, ObservedErrorCode: structured.Code, ObservedErrorReason: "UNAPPROVED_COLUMN", ClientMS: deniedClientMS,
 		RequestIDHash: saltedIdentityHash(operation, "request", deniedRequestID), RootTaskIDHash: evidence.RootTaskIDHash,
 		Before: &after, After: &afterDenied, OraclePrefix: evidence.OraclePrefixes[1], RejectedQuery: &rejected,
 	}

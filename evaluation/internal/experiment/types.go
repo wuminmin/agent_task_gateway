@@ -1129,6 +1129,7 @@ type RLSStepEvidence struct {
 	VerifiedResultSHA256   string                        `json:"verified_result_sha256,omitempty"`
 	RowCount               int64                         `json:"row_count"`
 	ColumnCount            int                           `json:"column_count"`
+	ClientMS               float64                       `json:"client_ms,omitempty"`
 	ScalarInt64            *int64                        `json:"scalar_int64,omitempty"`
 	DecisionPreviousStep   int                           `json:"decision_previous_step,omitempty"`
 	DecisionPreviousValue  int64                         `json:"decision_previous_value,omitempty"`
@@ -1263,6 +1264,7 @@ type AttackStepEvidence struct {
 	ResultIDHash           string                        `json:"result_id_hash,omitempty"`
 	RowCount               int64                         `json:"row_count"`
 	ColumnCount            int                           `json:"column_count"`
+	ClientMS               float64              `json:"client_ms,omitempty"`
 	ResultSHA256           string                        `json:"result_sha256,omitempty"`
 	ScalarInt64            *int64                        `json:"scalar_int64,omitempty"`
 	RowSHA256              []string                      `json:"row_sha256,omitempty"`

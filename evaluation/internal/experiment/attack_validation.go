@@ -9,7 +9,10 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-const attackVerificationVersion = "taskgate-final-v5-attack-evidence-v1"
+const (
+	attackVerificationVersion   = "taskgate-final-v5-attack-evidence-v1"
+	attackVerificationVersionV2 = "taskgate-final-v5-attack-evidence-v2"
+)
 
 // validateAttackVerificationStrict deliberately starts from the immutable
 // corpus and reconstructs every assertion. Adapter booleans are observations,
@@ -18,10 +21,15 @@ const attackVerificationVersion = "taskgate-final-v5-attack-evidence-v1"
 // object evidence retained for that exact step.
 func validateAttackVerificationStrict(sample Sample) error {
 	evidence := sample.AttackVerification
-	if evidence == nil || evidence.Version != attackVerificationVersion ||
+	if evidence == nil || (evidence.Version != attackVerificationVersion && evidence.Version != attackVerificationVersionV2) ||
 		evidence.CorpusID != finalv5attack.CorpusID || evidence.CorpusSHA256 != finalv5attack.CorpusSHA256 ||
 		evidence.DatasetID != finalv5attack.DatasetID {
 		return errors.New("raw attack verification evidence is absent or not bound to the frozen corpus")
+	}
+	for _, step := range evidence.Steps {
+		if err := validateStepClientMS(evidence.Version == attackVerificationVersionV2, "attack", step.ClientMS); err != nil {
+			return err
+		}
 	}
 	if err := validateAttackModeAndSystem(sample); err != nil {
 		return err

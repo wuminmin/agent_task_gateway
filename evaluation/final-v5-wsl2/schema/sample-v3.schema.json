@@ -3072,6 +3072,10 @@
         "encrypted_object_bytes"
       ],
       "properties": {
+        "client_ms": {
+          "type": "number",
+          "minimum": 0
+        },
         "index": {
           "type": "integer",
           "minimum": 1,
@@ -3313,7 +3317,10 @@
       ],
       "properties": {
         "version": {
-          "const": "taskgate-final-v5-rls-evidence-v1"
+          "enum": [
+            "taskgate-final-v5-rls-evidence-v1",
+            "taskgate-final-v5-rls-evidence-v2"
+          ]
         },
         "corpus_id": {
           "const": "taskgate-final-v5-rls-corpus-v1"
@@ -3905,6 +3912,10 @@
         "encrypted_object_bytes"
       ],
       "properties": {
+        "client_ms": {
+          "type": "number",
+          "minimum": 0
+        },
         "index": {
           "type": "integer",
           "minimum": 1,
@@ -4112,7 +4123,10 @@
       ],
       "properties": {
         "version": {
-          "const": "taskgate-final-v5-attack-evidence-v1"
+          "enum": [
+            "taskgate-final-v5-attack-evidence-v1",
+            "taskgate-final-v5-attack-evidence-v2"
+          ]
         },
         "corpus_id": {
           "const": "taskgate-final-v5-attack-corpus-v1"

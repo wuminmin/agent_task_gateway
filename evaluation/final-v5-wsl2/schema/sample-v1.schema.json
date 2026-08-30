@@ -2498,6 +2498,10 @@
         "encrypted_object_bytes"
       ],
       "properties": {
+        "client_ms": {
+          "type": "number",
+          "minimum": 0
+        },
         "index": {
           "type": "integer",
           "minimum": 1,
@@ -3331,6 +3335,10 @@
         "encrypted_object_bytes"
       ],
       "properties": {
+        "client_ms": {
+          "type": "number",
+          "minimum": 0
+        },
         "index": {
           "type": "integer",
           "minimum": 1,

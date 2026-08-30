@@ -12,7 +12,10 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/finalv5rls"
 )
 
-const rlsEvidenceVersion = "taskgate-final-v5-rls-evidence-v1"
+const (
+	rlsEvidenceVersion   = "taskgate-final-v5-rls-evidence-v1"
+	rlsEvidenceVersionV2 = "taskgate-final-v5-rls-evidence-v2"
+)
 
 // ValidateRLSEvidence is the adapter-side fail-closed gate. A real execution
 // whose evidence violates the preregistered protocol is retained as fail.
@@ -41,11 +44,16 @@ func validateRLSVerificationStrict(sample Sample, expectedSteps int) error {
 	if err != nil {
 		return err
 	}
-	if evidence == nil || evidence.Version != rlsEvidenceVersion || evidence.CorpusID != finalv5rls.CorpusID ||
+	if evidence == nil || (evidence.Version != rlsEvidenceVersion && evidence.Version != rlsEvidenceVersionV2) || evidence.CorpusID != finalv5rls.CorpusID ||
 		evidence.CorpusSHA256 != finalv5rls.CorpusSHA256 || evidence.TraceSHA256 != finalv5rls.TraceSHA256 ||
 		evidence.DatasetID != finalv5rls.DatasetID || evidence.DatasetSHA256 != finalv5rls.DatasetSHA256(manifest) ||
 		evidence.PolicySeed != manifest.Seed || !evidence.OracleComputedBefore {
 		return errors.New("RLS corpus/dataset/seed/oracle binding is absent or changed")
+	}
+	for _, step := range evidence.Steps {
+		if err := validateStepClientMS(evidence.Version == rlsEvidenceVersionV2, "RLS", step.ClientMS); err != nil {
+			return err
+		}
 	}
 	if err := validateRLSRolePolicy(evidence); err != nil {
 		return err
@@ -540,6 +548,22 @@ func validateRLSPolicyFiltered(sample Sample, evidence *RLSVerificationEvidence,
 		sample.OutcomeSetSHA256 != denied.After.Root.OutcomeSetSHA256 || sample.ActualReleaseFacts != denied.After.Root.ReleaseCardinality ||
 		sample.ActualDependencyFacts != denied.After.Root.DependencyCardinality || sample.ActualOutcomeFacts != denied.After.Root.OutcomeCardinality {
 		return errors.New("TaskGate policy-filter control top-level root differs from its authenticated empty result")
+	}
+	return nil
+}
+
+// validateStepClientMS is the evidence-v2 timing rule: every step of a v2
+// sample records the positive client-observed milliseconds of its query call,
+// and a v1 sample (sealed before the field existed) must not carry one.
+func validateStepClientMS(v2 bool, experimentName string, clientMS float64) error {
+	if v2 {
+		if !(clientMS > 0) {
+			return fmt.Errorf("evidence-v2 %s step lacks a positive client_ms", experimentName)
+		}
+		return nil
+	}
+	if clientMS != 0 {
+		return fmt.Errorf("evidence-v1 %s step carries client_ms", experimentName)
 	}
 	return nil
 }

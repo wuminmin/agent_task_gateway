@@ -13,7 +13,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
-const attackEvidenceVersion = "taskgate-final-v5-attack-evidence-v1"
+const attackEvidenceVersion = "taskgate-final-v5-attack-evidence-v2"
 
 type attackAdapter struct {
 	real   *realAdapter
@@ -144,11 +144,14 @@ func (adapter *attackAdapter) runDirect(ctx context.Context, operation experimen
 	started := time.Now()
 	steps := make([]experiment.AttackStepEvidence, 0, len(attackCase.Steps))
 	for index, corpusStep := range attackCase.Steps {
+		queryStarted := time.Now()
 		rows, err := adapter.directQuery(ctx, corpusStep.DirectSQL)
+		clientMS := durationMS(time.Since(queryStarted))
 		if err != nil {
 			return finalizePartialDirectAttackSample(operation, attackCase, steps, durationMS(time.Since(started))), err
 		}
 		step, err := directAttackStep(index+1, corpusStep, rows)
+		step.ClientMS = clientMS
 		if err != nil {
 			return finalizePartialDirectAttackSample(operation, attackCase, steps, durationMS(time.Since(started))), err
 		}
@@ -587,6 +590,7 @@ func (adapter *attackAdapter) taskgateStep(ctx context.Context, operation experi
 	callErr := adapter.real.alice.call(ctx, "query_sql", map[string]any{
 		"task_id": taskID, "request_id": requestID, "sql": corpusStep.LogicalSQL,
 	}, &response)
+	step.ClientMS = durationMS(time.Since(started))
 	if callErr != nil {
 		var structured *mcpCallError
 		if !errors.As(callErr, &structured) {
