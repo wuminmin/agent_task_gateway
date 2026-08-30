@@ -23,6 +23,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 )
 
 const provSQLVerificationVersion = "taskgate-final-v5-provsql-verification-v2"
