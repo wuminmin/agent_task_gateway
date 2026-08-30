@@ -297,12 +297,17 @@ func (model *familyUnionModel) novelty(step familyObservation) ExposureLimits {
 	}
 }
 
+// fits mirrors exceedsOrdinalLimit: a dimension is checked only when the
+// observation adds novel facts to it, so a zero-novelty replay settles even
+// when the family total already exceeds the settling task's narrower ceiling
+// (Section 5.1's rule); a novel dimension must fit both the root's and the
+// settling task's ceiling, and the latter never exceeds the former here.
 func (model *familyUnionModel) fits(step familyObservation, limits ExposureLimits) bool {
 	novelty := model.novelty(step)
 	used := model.used()
-	return used.ReleaseFacts+novelty.ReleaseFacts <= limits.ReleaseFacts &&
-		used.InfluenceFacts+novelty.InfluenceFacts <= limits.InfluenceFacts &&
-		used.OutcomeFacts+novelty.OutcomeFacts <= limits.OutcomeFacts
+	return (novelty.ReleaseFacts == 0 || used.ReleaseFacts+novelty.ReleaseFacts <= limits.ReleaseFacts) &&
+		(novelty.InfluenceFacts == 0 || used.InfluenceFacts+novelty.InfluenceFacts <= limits.InfluenceFacts) &&
+		(novelty.OutcomeFacts == 0 || used.OutcomeFacts+novelty.OutcomeFacts <= limits.OutcomeFacts)
 }
 
 func (model *familyUnionModel) commit(step familyObservation) {
