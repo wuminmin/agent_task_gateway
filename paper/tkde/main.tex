@@ -72,9 +72,10 @@ ledger is settled atomically before any result becomes retrievable. The
 guarantee is bounded \emph{release}: within one root family and publication
 epoch no more than the approved number of distinct declared facts of each
 kind becomes available, whatever admitted sequence the agent issues; it does
-not bound inference from answered or refused predicates. Accounting is exact
-with respect to the declared rules and, lacking an external oracle,
-verified only for consistency with our own oracles; it covers a closed
+not bound inference from answered or refused predicates. Accounting is
+exact with respect to the declared rules, a property we verify as
+consistency with our own reference implementations (plus one third-party
+base-tuple check); it covers a closed
 reporting fragment (connected equijoins, grouping, bounded unions, nested
 Views) whose coverage of agent-written reporting SQL is limited
 (\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
@@ -255,7 +256,9 @@ fragment---one-Product and connected equijoin queries (two-source joins
 evaluated end to end; up to 16 roles admitted by the compiler), two-branch
 union, grouping, and the four admitted aggregates, into which bounded
 nested Views flatten; no HAVING, AVG, arithmetic, OR, subqueries, or outer
-joins (Section~\ref{sec:limits} measures the consequence); (3) profile-relative exact novelty and
+joins (Section~\ref{sec:limits} measures the consequence); (3)
+profile-relative novelty, exact by the declared rules and verified as
+consistent with our reference implementation, and
 atomic three-budget settlement per root family and publication epoch,
 refined by immutable ordinal dictionaries, compressed bitmaps, and an exact
 Merkle-radix Outcome set, with settlement before \code{AVAILABLE},
@@ -598,8 +601,10 @@ componentwise novelty
  \qquad X\in\{R,D,O\}.
 \]
 This definition fixes the scope of the word \emph{exact}: governance
-accounting exactness under the signed contract and closed semantics, asserting
-nothing beyond the results that follow. FactIDs are accounting identities, not
+accounting exactness under the signed contract and closed semantics,
+asserting nothing beyond the results that follow, and established
+empirically only as consistency with our reference implementations
+(Section~\ref{sec:evaluation}). FactIDs are accounting identities, not
 estimates of information content, knowledge, or privacy loss; BDG prevents
 unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
