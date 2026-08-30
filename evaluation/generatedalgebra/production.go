@@ -108,7 +108,7 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 		}
 		specs := make([]exposure.AggregateSpecV2, 0, len(plan.Aggregates))
 		for _, aggregate := range plan.Aggregates {
-			specs = append(specs, exposure.AggregateSpecV2{Function: aggregate.Function, Field: aggregate.Field, OutputID: aggregate.OutputID, OutputType: aggregate.OutputType})
+			specs = append(specs, exposure.AggregateSpecV2{Function: aggregate.Function, Field: aggregate.Field, OutputID: aggregate.OutputID, OutputType: aggregate.OutputType, Distinct: aggregate.Distinct})
 		}
 		outputRows, rowsErr := aggregateOutputRows(expenses, departments, input, plan)
 		if rowsErr != nil {
@@ -117,6 +117,15 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 		relation, err = exposure.AggregateFromResultsV2(input, groupFields, specs, outputRows)
 		if err != nil {
 			return Observation{}, err
+		}
+		if plan.Having != nil {
+			// The Gateway models HAVING as a Select over the aggregate outputs
+			// after PostgreSQL has dropped the failing groups (aggregateOutputRows
+			// already omits them, as the visible result would).
+			relation, err = exposure.SelectV2(relation, []string{plan.Having.OutputID}, func(exposure.AnnotatedRowV2) exposure.SQLTruth { return exposure.SQLTrue })
+			if err != nil {
+				return Observation{}, err
+			}
 		}
 		if plan.Kind == "group" && plan.GroupKeyVisible {
 			visible = append(visible, plan.GroupField)
@@ -174,6 +183,15 @@ func aggregateOutputRows(expenses, departments Relation, input exposure.Relation
 	}
 	rows := make([]map[string]any, 0, len(order))
 	for _, key := range order {
+		if plan.Having != nil {
+			keep, err := havingKeeps(plan, groups[key])
+			if err != nil {
+				return nil, err
+			}
+			if !keep {
+				continue
+			}
+		}
 		output := map[string]any{}
 		if plan.Kind == "group" {
 			output[plan.GroupField] = keyValues[key]
@@ -183,7 +201,11 @@ func aggregateOutputRows(expenses, departments Relation, input exposure.Relation
 				output[aggregate.OutputID] = int64(len(groups[key]))
 				continue
 			}
-			output[aggregate.OutputID] = AggregateValue(aggregate.Function, aggregate.Field, groups[key])
+			function := aggregate.Function
+			if aggregate.Distinct {
+				function = "count-distinct"
+			}
+			output[aggregate.OutputID] = AggregateValue(function, aggregate.Field, groups[key])
 		}
 		rows = append(rows, output)
 	}

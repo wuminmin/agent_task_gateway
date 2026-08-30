@@ -9,6 +9,7 @@
 package generatedalgebra
 
 import (
+	"strings"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -55,10 +56,18 @@ type Predicate struct {
 
 // Aggregate is one aggregate specification.
 type Aggregate struct {
-	Function   string // count | sum | min | max
+	Function   string // count | sum | min | max | avg
 	Field      string // "*" for count(*)
 	OutputID   string
 	OutputType string
+	Distinct   bool // count(distinct field)
+}
+
+// Having filters group rows on one aggregate output after grouping.
+type Having struct {
+	OutputID string
+	Op       string
+	Literal  any
 }
 
 // Plan is a generated query in the closed fragment.
@@ -71,6 +80,7 @@ type Plan struct {
 	GroupField string      // group key for kind=group
 	GroupKeyVisible bool
 	Aggregates []Aggregate
+	Having     *Having // optional post-group filter (group/global only)
 }
 
 // Observation is the semantic Result and Dependency footprint of a plan.
@@ -423,6 +433,15 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 		}
 		for _, key := range order {
 			members := groups[key]
+			if plan.Having != nil {
+				keep, err := havingKeeps(plan, members)
+				if err != nil {
+					return Observation{}, err
+				}
+				if !keep {
+					continue
+				}
+			}
 			var rowKey string
 			if plan.Kind == "global" {
 				rowKey = composeKey("group-row", "global")
@@ -489,7 +508,12 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 				} else {
 					ns := relationOf(expenses, departments, aggregate.Field).SourceNamespace
 					expression = aggregate.Function + "(" + ns + "." + aggregate.Field + ")"
-					value = AggregateValue(aggregate.Function, aggregate.Field, members)
+					function := aggregate.Function
+					if aggregate.Distinct {
+						expression = aggregate.Function + "(distinct " + ns + "." + aggregate.Field + ")"
+						function = "count-distinct"
+					}
+					value = AggregateValue(function, aggregate.Field, members)
 					witness = argWitness[aggregate.Field]
 				}
 				fact, err := derived(bundle, rowKey, expression, aggregate.OutputType, value, witness)
@@ -536,6 +560,29 @@ func AggregateValue(function, fieldID string, members []joinedRow) any {
 	switch function {
 	case "count":
 		return int64(len(values))
+	case "count-distinct":
+		seen := map[string]struct{}{}
+		for _, value := range values {
+			seen[value.RatString()] = struct{}{}
+		}
+		return int64(len(seen))
+	case "avg":
+		// PostgreSQL computes AVG over the exact fragment as an exact NUMERIC
+		// division; a terminating quotient is rendered exactly, otherwise it is
+		// rounded to 16 fractional digits (PostgreSQL's integer-AVG scale). Both
+		// sides of the differential consume this same string.
+		if len(values) == 0 {
+			return nil
+		}
+		total := new(big.Rat)
+		for _, value := range values {
+			total.Add(total, value)
+		}
+		mean := new(big.Rat).Quo(total, big.NewRat(int64(len(values)), 1))
+		if mean.IsInt() {
+			return mean.RatString()
+		}
+		return strings.TrimRight(strings.TrimRight(mean.FloatString(16), "0"), ".")
 	case "sum":
 		if len(values) == 0 {
 			return nil
@@ -587,4 +634,27 @@ func memberWitness(member joinedRow, plan Plan) ([]exposureoracle.Fact, error) {
 		witness = append(witness, fact)
 	}
 	return witness, nil
+}
+
+// havingKeeps evaluates the plan's HAVING predicate on one group's members:
+// the named aggregate's value compared with the literal under PostgreSQL
+// three-valued semantics (an UNKNOWN result drops the group).
+func havingKeeps(plan Plan, members []joinedRow) (bool, error) {
+	for _, aggregate := range plan.Aggregates {
+		if aggregate.OutputID != plan.Having.OutputID {
+			continue
+		}
+		var value any
+		if aggregate.Field == "*" {
+			value = int64(len(members))
+		} else {
+			function := aggregate.Function
+			if aggregate.Distinct {
+				function = "count-distinct"
+			}
+			value = AggregateValue(function, aggregate.Field, members)
+		}
+		return compare(aggregate.OutputType, value, plan.Having.Literal, plan.Having.Op) == True, nil
+	}
+	return false, fmt.Errorf("having names unknown aggregate %q", plan.Having.OutputID)
 }

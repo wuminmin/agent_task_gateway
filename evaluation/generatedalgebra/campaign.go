@@ -68,6 +68,7 @@ func GeneratePlan(rng *rand.Rand) Plan {
 	case 1:
 		plan.Kind = "global"
 		plan.Aggregates = randomAggregates(rng)
+		plan.Having = randomHaving(rng, plan.Aggregates)
 	default:
 		plan.Kind = "group"
 		plan.GroupField = "expense.department"
@@ -76,6 +77,7 @@ func GeneratePlan(rng *rand.Rand) Plan {
 		}
 		plan.GroupKeyVisible = rng.Intn(4) != 0
 		plan.Aggregates = randomAggregates(rng)
+		plan.Having = randomHaving(rng, plan.Aggregates)
 	}
 	return plan
 }
@@ -87,9 +89,30 @@ func randomAggregates(rng *rand.Rand) []Aggregate {
 		{Function: "min", Field: "expense.amount", OutputID: "minimum", OutputType: "numeric"},
 		{Function: "max", Field: "expense.amount", OutputID: "maximum", OutputType: "numeric"},
 		{Function: "sum", Field: "expense.days", OutputID: "days", OutputType: "numeric"},
+		{Function: "avg", Field: "expense.amount", OutputID: "mean", OutputType: "numeric"},
+		{Function: "count", Field: "expense.days", OutputID: "distinct_days", OutputType: "bigint", Distinct: true},
 	}
 	rng.Shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
 	return append([]Aggregate(nil), candidates[:1+rng.Intn(3)]...)
+}
+
+// randomHaving attaches a HAVING predicate to one of the plan's aggregates in
+// about a third of grouped or global plans; the literal is drawn so that both
+// kept and dropped groups occur across fixtures.
+func randomHaving(rng *rand.Rand, aggregates []Aggregate) *Having {
+	if rng.Intn(3) != 0 {
+		return nil
+	}
+	aggregate := aggregates[rng.Intn(len(aggregates))]
+	ops := []string{">", ">=", "<", "<=", "=", "<>"}
+	var literal any
+	switch aggregate.OutputType {
+	case "bigint":
+		literal = float64(1 + rng.Intn(4))
+	default:
+		literal = float64([]int{5, 10, 20, 40, 80}[rng.Intn(5)])
+	}
+	return &Having{OutputID: aggregate.OutputID, Op: ops[rng.Intn(len(ops))], Literal: literal}
 }
 
 // Report summarizes one campaign.
@@ -146,6 +169,17 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 			plan := GeneratePlan(rng)
 			report.Plans++
 			report.Coverage[plan.Kind]++
+			if plan.Having != nil {
+				report.Coverage["having"]++
+			}
+			for _, aggregate := range plan.Aggregates {
+				if aggregate.Function == "avg" {
+					report.Coverage["avg"]++
+				}
+				if aggregate.Distinct {
+					report.Coverage["count_distinct"]++
+				}
+			}
 			if plan.Join {
 				report.Coverage["join"]++
 			}
