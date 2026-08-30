@@ -13,15 +13,15 @@ import (
 )
 
 // TestProfileOrdinalDerivationAtScale drives the ordinal deriver over synthetic
-// snapshots of the campaign's two heavy shapes without a database, so the
+// snapshots of the campaign's three heavy shapes without a database, so the
 // Go-side derivation can be profiled (go test -run TestProfileOrdinalDerivationAtScale
-// -cpuprofile cpu.out). It runs only when TASKGATE_PROFILE_DERIVATION is set;
-// TASKGATE_PROFILE_ROWS overrides the row count (default 100000).
+// -cpuprofile cpu.out). It always runs: at 2,000 rows by default, as a plain
+// check that every shape derives; TASKGATE_PROFILE_ROWS raises the row count
+// for profiling (the campaign scale is 100000 for the scan and 300000 for the
+// joined group). The test never skips, so the DB harness record needs no
+// allowance for it.
 func TestProfileOrdinalDerivationAtScale(t *testing.T) {
-	if os.Getenv("TASKGATE_PROFILE_DERIVATION") == "" {
-		t.Skip("TASKGATE_PROFILE_DERIVATION is not set")
-	}
-	rowCount := 100000
+	rowCount := 2000
 	if value := os.Getenv("TASKGATE_PROFILE_ROWS"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
