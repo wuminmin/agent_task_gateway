@@ -717,21 +717,18 @@ Execution and private staging are not release. Settlement may leave an artifact
 fault-injection, receipt, and availability tests, not a mechanized composition.
 
 \textbf{O6: Profile binding.} $C$ binds effect/normal-form profiles,
-type/collation, View contract, replay identity, and result handling. Derivation,
-settlement, and replay revalidate one task/Catalog/publication/dictionary
-context, which audit/receipt evidence also binds; changes cannot reuse the old
-semantic replay. The receipt directly carries the profile version and binds
-the full environment transitively through the signed Grant and the receipt's Catalog,
-observation, dictionary-set, and component-set digests; there is no
-\code{profile_digest} field.
+type/collation, View contract, replay identity, and result handling;
+derivation, settlement, and replay revalidate one task/Catalog/publication/
+dictionary context that audit and receipt evidence also bind, so a changed
+context cannot reuse an old semantic replay. The receipt carries the profile
+version and binds the environment transitively through the signed Grant and
+its Catalog, observation, dictionary-set, and component-set digests.
 
-\textbf{Three-way reconciliation.} BDG links (i) the effect manifest---three
-candidate sets, observation, profile, and publication; (ii) root-ledger heads,
-novelty, bounds, and settlement; and (iii) artifact hashes, \code{PENDING}
-intent, receipt, canonical verification, and availability audit. These are not
-independent truths: \code{AVAILABLE} must identify the same settled observation
-and intent. Hash/binding mismatch or missing audit fails closed; neither the
-receipt alone nor an availability event without settlement suffices.
+\textbf{Three-way reconciliation.} The effect manifest, the root-ledger heads,
+and the artifact/receipt/availability evidence must identify the same settled
+observation and intent; a hash, binding, or audit mismatch fails closed, and
+neither a receipt alone nor an availability event without settlement suffices
+(the supplement tabulates the reconciliation).
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
@@ -1254,17 +1251,12 @@ OA/BPM or another tenant-governance layer may impose principal- or tenant-level
 issuance policies across roots; the current BDG ledger remains intentionally
 scoped to one root family.
 
-\textbf{Threat and governance boundary.}
-The agent, plans, retries, pages, and delegation are untrusted. BDG trusts
-authenticated identity and organizational-attribute assertions; approval,
-Catalog, and Exposure-Profile authorities; the immutable publication pipeline;
-Business PostgreSQL execution semantics; the enforcement service and Control
-database; and cryptography, key-management configuration, and object-store
-access control. Crashes, concurrency, stale bindings, replay, and promotion
-failure are in scope; compromised or malicious trusted authorities, direct
-bypass, colluding independent roots, and external-tool leakage are not. BDG
-enforces an approved organizational policy; it does not autonomously determine
-whether that policy is appropriate.
+\textbf{Threat and governance boundary.} The trusted parties are those of
+Section~\ref{sec:model}. Crashes, concurrency, stale bindings, replay, and
+promotion failure are in scope; compromised trusted authorities, direct bypass,
+colluding independent roots, and external-tool leakage are not. BDG enforces an
+approved organizational policy; it does not judge whether that policy is
+appropriate.
 
 \textbf{Governance responsibility.} Owners decide purpose and releasable
 scope, security teams define sensitive fields and prohibited combinations,
