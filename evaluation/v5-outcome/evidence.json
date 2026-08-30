@@ -1,7 +1,7 @@
 {
   "compose_execution": {
     "receipt": "evaluation/v5-outcome/compose-receipt.json",
-    "receipt_sha256": "e6b3ccda8a132c4bdbca6dab2ab8c5b55d0214c83e062d2eeadcb32626f27961"
+    "receipt_sha256": "4cae64c1930a0ec537d7fa38278e922a2d060463b7afe81e09d92dd17f6edaf9"
   },
   "deterministic_set": {
     "duplicate_idempotent": true,
@@ -9,7 +9,7 @@
     "permutation_deterministic": true,
     "tamper_rejected": true
   },
-  "implementation_base_commit": "5ee30548a90d93e2f402b34d4654c8363b3318b8",
+  "implementation_base_commit": "0c52ebb979b4bb644847fec85856a6031d9f6337",
   "postgres_committed_graph": {
     "blocks_loaded": 1,
     "blocks_reused": 255,
@@ -38,7 +38,7 @@
     "packages_passed": 2,
     "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "265521c8153ca11a685a320feaa2021a1bd491e89c85bb7c2963879c552a9660",
+    "raw_log_sha256": "7d3811be64d0c1c48f9d964fd08d114a4570365cd45970f0c1553c0bda73a4a3",
     "tests_failed": 0,
     "tests_passed": 12,
     "tests_skipped": 0
@@ -64,7 +64,7 @@
     "files": [
       {
         "path": "config/catalog.yaml",
-        "sha256": "ac2dc5cf30ef500a96c15bbbe2d6e067a4ed9eedb18c93970c40cea652eb88b6"
+        "sha256": "97b1e8a1d66632a63ec330812866f13355788667d8a74710219cc4a6cbc123c8"
       },
       {
         "path": "go.mod",
@@ -187,7 +187,7 @@
         "sha256": "dbb5dfd5839feec55f102c4f02d2ff069e0312d99abd99812620dfd02ff87ffd"
       }
     ],
-    "sha256": "75419efeea38173edcd440e1df2d4a868ea100f7b5263a5c6cebd1178149f964"
+    "sha256": "b1a0f4875ec768c6a1ba182513481e6c18c30d97d64568db341633223d233193"
   },
-  "submission_commit": "5ee30548a90d93e2f402b34d4654c8363b3318b8"
+  "submission_commit": "0c52ebb979b4bb644847fec85856a6031d9f6337"
 }
