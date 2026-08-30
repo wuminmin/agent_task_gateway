@@ -1045,8 +1045,8 @@ attestation may postdate settlement but authenticates the same intent, and a
 dedicated receipt domain prevents cross-identity replay. Failures before
 connector invocation release reservations, over-budget settlement creates no
 canonical object or AVAILABLE row, ambiguous connector outcomes charge
-resources but no exposure, and terminal replay returns the first status, may
-resume PENDING promotion, and never repeats Business execution.
+resources but no exposure, and terminal replay returns the first status
+without repeating Business execution.
 
 Withholding the buffer does not hide the decision bit: a rejected attempt
 returns only the code \code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count,
@@ -1253,9 +1253,8 @@ across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
 \FinalVFivePublicationRQFiveBuildS{}~s p50 and route a retained one in
 \FinalVFivePublicationRQFiveRouteS{}~s); Outcome regressions cover empty
-probes, replay, radix tamper, and digest binding; the supplement's broad-SQL
-stress test checks row equality only, and its evidence table labels the
-source state (regenerated, archived, or sealed campaign) of every line.
+probes, replay, radix tamper, and digest binding, and the supplement's
+evidence table labels the source state of every line.
 
 The core workloads (the campaign's \emph{Baseline} profile): S1, a two-column projection of the frozen
 50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
@@ -1269,15 +1268,15 @@ governed execution), and the replays; ``publication-class'' is the frozen
 protocol's campaign class, as opposed to never-eligible pilot runs. The
 frozen campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationCommit{}) executed all
-\FinalVFivePublicationTotalCells{} frozen
-cells---\FinalVFivePublicationProfileCells{} profile cells across
+\FinalVFivePublicationTotalCells{} frozen cells
+(\FinalVFivePublicationProfileCells{} profile cells across
 \FinalVFivePublicationDeployments{} fresh deployments of
 \FinalVFivePublicationProfiles{} profiles, each deployed
 \FinalVFivePublicationFreshExecutions{} times, plus
 \FinalVFivePublicationScaleNonProfileCells{} Scale and
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
-cells---and every one of its \FinalVFivePublicationMeasuredSamples{} measured
-samples passed with a verified Receipt. Across the
+cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
+samples passing with a verified Receipt. Across the
 \FinalVFivePublicationBaselineCells{} Baseline cells (one workload, scale,
 and mode each; the supplement collapses them to workload/scale rows) a novel
 governed query costs
@@ -1387,7 +1386,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.3\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.28\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
