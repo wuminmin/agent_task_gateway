@@ -259,10 +259,17 @@ audit, receipt, and commit-before-release still execute.}
 
 Our unsubmitted SessionBound working manuscript, available as a preliminary
 preprint, introduced the task-scoped authorization substrate
-\cite{wu2026sessionbound}. It has not been accepted or submitted to TDSC. This
-article develops the database-specific accounting semantics, implementation,
-formal analysis, and evaluation. Its five
-implementation-backed contributions are:
+\cite{wu2026sessionbound}: a control plane that turns an approved task into a
+signed, budgeted, auditable database session, and a runtime that enforces safe
+views, row scope, denied fields, operation limits, per-session query and
+disclosure counters, and receipts. It has not been accepted or submitted to
+TDSC. Everything that makes the budget a set rather than a counter is new here:
+the typed FactID semantics and closed algebra, the same-snapshot ordinal
+companion and bitmap/Merkle-radix ledgers, canonical Outcome atoms and
+composites, exact profile-relative novelty with atomic three-budget settlement
+before \code{AVAILABLE}, root-family delegation conservation, the theorems and
+bounded models, and the publication campaign. Its five implementation-backed
+contributions are:
 
 \begin{enumerate}
 \item A typed FactID semantics for accounted Result, positive-output
@@ -670,8 +677,7 @@ Normalization may merge equal identities, so coverage is not row count;
 \item[\textbf{O2}] \textbf{Positive dependency coverage.}
 $\facts_D^\pi$ is exactly the declared inductive footprint, including retained
 predicate fields, join-key annotations, group keys, and complete aggregate
-arguments. It is neither minimal causality nor all physical reads, and excludes
-rejected rows and non-output pages under this profile.
+arguments; it excludes rejected rows and non-output pages under this profile.
 \item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
 projection splits, complete page partitions, idempotent overlaps/retries, join support,
 and root-ledger delegation cannot reduce cumulative charge. This covers the
@@ -1377,7 +1383,47 @@ the answer: S2/SF10 returns \FinalVFivePublicationSTwoRows{} grouped rows over
 \FinalVFivePublicationSOneReleaseFacts{} Facts
 (\FinalVFivePublicationSOneNovelS{}~s). All
 \FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
-business SQL; the supplement tabulates every cell.
+business SQL and charged no Facts, but replay is not a latency win at these
+scales: semantic replay exceeds direct re-execution in every cell, and only
+idempotent replay at S2/SF10 undercuts it; the supplement tabulates every
+cell.
+
+Table~\ref{tab:phase-breakdown} shows where that time goes. The Gateway
+reports six non-overlapping server phases per governed response. The largest
+phase of S1/SF1 is \code{\FinalVFivePublicationPhaseDominantSOneSFOne{}}
+(\FinalVFivePublicationPhaseDominantSharePctSOneSFOne\% of its server total) and
+of S6/100k-x16 is \code{\FinalVFivePublicationPhaseDominantSSixHundredKByteSixteen{}}
+(\FinalVFivePublicationPhaseDominantSharePctSSixHundredKByteSixteen\%);
+the Control settlement transaction that computes exact novelty and advances
+the root head takes \FinalVFivePublicationPhaseSettlementMSSOneSFOne{}~ms at
+S1/SF1 and \FinalVFivePublicationPhaseSettlementMSSSixHundredKByteSixteen{}~ms
+at S6/100k-x16.
+Same-root contention is measured separately: the concurrency profile launches
+rounds of 10 and 50 concurrent requests against one root family at its budget
+boundary. A single request drains in
+\FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial control); a
+round of 50 under natural contention drains in
+\FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS{}~ms p50 and
+\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95, i.e.,
+\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} settled
+requests per second through one root head; the supplement tabulates every
+width and mode.
+
+\begin{table}[t]
+\centering
+\caption{Gateway phase medians of the novel governed query (ms) from the
+publication campaign; phases are non-overlapping and sum to the server total.}
+\label{tab:phase-breakdown}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Cell & Prepare & Exec.+derive & Stage & Settle & Publish & Finalize & Total \\
+\midrule
+\FinalVFivePublicationPhaseTableBody
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Reproducibility Boundary}
 

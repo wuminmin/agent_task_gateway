@@ -29,6 +29,22 @@ FRESH_EXECUTIONS = 3
 
 BASELINE_CELLS = ("S1/SF1", "S1/SF10", "S2/SF1", "S2/SF10")
 REPLAY_MODES = ("semantic_replay", "normalized_rewrite_replay", "idempotent_replay")
+# The Gateway reports these non-overlapping server phases on every governed
+# response (internal/gateway/query.go, ``pipeline_ms``); they sum to
+# ``server_total``. The manuscript breaks down these Baseline cells.
+PIPELINE_PHASES = (
+    "prepare", "execute_and_derive", "artifact_stage", "control_settlement",
+    "artifact_publication", "response_finalize",
+)
+PHASE_CELLS = ("S1/SF1", "S2/SF10", "S6/100k-x16")
+PHASE_SUM_TOLERANCE_MS = 0.01
+# The frozen concurrency profile (evaluation/internal/concurrencyfixture):
+# same-root batches of width 10 and 50 in two modes plus a serial control.
+CONCURRENCY_CELLS = (
+    "serial-control/1/serial",
+    "shared-root/10/forced_queue_safety", "shared-root/10/natural_contention",
+    "shared-root/50/forced_queue_safety", "shared-root/50/natural_contention",
+)
 
 
 class PublicationEvidenceError(RuntimeError):
@@ -135,6 +151,84 @@ def _load_deployment(campaign_root: Path, record_path: Path, campaign: dict):
                 raise PublicationEvidenceError(f"sample file {file['path']} belongs to another campaign")
             samples.append(sample)
     return record, samples, hashlib.sha256(payload).hexdigest()
+
+
+def _quantile(values, fraction: float) -> float:
+    """Type-7 (linear interpolation) quantile, as the campaign summaries use."""
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        raise PublicationEvidenceError("cannot summarize an empty sample set")
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+
+
+def _phase_stats(samples):
+    """Median Gateway phase times of every Baseline novel query, per cell."""
+    by_cell = {}
+    for sample in samples:
+        if sample["mode"] != "novel":
+            continue
+        cell = "/".join(sample["cell_id"].split("/")[:2])
+        pipeline = sample.get("pipeline_ms")
+        keys = PIPELINE_PHASES + ("server_total",)
+        if not isinstance(pipeline, dict) or any(key not in pipeline for key in keys):
+            raise PublicationEvidenceError(f"baseline novel sample {sample['cell_id']} lacks the Gateway pipeline phases")
+        phases = {key: float(pipeline[key]) for key in keys}
+        if any(value < 0 for value in phases.values()):
+            raise PublicationEvidenceError(f"baseline novel sample {sample['cell_id']} reports a negative phase time")
+        if abs(sum(phases[key] for key in PIPELINE_PHASES) - phases["server_total"]) > PHASE_SUM_TOLERANCE_MS:
+            raise PublicationEvidenceError(f"baseline novel sample {sample['cell_id']} phases do not sum to server_total")
+        bucket = by_cell.setdefault(cell, {key: [] for key in keys})
+        for key in keys:
+            bucket[key].append(phases[key])
+    missing = [cell for cell in PHASE_CELLS if cell not in by_cell]
+    if missing:
+        raise PublicationEvidenceError(f"baseline publication evidence has no novel phase samples for {missing}")
+    result = {}
+    for cell, bucket in by_cell.items():
+        medians = {key: _median(values) for key, values in bucket.items()}
+        dominant = max(PIPELINE_PHASES, key=lambda key: medians[key])
+        medians["dominant_phase"] = dominant
+        medians["dominant_share"] = medians[dominant] / medians["server_total"] if medians["server_total"] > 0 else 0.0
+        medians["samples"] = len(bucket["server_total"])
+        result[cell] = medians
+    return result
+
+
+def _concurrency_stats(samples):
+    """Round drain time per frozen concurrency cell.
+
+    One concurrency sample is one round: ``client_full_drain_ms`` runs from the
+    moment all ``width`` contenders are launched against one root family until
+    every one of them has drained (evaluation/cmd/final-v5-adapter/concurrency_real.go).
+    The requests-per-second figure is the width over the median round drain.
+    """
+    by_cell = {}
+    for sample in samples:
+        by_cell.setdefault(sample["cell_id"], []).append(float(sample["client_full_drain_ms"]))
+    missing = [cell for cell in CONCURRENCY_CELLS if cell not in by_cell]
+    if missing:
+        raise PublicationEvidenceError(f"concurrency publication evidence is missing cells {missing}")
+    unexpected = sorted(set(by_cell) - set(CONCURRENCY_CELLS))
+    if unexpected:
+        raise PublicationEvidenceError(f"concurrency publication evidence carries undeclared cells {unexpected}")
+    result = {}
+    for cell, values in by_cell.items():
+        if min(values) <= 0:
+            raise PublicationEvidenceError(f"concurrency cell {cell} reports a non-positive round drain time")
+        width = int(cell.split("/")[1])
+        drain_p50 = _quantile(values, 0.5)
+        result[cell] = {
+            "width": width,
+            "mode": cell.split("/")[2],
+            "rounds": len(values),
+            "drain_p50_ms": drain_p50,
+            "drain_p95_ms": _quantile(values, 0.95),
+            "requests_per_second_at_p50": width * 1000.0 / drain_p50,
+        }
+    return result
 
 
 def _baseline_stats(samples):
@@ -248,6 +342,11 @@ def validate_final_v5_publication_evidence(root: Path) -> dict:
     }
     if "baseline" in by_experiment:
         stats["baseline"] = _baseline_stats(by_experiment["baseline"])
+        stats["phases"] = _phase_stats(by_experiment["baseline"])
     else:
         raise PublicationEvidenceError("publication campaign retains no baseline samples")
+    if "concurrency" in by_experiment:
+        stats["concurrency"] = _concurrency_stats(by_experiment["concurrency"])
+    else:
+        raise PublicationEvidenceError("publication campaign retains no concurrency samples")
     return stats

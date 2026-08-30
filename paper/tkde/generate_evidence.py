@@ -1545,6 +1545,51 @@ def main(argv: list[str] | None = None) -> None:
         ]) + r" \\")
     lines.append(r"\newcommand{\FinalVFivePublicationBaselineTableBody}{%" + "\n" +
                  "\n".join(rows) + "%\n}")
+    # Gateway phase breakdown of the novel governed query (medians, ms) for the
+    # cells the main text discusses, plus the dominant phase of each.
+    phase_rows = []
+    phase_macro_names = {"S1/SF1": "SOneSFOne", "S2/SF10": "STwoSFTen", "S6/100k-x16": "SSixHundredKByteSixteen"}
+    for cell in ("S1/SF1", "S2/SF10", "S6/100k-x16"):
+        phases = publication["phases"][cell]
+        phase_rows.append(" & ".join([
+            cell.replace("_", r"\_"),
+            *(decimal(phases[key], 2) for key in (
+                "prepare", "execute_and_derive", "artifact_stage", "control_settlement",
+                "artifact_publication", "response_finalize", "server_total")),
+        ]) + r" \\")
+        suffix = phase_macro_names[cell]
+        dominant = phases["dominant_phase"].replace("_", r"\_")
+        lines.extend([
+            rf"\newcommand{{\FinalVFivePublicationPhaseDominant{suffix}}}{{{dominant}}}",
+            rf"\newcommand{{\FinalVFivePublicationPhaseDominantSharePct{suffix}}}{{{decimal(100 * phases['dominant_share'], 1)}}}",
+            rf"\newcommand{{\FinalVFivePublicationPhaseSettlementMS{suffix}}}{{{decimal(phases['control_settlement'], 2)}}}",
+        ])
+    lines.append(r"\newcommand{\FinalVFivePublicationPhaseTableBody}{%" + "\n" +
+                 "\n".join(phase_rows) + "%\n}")
+    # Same-root concurrency cells: one sample is one round of `width`
+    # contenders; drain is the round wall time, requests/s is width over the
+    # median drain.
+    concurrency_rows = []
+    for cell in ("serial-control/1/serial", "shared-root/10/forced_queue_safety",
+                 "shared-root/10/natural_contention", "shared-root/50/forced_queue_safety",
+                 "shared-root/50/natural_contention"):
+        item = publication["concurrency"][cell]
+        concurrency_rows.append(" & ".join([
+            str(item["width"]), item["mode"].replace("_", r"\_"), comma(item["rounds"]),
+            decimal(item["drain_p50_ms"], 1), decimal(item["drain_p95_ms"], 1),
+            decimal(item["requests_per_second_at_p50"], 1),
+        ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationConcurrencyTableBody}{%" + "\n" +
+                 "\n".join(concurrency_rows) + "%\n}")
+    serial = publication["concurrency"]["serial-control/1/serial"]
+    fifty = publication["concurrency"]["shared-root/50/natural_contention"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationConcurrencySerialDrainPFiftyMS}}{{{decimal(serial['drain_p50_ms'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS}}{{{decimal(fifty['drain_p50_ms'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS}}{{{decimal(fifty['drain_p95_ms'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond}}{{{decimal(fifty['requests_per_second_at_p50'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencyRounds}}{{{comma(sum(item['rounds'] for item in publication['concurrency'].values()))}}}",
+    ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",

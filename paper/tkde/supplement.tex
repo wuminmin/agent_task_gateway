@@ -815,6 +815,45 @@ O6 & Approved-task/profile definition and replay descriptor & No profile/Catalog
 \end{tabular}
 \end{table}
 
+Table~\ref{tab:tlc-configs-supp} records the finite configuration and the TLC
+run behind each bounded model cited above; the checked configuration digests
+and complete logs are retained under \code{formal/results/}.
+
+\begin{table}[h]
+\centering
+\caption{Bounded TLC configurations (TLC 1.7.1, all invariants passed,
+checked 2026-08-09). Bounds are the \code{.cfg} constants; states are
+generated/distinct with the search depth.}
+\label{tab:tlc-configs-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.17\textwidth}L{0.31\textwidth}L{0.29\textwidth}L{0.15\textwidth}}
+\toprule
+Model & Finite bounds & Checked invariants & States (depth) \\
+\midrule
+\code{ExposureLedger} & one root and one child task; 2 requests; 2 Release, 2
+Dependency, 2 Outcome facts (1 atom, 1 composite); limits $1/1/2$; 1 replay &
+TypeOK, TripleBudgetSafety, AccountedIffSettled, ExactNovelCharge,
+NoChargeWithoutSettlement, RejectedResultsStayBuffered,
+DerivedEvidenceMatchesBuffer, NovelChargesDoNotOverlap,
+TaskFamilyNonAmplification, SettledQueriesExecutedOnce &
+\ExposureFormalStates{} / \ExposureFormalDistinct{} (\ExposureFormalDepth{}) \\
+\code{ExposureBitmapRefinement} & 2 requests; 3 dimensions; 2 facts and 2
+ordinals over a base and a dynamic segment; 1 fact per request; 1 replay &
+DictionaryBijection, TypeOK, DecodeOrRefinement, DecodeAndNotRefinement,
+PopcountRefinement, DerivationRefinement, LedgerRefinement, ExactNovelCharge,
+TripleBudgetSafety & \BitmapFormalStates{} / \BitmapFormalDistinct{} (\BitmapFormalDepth{}) \\
+\code{OutcomeSetAbstractRefinement} & 3 hashes; candidates $\{f_1,f_2\}$ and
+$\{f_2,f_3\}$; Outcome limit 3 & TypeOK, ExactDifference, NoDoubleCharge,
+BudgetSafety & \OutcomeFormalStates{} / \OutcomeFormalDistinct{} (\OutcomeFormalDepth{}) \\
+\code{ArtifactPublication} & 2 requests; one expected canonical hash; 2
+promotion retries & TypeOK, AvailableImpliesSettledCanonicalHashMatch,
+AbsentCanonicalHasZeroHash, RejectedNotAvailable, RetryRequiredStaysPending,
+RecoveryHasZeroLedgerDelta & \ArtifactFormalStates{} / \ArtifactFormalDistinct{} (\ArtifactFormalDepth{}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 No single row asserts a formally verified implementation. In particular,
 \code{ArtifactPublication.tla} checks only that its abstract AVAILABLE state
 implies its local settled flag and a matching canonical hash; the separate
@@ -906,9 +945,11 @@ grouped rows at either scale factor, yet its SF10 query depends on
 tens of thousands of rows. A dash marks a mode the cell's contract does not
 declare: S5 has no normalized rewrite and S6 declares no replays at all. Second, replay latency is
 near-constant in result size, so the ratio between a governed replay and direct
-re-execution improves as the underlying query grows: at S2/SF10 the idempotent
-replay is already faster than re-running the query against PostgreSQL, while
-issuing no business SQL at all.
+re-execution improves as the underlying query grows. At the scales measured
+here that ratio favors replay only once: the idempotent replay at S2/SF10
+(\FinalVFivePilotSTwoIdempotentMS{}~ms) undercuts direct re-execution
+(\FinalVFivePilotSTwoDirectMS{}~ms) while issuing no business SQL; every
+semantic replay median in the table exceeds its cell's direct median.
 
 \begin{table}[t]
 \centering
@@ -960,12 +1001,50 @@ Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Ov
 Charging separates cleanly from latency. Across every replay sample the business
 database was not contacted, and the semantic and normalized-rewrite modes
 settled all three Fact budgets at zero while recording the same actual Result,
-Dependency, and Outcome sets as the novel query they replay. Idempotent replay
+Dependency, and Outcome sets as the novel query they replay. Latency does not
+follow: in every cell of Table~\ref{tab:baseline-publication} the semantic
+replay median exceeds the direct median, and only the idempotent replay at
+S2/SF10 undercuts direct re-execution. Replay saves business-database work and
+Fact charge, not client-visible time, at these scales. Idempotent replay
 instead returns the original terminal record, and its no-recharge property is
 carried by the control-plane snapshot being byte-identical before and after.
 One qualification belongs with these numbers: the per-Task row budget is a
 cumulative ledger and is charged on replay, so replay is free of Fact charges
 but not of row budget.
+
+\section{Publication Campaign: Same-Root Concurrency}
+\label{sec:concurrency-publication-supp}
+
+The concurrency profile of the same campaign measures one root family under
+rounds of concurrent governed requests at its budget boundary: the root has
+one unit of capacity left, so exactly one contender per round can settle
+novel work while the others settle zero novelty or are refused. One
+sample is one round, and its drain time runs from launching all contenders
+until every one has returned. In \code{forced\_queue\_safety} a blocker
+transaction holds the root-head row lock until every contender has arrived and
+is waiting on it, then releases the whole round at once; in
+\code{natural\_contention} the contenders run freely and the round counts only
+if the production Outcome set reported at least one CAS conflict.
+Table~\ref{tab:concurrency-publication} reports round drain time per cell
+over \FinalVFivePublicationConcurrencyRounds{} rounds; requests per second is
+the width over the median drain. All rounds ran on one host against one
+enforcement instance.
+
+\begin{table}[t]
+\centering
+\caption{Publication campaign concurrency cells: round drain time (ms, Type-7
+p50/p95) by width and release mode, and settled requests per second at the
+median.}
+\label{tab:concurrency-publication}
+\small
+\begin{tabular}{rlrrrr}
+\toprule
+Width & Mode & Rounds & Drain p50 & Drain p95 & Req./s \\
+\midrule
+\FinalVFivePublicationConcurrencyTableBody
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{RQ5: Daily Publication and Retained-Publication Routing}
 \label{sec:rq5-supp}
