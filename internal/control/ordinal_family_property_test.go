@@ -126,6 +126,7 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 							t.Fatalf("seed %d step %s: charged %+v, novelty %+v", seed, step.queryID, charged, expected)
 						}
 					case errors.Is(err, ErrExposureBudgetExhausted) && !fits:
+						releaseRefusedReservation(t, store, step.queryID)
 						refused = append(refused, step)
 					default:
 						t.Fatalf("seed %d step %s: err=%v fits=%v novelty=%+v used=%+v limits=%+v",
@@ -149,6 +150,7 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 						case err == nil:
 							model.commit(batch[index])
 						case errors.Is(err, ErrExposureBudgetExhausted):
+							releaseRefusedReservation(t, store, batch[index].queryID)
 							refused = append(refused, batch[index])
 						default:
 							t.Fatalf("seed %d concurrent %s: %v", seed, batch[index].queryID, err)
@@ -177,6 +179,18 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 			t.Logf("seed %d: tasks=%d queries=%d committed=%d refused=%d final=%+v limits=%+v",
 				seed, len(tasks), queryCounter, queryCounter-len(refused), len(refused), model.used(), limits)
 		})
+	}
+}
+
+// releaseRefusedReservation records the refusal the Gateway would record, which
+// frees the task for its next query; the reservation still counts against the
+// task's query budget.
+func releaseRefusedReservation(t *testing.T, store *Store, queryID string) {
+	t.Helper()
+	if _, err := store.FailBudget(context.Background(), BudgetSettlement{
+		QueryID: queryID, Rows: 0, DBMS: 0, ErrorCode: "EXPOSURE_BUDGET_EXHAUSTED",
+	}); err != nil {
+		t.Fatalf("fail refused reservation %s: %v", queryID, err)
 	}
 }
 
