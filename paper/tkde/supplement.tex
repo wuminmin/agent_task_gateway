@@ -623,6 +623,28 @@ Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
 \section{Number-to-Evidence Map}
 \label{sec:number-map-supp}
 
+Table~\ref{tab:current-evidence} lists, per research question, the counts
+the main text cites and the source state of each line.
+
+\begin{table}[t]
+\centering
+\caption{Current source-backed evidence by research question: the counts the main text cites and the source state of each line (regenerated at the repository head, archived run, or sealed publication campaign).}
+\label{tab:current-evidence}
+\small
+\begin{tabular}{L{0.1\textwidth}L{0.82\textwidth}}
+\toprule
+RQ & Current result \\
+\midrule
+RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated \\
+RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches; regenerated \\
+RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus (Section~\ref{sec:attack-provsql}) \\
+RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, \RQFourVFourOracleFacts{}-Fact offline re-derivation (shared encoder); archived run at its recorded source hash \\
+RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions; regenerated \\
+Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} samples, all passing; sealed at \FinalVFivePublicationCommit{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 Table~\ref{tab:number-map-supp} maps every group of reported numbers to the
 commit it was measured at, the retained file it is recomputed from, and the
 command that regenerates it. Every macro in the manuscript is emitted by

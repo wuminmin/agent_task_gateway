@@ -1238,35 +1238,23 @@ comparator, not a latency baseline \cite{summers2026passant}; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
 
-\begin{table}[t]
-\centering
-\caption{Current source-backed evidence.}
-\label{tab:current-evidence}
-\scriptsize
-\begin{tabular}{L{0.12\columnwidth}L{0.70\columnwidth}}
-\toprule
-RQ & Current result \\
-\midrule
-RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated \\
-RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches; regenerated \\
-RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus (Section~\ref{sec:attack-provsql}) \\
-RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, \RQFourVFourOracleFacts{}-Fact offline re-derivation (shared encoder); archived run at its recorded source hash \\
-RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions; regenerated \\
-Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} samples, all passing; sealed at \FinalVFivePublicationCommit{} \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-RQ1's oracle is a separate implementation over \RQOneRows{} rows that
-imports no production policy code, the only code-independent check; the
-\RQFourVFourOracleFacts{}-Fact RQ4 check (\RQFourVFourReleaseFacts{} Release,
-\RQFourVFourInfluenceFacts{} Dependency, \RQFourVFourOutcomeFacts{} Outcome)
-re-derives every hash, payload, and witness offline but shares the FactID
-encoder, so it is only derivation-independent. RQ2 requires equal
-Result/Dependency sets and zero bidirectional charge; RQ3 covers split, page,
-retry, snapshot identity, joins/unions, delegation, and races; Outcome
-regressions cover empty probes, replay, radix tamper, and digest binding; the
-supplement's broad-SQL stress test checks row equality only.
+RQ1's oracle (\RQOnePassed{}/\RQOneCases{} cases) is a separate
+implementation over \RQOneRows{} rows that imports no production policy
+code, the only code-independent check; the \RQFourVFourOracleFacts{}-Fact
+RQ4 check (\RQFourVFourReleaseFacts{} Release, \RQFourVFourInfluenceFacts{}
+Dependency, \RQFourVFourOutcomeFacts{} Outcome; \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{}
+gates) re-derives every hash, payload, and witness offline but shares the
+FactID encoder, so it is only derivation-independent. RQ2
+(\RQTwoExposureCases{} cases, \RQTwoExposureMismatches{} mismatches)
+requires equal Result/Dependency sets and zero bidirectional charge; RQ3
+(\RQThreeCases{} cases, each deterministic and as a PostgreSQL race test)
+covers split, page, retry, snapshot identity, joins/unions, delegation, and
+races; RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
+across \RQFiveTransitions{} transitions; Outcome regressions cover empty
+probes, replay, radix tamper, and digest binding; the supplement's broad-SQL
+stress test checks row equality only, and its evidence table labels the
+source state (regenerated, archived, or sealed campaign) of every line.
 
 The Baseline workloads: S1, a two-column projection of the frozen
 50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
@@ -1422,9 +1410,9 @@ the raw samples but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
-no state carried between them; Table~\ref{tab:current-evidence} labels the
-source state of every other line, and the supplement maps each number group
-to its commit and raw file. Across the three executions the per-execution
+no state carried between them; the supplement's evidence table labels the
+source state of every other line and maps each number group to its commit
+and raw file. Across the three executions the per-execution
 novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
