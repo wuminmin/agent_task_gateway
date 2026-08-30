@@ -110,12 +110,12 @@ pricing develops anti-arbitrage objectives
 where results came from \cite{green2007provenance,amsterdamer2011aggregate},
 whereas BDG asks how human authorization can create a stateful release
 budget conserved across adaptive querying and delegation. Enterprise
-operational analytics
-commonly serves scheduled ETL outputs rather than OLTP primaries; BDG compiles
-each completed cut into an immutable publication, new roots may bind the next
-cut, and unfinished roots stay on the prior one through version routing or
-fail closed, so BDG bounds the governed release of declared facts within one reporting epoch,
-not freshness over a changing database.
+operational analytics commonly serves scheduled ETL outputs rather than
+OLTP primaries; BDG compiles each completed cut into an immutable
+publication, new roots may bind the next cut, and unfinished roots stay on
+the prior one through version routing or fail closed, so BDG bounds the
+governed release of declared facts within one reporting epoch, not
+freshness over a changing database.
 
 Large enterprises already operate lakes or warehouses, reporting marts, Data
 Catalogs, identity directories, and approval workflows, but none turns one
@@ -282,14 +282,15 @@ Statistical-database inference control studied trackers, query-set size and
 overlap, and cumulative auditing
 \cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
 and BDG's Dependency ledger is an exact, provenance-derived, delegation- and
-publication-bound engineering of that query-set-overlap lineage, which bounds
+publication-bound engineering of that query-set-overlap lineage, bounding
 how many settled predicates a task gets, not inference; PINQ's cumulative
-budget is $\epsilon$ \cite{mcsherry2009pinq}, BDG's a set of declared facts. BDG charges declared facts and successful
-outcomes within one signed root, withholds delivery unless settlement
-succeeds, releases exact answers, and models neither prior knowledge, denial
-leakage, nor $\epsilon$; zero-novelty replay is the syntactic analogue of
-history-aware pricing, and Theorem~\ref{thm:nf-soundness} covers listed
-rewrites only, so it is weaker than arbitrage-freedom. Why/where/how
+budget is $\epsilon$ \cite{mcsherry2009pinq}, BDG's a set of declared
+facts. BDG charges declared facts and successful outcomes within one signed
+root, withholds delivery unless settlement succeeds, releases exact
+answers, and models neither prior knowledge, denial leakage, nor
+$\epsilon$; zero-novelty replay is the syntactic analogue of history-aware
+pricing, and Theorem~\ref{thm:nf-soundness} covers listed rewrites only,
+weaker than arbitrage-freedom. Why/where/how
 provenance identifies witnesses, locations, and derivations
 \cite{buneman2001why,green2007provenance,cheney2009provenance,amsterdamer2011aggregate},
 and GProM and ProvSQL provide general rewrite/circuit mechanisms
@@ -303,12 +304,11 @@ Passant formalizes optimizer-invariant aggregate predicates over each output
 tuple's bag of provenance monomials and rewrites or terminates violating
 queries, covering contributor thresholds, source combinations, grounding, and
 prompt-bound flows that BDG does not subsume; trajectory policy is its future
-work. BDG differs in temporal unit:
-after authorization and any flow check it persists the three sets under one
-root and charges exact novelty across queries, retries, pages, rewrites, and
-descendants in one root-head transaction; DFC asks whether a flow is allowed,
-BDG whether another allowed flow fits the cumulative contract (composition
-not evaluated).
+work. BDG differs in temporal unit: after authorization and any flow check
+it persists the three sets under one root and charges exact novelty across
+queries, retries, pages, rewrites, and descendants in one root-head
+transaction; DFC asks whether a flow is allowed, BDG whether another allowed
+flow fits the cumulative contract (composition not evaluated).
 
 \textbf{Authorization, delegation, and agent controls.} Task-based and
 purpose-based authorization scope rights to an activity or a declared purpose
@@ -324,10 +324,9 @@ model behavior under prompt injection \cite{debenedetti2024agentdojo} and
 SafeNLIDB inference risk on the model side \cite{liu2026safenlidb};
 provenance-based access control \cite{park2012pbac} and CaMeL's tool-layer
 capabilities \cite{debenedetti2025camel} decide admission, not cumulative
-release. BDG assumes the authorization boundary, makes every descendant
-settle against one root ledger, treats the agent and its SQL as untrusted,
-and claims neither result sanitization, prompt/tool flow tracking, nor
-inference safety.
+release. BDG assumes the authorization boundary, settles every descendant
+against one root ledger, treats the agent and its SQL as untrusted, and
+claims neither result sanitization, flow tracking, nor inference safety.
 
 \begin{table*}[t]
 \centering
