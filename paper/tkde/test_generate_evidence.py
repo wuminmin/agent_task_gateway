@@ -120,7 +120,10 @@ class EvidenceValidationModeTests(unittest.TestCase):
         changed["source_manifest"]["sha256"] = evidence.v5_source_manifest_digest([])
 
         def load(path: Path) -> dict:
-            return changed if path == evidence.V5_OUTCOME else original_load(path)
+            # A fresh copy per call: the validator annotates the document it
+            # returns (family_property); a file loader never hands back a
+            # previously annotated object.
+            return copy.deepcopy(changed) if path == evidence.V5_OUTCOME else original_load(path)
 
         with (
             mock.patch.object(evidence, "load_json", side_effect=load),
@@ -150,7 +153,10 @@ class EvidenceValidationModeTests(unittest.TestCase):
         changed["submission_commit"] = "f" * 40
 
         def load(path: Path) -> dict:
-            return changed if path == evidence.V5_OUTCOME else original_load(path)
+            # A fresh copy per call: the validator annotates the document it
+            # returns (family_property); a file loader never hands back a
+            # previously annotated object.
+            return copy.deepcopy(changed) if path == evidence.V5_OUTCOME else original_load(path)
 
         with mock.patch.object(evidence, "load_json", side_effect=load):
             with self.assertRaisesRegex(ValueError, "V5 submission commit"):
@@ -173,7 +179,10 @@ class EvidenceValidationModeTests(unittest.TestCase):
         )
 
         def load(path: Path) -> dict:
-            return changed if path == evidence.V5_OUTCOME else original_load(path)
+            # A fresh copy per call: the validator annotates the document it
+            # returns (family_property); a file loader never hands back a
+            # previously annotated object.
+            return copy.deepcopy(changed) if path == evidence.V5_OUTCOME else original_load(path)
 
         with mock.patch.object(evidence, "load_json", side_effect=load):
             with self.assertRaisesRegex(ValueError, "source manifest binding is stale"):
