@@ -170,11 +170,10 @@ The system follows a withhold-before-settlement discipline:
 
 The visible query and ordinal companion share one frozen PostgreSQL snapshot
 and remain withheld while one Control transaction computes exact set novelty,
-checks all limits, advances the three-dimensional root head, and commits audit,
-receipt, and a PENDING intent. A recoverable object-store step then promotes
-the staged object and a second transaction records AVAILABLE/CONSUMED; a failed
-limit rolls settlement back. Figure~\ref{fig:architecture-settlement} separates
-offline publication from this online path.
+checks all limits, advances the root head, and commits audit, receipt, and a
+PENDING intent; a recoverable object-store step then promotes the staged
+object and a second transaction records AVAILABLE/CONSUMED
+(Fig.~\ref{fig:architecture-settlement}).
 
 \begin{figure*}[t]
 \centering
@@ -458,12 +457,10 @@ A publication epoch is
 where \emph{snapshot\_bundle} maps every stable role to its immutable reporting
 publication, \emph{catalog} binds the bundle's schema, policy, and lineage,
 and \emph{dictionary} is the set of ordinal dictionaries. We write $h_e$
-for the digest of a canonical descriptor of these five components. In the prototype the
-signed Catalog SHA transitively commits the datasource/schema, snapshot ID,
-and manifest/dictionary/sidecar digests. The upstream synchronization cutoff
-is a trusted ETL premise and co-versioned routing metadata; BDG does not
-cryptographically enforce it as a separate manifest field.
-A new synchronization creates a new $P_{e+1}$; it never mutates $P_e$.
+for the digest of a canonical descriptor of these five components; the
+signed Catalog SHA transitively commits them, the upstream synchronization
+cutoff is a trusted ETL premise, and a new synchronization creates a new
+$P_{e+1}$ rather than mutating $P_e$.
 \end{definition}
 
 A deployment alias such as \code{latest publication} resolves to a concrete
@@ -969,14 +966,13 @@ general SQL equivalence reasoning.
 \section{Online Accounting}
 \label{sec:online}
 
-Formal semantics and the independent oracle cover scan/select/project, group
-with four aggregates, inner equijoin, union-distinct, and page. Online lowering
+Formal semantics and the RQ1 oracle cover scan/select/project, group with
+four aggregates, inner equijoin, union-distinct, and page. Online lowering
 admits one product, a connected 2--16-source equi-join graph, or two-branch
-union-distinct, optionally grouped. The SQL-AST path covers the first two;
-the semantic-View path first eliminates a bounded nested DAG into the same
-first-two forms. Union is structured-plan only and pagination is one-product only. Paired
-PostgreSQL tests derive effects for hidden keys, join fanout, union members,
-aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
+union-distinct, optionally grouped; the SQL-AST path covers the first two and
+the semantic-View path eliminates a bounded nested DAG into them. Union is
+structured-plan only, pagination is one-product only, and ``online'' does not
+mean arbitrary SQL.
 
 \subsection{Canonical Join and Semantic-View Lowering}
 
