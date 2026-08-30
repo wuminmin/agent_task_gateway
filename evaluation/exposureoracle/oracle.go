@@ -135,6 +135,12 @@ func Evaluate(corpusJSON []byte, operation string) (Observation, error) {
 		return globalAggregate(expenses, "min", "expense.amount", "numeric", "0")
 	case "global_max_all_inputs":
 		return globalAggregate(expenses, "max", "expense.amount", "numeric", "40")
+	case "global_avg":
+		return globalAggregate(expenses, "avg", "expense.amount", "numeric", "20.9090909090909091")
+	case "global_count_distinct_department":
+		return globalAggregateDistinct(expenses, "expense.department", int64(4))
+	case "group_sum_having":
+		return groupSumHaving(expenses, "40")
 	case "department_join":
 		departments, relationErr := namedRelation(parsed, "departments")
 		if relationErr != nil {
@@ -628,4 +634,91 @@ func sumRows(rows []row, fieldID string) string {
 func hexDigest(value []byte) string {
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:])
+}
+
+// globalAggregateDistinct is COUNT(DISTINCT field) over the whole relation:
+// the same footprint as COUNT(field) (every positive row's argument cell), a
+// distinct value count, and the canonical expression count(distinct ns.field).
+func globalAggregateDistinct(source relation, fieldID string, value any) (Observation, error) {
+	result := newObservation()
+	witness := make([]Fact, 0, len(source.Rows))
+	for _, current := range source.Rows {
+		rowFact := baseRow(source, current)
+		add(result.Influence, rowFact)
+		cell, err := baseCell(source, current, fieldID)
+		if err != nil {
+			return Observation{}, err
+		}
+		witness = append(witness, cell)
+		add(result.Influence, cell)
+	}
+	rowKey := composeKey("group-row", "global")
+	expression := "count(distinct " + source.SourceNamespace + "." + fieldID + ")"
+	fact, err := derived([]SnapshotBinding{{SourceNamespace: source.SourceNamespace, Snapshot: source.Snapshot}}, rowKey, expression, "bigint", value, witness)
+	if err != nil {
+		return Observation{}, err
+	}
+	add(result.Release, fact)
+	return result, nil
+}
+
+// groupSumHaving is groupSumCount restricted to groups whose SUM(amount)
+// exceeds the threshold: dropped groups contribute neither Release nor
+// Dependency facts (positive-output semantics).
+func groupSumHaving(source relation, threshold string) (Observation, error) {
+	full, err := groupSumCount(source)
+	if err != nil {
+		return Observation{}, err
+	}
+	// Recompute per group to decide which groups survive, then keep only their
+	// facts from the full grouped observation.
+	groups := make(map[string][]row)
+	for _, current := range source.Rows {
+		canonical, err := canonicalValue("text", current.Values["expense.department"])
+		if err != nil {
+			return Observation{}, err
+		}
+		groups[canonical] = append(groups[canonical], current)
+	}
+	kept := make(map[string]struct{})
+	for canonical, members := range groups {
+		if numericGreater(sumRows(members, "expense.amount"), threshold) {
+			kept[canonical] = struct{}{}
+		}
+	}
+	result := newObservation()
+	bundle := []SnapshotBinding{{SourceNamespace: source.SourceNamespace, Snapshot: source.Snapshot}}
+	for canonical := range kept {
+		component := source.SourceNamespace + ".expense.department\x00text\x00" + canonical
+		rowKey := composeKey("group-row", component)
+		for key, fact := range full.Release {
+			if fact.OutputRowKey == rowKey {
+				result.Release[key] = fact
+			}
+		}
+		for _, member := range groups[canonical] {
+			add(result.Influence, baseRow(source, member))
+			for _, fieldID := range []string{"expense.department", "expense.amount"} {
+				cell, err := baseCell(source, member, fieldID)
+				if err != nil {
+					return Observation{}, err
+				}
+				add(result.Influence, cell)
+			}
+		}
+	}
+	_ = bundle
+	return result, nil
+}
+
+// numericGreater compares two decimal strings exactly.
+func numericGreater(left, right string) bool {
+	l, r := new(big.Rat), new(big.Rat)
+	if _, ok := l.SetString(left); !ok {
+		return false
+	}
+	if _, ok := r.SetString(right); !ok {
+		return false
+	}
+	return l.Cmp(r) > 0
 }

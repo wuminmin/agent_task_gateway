@@ -13,7 +13,7 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RQ1.Passed != report.RQ1.Cases || report.RQ1.Cases != 21 || report.RQ1.DatasetRows != 16 ||
+	if report.RQ1.Passed != report.RQ1.Cases || report.RQ1.Cases != 24 || report.RQ1.DatasetRows != 16 ||
 		report.RQ1.ReleaseFacts == 0 || report.RQ1.InfluenceFacts == 0 || len(report.RQ1.OracleSourceSHA256) != 64 ||
 		report.RQ2.GeneratedAttempts != 16 || report.RQ2.UniqueNormalizedPairs != 16 ||
 		report.RQ2.ExecutedUniquePairs != 16 || report.RQ2.DuplicateAttempts != 0 ||

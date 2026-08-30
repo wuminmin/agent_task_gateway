@@ -64,7 +64,10 @@
     {"id":"page_first_four","operation":"page_first_four"},
     {"id":"page_middle_five","operation":"page_middle_five"},
     {"id":"page_order_boundary","operation":"page_order_boundary"},
-    {"id":"union_hidden_distinct","operation":"union_hidden_distinct"}
+    {"id":"union_hidden_distinct","operation":"union_hidden_distinct"},
+    {"id":"global_avg","operation":"global_avg"},
+    {"id":"global_count_distinct_department","operation":"global_count_distinct_department"},
+    {"id":"group_sum_having","operation":"group_sum_having"}
   ],
   "adversarial_cases": [
     {"id":"join_multiplicity","execution":"deterministic"},

@@ -8,19 +8,22 @@
     49
   ],
   "coverage": {
-    "global": 1669,
-    "group": 1663,
-    "join": 1681,
-    "page": 555,
-    "project": 1668,
-    "select": 3313
+    "avg": 941,
+    "count_distinct": 986,
+    "global": 1683,
+    "group": 1684,
+    "having": 1114,
+    "join": 1664,
+    "page": 535,
+    "project": 1633,
+    "select": 3341
   },
   "mismatches": 0,
   "hash_mismatches": 0,
   "conservation_checks": {
-    "page_partition_equals_complete": 383,
-    "split_projection_equals_complete": 383
+    "page_partition_equals_complete": 354,
+    "split_projection_equals_complete": 354
   },
-  "release_facts_compared": 54439,
-  "dependency_facts_compared": 214563
+  "release_facts_compared": 51484,
+  "dependency_facts_compared": 192015
 }

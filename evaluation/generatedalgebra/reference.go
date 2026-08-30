@@ -9,7 +9,6 @@
 package generatedalgebra
 
 import (
-	"strings"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -18,6 +17,7 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
+	"strings"
 
 	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 )
@@ -72,15 +72,15 @@ type Having struct {
 
 // Plan is a generated query in the closed fragment.
 type Plan struct {
-	Join       bool        // departments JOIN expenses ON department.department = expense.department
-	Predicates []Predicate // conjunction over the (joined) relation
-	Kind       string      // "project" | "group" | "global"
-	Project    []string    // visible fields for project/page
-	Page       *[2]int     // offset, limit (project only, single relation)
-	GroupField string      // group key for kind=group
+	Join            bool        // departments JOIN expenses ON department.department = expense.department
+	Predicates      []Predicate // conjunction over the (joined) relation
+	Kind            string      // "project" | "group" | "global"
+	Project         []string    // visible fields for project/page
+	Page            *[2]int     // offset, limit (project only, single relation)
+	GroupField      string      // group key for kind=group
 	GroupKeyVisible bool
-	Aggregates []Aggregate
-	Having     *Having // optional post-group filter (group/global only)
+	Aggregates      []Aggregate
+	Having          *Having // optional post-group filter (group/global only)
 }
 
 // Observation is the semantic Result and Dependency footprint of a plan.
@@ -93,7 +93,9 @@ func newObservation() Observation {
 	return Observation{Release: map[string]exposureoracle.Fact{}, Influence: map[string]exposureoracle.Fact{}}
 }
 
-func add(set map[string]exposureoracle.Fact, fact exposureoracle.Fact) { set[exposureoracle.Key(fact)] = fact }
+func add(set map[string]exposureoracle.Fact, fact exposureoracle.Fact) {
+	set[exposureoracle.Key(fact)] = fact
+}
 
 func canonicalType(value string) string {
 	switch value {
@@ -226,7 +228,10 @@ func derived(bundle []exposureoracle.SnapshotBinding, rowKey, expression, sqlTyp
 // joinedRow is one row of the (possibly joined) input: the contributing base
 // rows per relation and the merged value map.
 type joinedRow struct {
-	parts  []struct{ rel Relation; row Row }
+	parts []struct {
+		rel Relation
+		row Row
+	}
 	values map[string]any
 }
 
@@ -319,12 +324,18 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 				for k, v := range department.Values {
 					values[k] = v
 				}
-				rows = append(rows, joinedRow{parts: []struct{ rel Relation; row Row }{{departments, department}, {expenses, expense}}, values: values})
+				rows = append(rows, joinedRow{parts: []struct {
+					rel Relation
+					row Row
+				}{{departments, department}, {expenses, expense}}, values: values})
 			}
 		}
 	} else {
 		for _, expense := range expenses.Rows {
-			rows = append(rows, joinedRow{parts: []struct{ rel Relation; row Row }{{expenses, expense}}, values: expense.Values})
+			rows = append(rows, joinedRow{parts: []struct {
+				rel Relation
+				row Row
+			}{{expenses, expense}}, values: expense.Values})
 		}
 	}
 	result := newObservation()

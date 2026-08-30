@@ -425,6 +425,41 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
 			{Function: "max", Field: "expense.amount", OutputID: "maximum", OutputType: "numeric"},
 		}, []map[string]any{{"maximum": "40"}})
+	case "global_avg":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "avg", Field: "expense.amount", OutputID: "mean", OutputType: "numeric"},
+		}, []map[string]any{{"mean": "20.9090909090909091"}})
+	case "global_count_distinct_department":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "count", Field: "expense.department", OutputID: "departments", OutputType: "bigint", Distinct: true},
+		}, []map[string]any{{"departments": int64(4)}})
+	case "group_sum_having":
+		// HAVING sum(amount) > 40: PostgreSQL returns only sales (80) and rnd
+		// (45). The Gateway restricts the relation to the returned groups
+		// before annotating, then models HAVING as a Select over the output.
+		kept := map[string]struct{}{"sales": {}, "rnd": {}}
+		relation, err = exposure.SelectV2(expenses, nil, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			department, ok := row.Cells["expense.department"].Value.(string)
+			if !ok {
+				return exposure.SQLFalse
+			}
+			if _, present := kept[department]; present {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
+		})
+		if err == nil {
+			relation, err = exposure.AggregateFromResultsHavingV2(relation, []string{"expense.department"}, []exposure.AggregateSpecV2{
+				{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
+				{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
+			}, []map[string]any{
+				{"expense.department": "sales", "total": "80", "items": int64(5)},
+				{"expense.department": "rnd", "total": "45", "items": int64(2)},
+			})
+		}
+		if err == nil {
+			relation, err = exposure.SelectV2(relation, []string{"total"}, func(exposure.AnnotatedRowV2) exposure.SQLTruth { return exposure.SQLTrue })
+		}
 	case "department_join":
 		relation, err = exposure.JoinV2(relations["departments"], expenses, "department.department", "expense.department")
 		if err == nil {

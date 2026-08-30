@@ -117,18 +117,18 @@ func randomHaving(rng *rand.Rand, aggregates []Aggregate) *Having {
 
 // Report summarizes one campaign.
 type Report struct {
-	Version       string         `json:"version"`
-	Seed          int64          `json:"seed"`
-	Plans         int            `json:"plans"`
-	Fixtures      int            `json:"fixtures"`
-	ExpenseRows   [2]int         `json:"expense_rows_min_max"`
-	Coverage      map[string]int `json:"coverage"`
-	Mismatches    int            `json:"mismatches"`
-	HashMismatches int           `json:"hash_mismatches"`
-	Failures      []string       `json:"failures,omitempty"`
-	Conservation  map[string]int `json:"conservation_checks"`
-	ReleaseFacts  int            `json:"release_facts_compared"`
-	InfluenceFacts int           `json:"dependency_facts_compared"`
+	Version        string         `json:"version"`
+	Seed           int64          `json:"seed"`
+	Plans          int            `json:"plans"`
+	Fixtures       int            `json:"fixtures"`
+	ExpenseRows    [2]int         `json:"expense_rows_min_max"`
+	Coverage       map[string]int `json:"coverage"`
+	Mismatches     int            `json:"mismatches"`
+	HashMismatches int            `json:"hash_mismatches"`
+	Failures       []string       `json:"failures,omitempty"`
+	Conservation   map[string]int `json:"conservation_checks"`
+	ReleaseFacts   int            `json:"release_facts_compared"`
+	InfluenceFacts int            `json:"dependency_facts_compared"`
 }
 
 func sameSet(left, right map[string]any) bool {
