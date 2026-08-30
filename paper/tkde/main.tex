@@ -377,27 +377,22 @@ and delegated calls are untrusted and may be adaptive. The security goal is
 bounded governed release: within one approved root family on one publication
 epoch, no more than $B_X$ distinct FactIDs of each kind become
 \code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
-The goal is per root and per epoch, and the settlement decision itself is
-observable: a rejected attempt reveals that its novel effect exceeded the
-remaining budget and charges only one unit of the request budget
-(Section~\ref{sec:online}), so the threshold information an agent can extract
-through rejections is bounded by that budget, summed over the approved task
-tree, not by $B_X$. Four extraction patterns motivate the three budgets and
-are the ones the evaluation exercises: sweeping a Product page by page,
-bounded by $B_R$ (Section~\ref{sec:calibration}); aggregates that read far
-more base facts than a purpose warrants, bounded by $B_D$ (the adaptive
-trace); probe ladders, bounded by $B_O$ (the corpus ladder); and delegation
-fan-out, bounded by the shared root ledger (the delegated child's refusal).
-Four boundaries hold at this goal: it counts declared identities, not
-inference; only the Catalog tie-break keys of a page order are order-only
-(every \code{ORDER BY} column must be selected); every approved root and
+Four extraction patterns motivate the three budgets and are the ones the
+evaluation exercises: sweeping a Product page by page, bounded by $B_R$
+(Section~\ref{sec:calibration}); aggregates that read far more base facts
+than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
+ladders, bounded by $B_O$ (the corpus ladder); and delegation fan-out,
+bounded by the shared root ledger (the delegated child's refusal). Four
+boundaries hold at this goal: it counts declared identities, not inference;
+only the Catalog tie-break keys of a page order are order-only (every
+\code{ORDER BY} column must be selected); every approved root and
 publication epoch has fresh capacity, so release across days is bounded by
-the approval workflow, not by BDG; and the
-settlement decision is two data-dependent counter channels. A rejected
-attempt is a chosen membership question over unaccounted facts answered by
-one bit, charged against $B_Q$ only and never $B_O$, so rejection capacity
-is $\sum B_Q$ over the tree (Section~\ref{sec:online}); a settled response
-returns the per-dimension charge and the ledger's used and limit counters
+the approval workflow, not by BDG; and the settlement decision is two
+data-dependent counter channels. A rejected attempt is a chosen membership
+question over unaccounted facts answered by one bit, charged against $B_Q$
+only and never $B_O$, so rejection capacity is $\sum B_Q$ over the approved
+task tree, not $B_X$ (Section~\ref{sec:online}); a settled response returns
+the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
 B_X\rceil$ bits of query-set-overlap information; returning only the
