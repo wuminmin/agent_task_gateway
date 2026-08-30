@@ -1205,9 +1205,9 @@ split, page, retry, snapshot identity, joins/unions, delegation, and races;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 a \FinalVFivePublicationRQFiveRows{}-row publication in
-\FinalVFivePublicationRQFiveBuildS{}~s p50 for the build phase; activation
-adds about one second, \RQFiveDayZeroActivateMedianS{}~s in the tracked RQ5
-run); Outcome regressions cover empty
+\FinalVFivePublicationRQFiveBuildS{}~s p50 for the build phase, plus
+\RQFiveDayZeroActivateMedianS{}~s activation in the tracked run); Outcome
+regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
 cases, a generated-plan campaign (\GeneratedPlans{} random plans over
 \GeneratedFixtures{} fixtures of \GeneratedRowsMin{}--\GeneratedRowsMax{}
@@ -1257,18 +1257,15 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 more per Fact than S2, so Release materialization is at least as expensive
 per Fact as Dependency derivation. Settlement is not where exactness is
 paid: the Scale profile below settles against a million-Fact history in
-\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot at the submission commit (four deployments per
-profile, \FinalVFiveSubphaseSamplesSTwoSFTen{} samples per cell, Gateway
-component timers retained; not publication-class) splits
-execute-and-derive: the visible and companion SQL together take
+\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot samples per
+cell; not publication-class) splits execute-and-derive: the visible and
+companion SQL together take
 \FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
-at S1/SF1, S2/SF10, S6/100k-x16, while Go-side ordinal consumption and
-witness merging take
+at S1/SF1, S2/SF10, S6/100k-x16, while single-threaded Go-side ordinal
+consumption and witness merging take
 \FinalVFiveSubphaseGoSidePctSOneSFOne{}/\FinalVFiveSubphaseGoSidePctSTwoSFTen{}/\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
-of the phase (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{} and
-\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s per Fact at
-S2/SF10 and S6); exactness is paid in single-threaded Go encoding, not in
-PostgreSQL, and multi-second governed latency suits batch reporting agents,
+of the phase (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
+per Fact), so multi-second governed latency suits batch reporting agents,
 not interactive ones (supplement table).
 
 \begin{table}[t]
@@ -1406,7 +1403,7 @@ counter's release bound depends on query order, the set ledger's does not).
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.19\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.18\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
