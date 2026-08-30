@@ -245,35 +245,30 @@ three-budget settlement before \code{AVAILABLE}, root-family delegation
 conservation, the theorems and bounded models, and the publication campaign.
 This article's five implementation-backed contributions are:
 
-\begin{enumerate}
-\item A typed FactID semantics for accounted Result, positive-output
-Dependency, and canonical-atom/composite Outcome sets in a restricted algebra.
-\item A same-snapshot ordinal companion for admitted one-Product, connected
-equijoins (two-source joins evaluated end to end; up to 16 roles admitted by
-the compiler), two-branch union, grouping, and aggregates; bounded nested
-Views flatten into this same core.
-\item Profile-relative exact novelty and atomic three-budget settlement per
-root family and publication epoch, refined by immutable ordinal dictionaries,
-compressed bitmaps, and an exact Merkle-radix Outcome set; settlement precedes
-\code{AVAILABLE}, semantic replay is zero-novelty, and rejection leaks a
-threshold bit bounded by the request budget.
-\item Signed, monotonic delegation whose descendants share one root-family
-ledger, so fan-out cannot multiply exposure capacity; request budgets stay
-per task and bound only that task's probing.
-\item Algebraic theorems, an abstract settlement-safety property
-sanity-checked by small bounded TLA+ models, and executable Go/PostgreSQL
-differential and fault-injection evidence.
-\end{enumerate}
+(1) a typed FactID semantics for accounted Result, positive-output
+Dependency, and canonical-atom/composite Outcome sets in a restricted
+algebra; (2) a same-snapshot ordinal companion for admitted one-Product,
+connected equijoins (two-source joins evaluated end to end; up to 16 roles
+admitted by the compiler), two-branch union, grouping, and aggregates, into
+which bounded nested Views flatten; (3) profile-relative exact novelty and
+atomic three-budget settlement per root family and publication epoch,
+refined by immutable ordinal dictionaries, compressed bitmaps, and an exact
+Merkle-radix Outcome set, with settlement before \code{AVAILABLE},
+zero-novelty semantic replay, and a rejection that leaks a threshold bit
+bounded by the request budget; (4) signed, monotonic delegation whose
+descendants share one root-family ledger, so fan-out cannot multiply
+exposure capacity while request budgets stay per task; and (5) algebraic
+theorems, an abstract settlement-safety property sanity-checked by small
+bounded TLA+ models, and executable Go/PostgreSQL differential and
+fault-injection evidence.
 
 \section{Context and Related Work}
 \label{sec:related}
 
 \subsection{Closest System Families}
 
-GAAP provides the closest cross-tool IFC contrast \cite{stanley2026gaap}: its
-persistent flow state spans steps, tasks, and services outside BDG's scope,
-whereas BDG specializes in typed SQL facts, same-snapshot evidence, and exact
-settlement per root.
+GAAP is the closest cross-tool IFC contrast \cite{stanley2026gaap}: its
+persistent flow state spans steps, tasks, and services outside BDG's scope.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
 whether a history determines forbidden data, and simulatable auditing also
@@ -407,13 +402,7 @@ mutable transactional database; we model its compiled output as follows.
 
 \begin{definition}[Publication epoch]
 A publication epoch is
-\begin{equation}
- \begin{aligned}
- P_e=\langle& datasource,schema,snapshot\_bundle,\\
-             & catalog,dictionary\rangle,
- \end{aligned}
- \label{eq:publication-epoch}
-\end{equation}
+$P_e=\langle datasource,schema,snapshot\_bundle,catalog,dictionary\rangle$,
 where \emph{snapshot\_bundle} maps every stable role to its immutable reporting
 publication, \emph{catalog} binds the bundle's schema, policy, and lineage,
 and \emph{dictionary} is the set of ordinal dictionaries. We write $h_e$
@@ -1056,9 +1045,8 @@ A child authorization signs both \code{root_task_id} and
 \code{parent_task_id}. Its human subject, catalog, datasource, schema, and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
 all budget dimensions may only narrow; every execution revalidates the signed
-parent grant and active ancestor chain. View-bound descendants inherit the
-parent's complete original contract set, and their approved subset cannot add
-or replace a contract, so narrowing is not an implicit semantic rebind.
+parent grant and active ancestor chain; View-bound descendants inherit the
+parent's contract set and cannot add or replace a contract.
 
 All descendants resolve to one root ledger: if a parent and child request the
 same fact, only the first successful settlement accounts it, revoking the
@@ -1514,10 +1502,9 @@ and the radix results establish touched-branch I/O shape only.
 Dependency, and Outcome sets within one publication-bound root family;
 theorems, bounded models, and executable tests support the scoped safety
 claim that no governed artifact becomes \code{AVAILABLE} before atomic
-root-family settlement. BDG is a task-to-data release layer for existing
-data estates, not another lake or agent framework: it makes an approved
-policy enforceable as autonomous querying unfolds, without deciding what
-that policy should be.
+root-family settlement. It is a task-to-data release layer for existing
+data estates that makes an approved policy enforceable as autonomous
+querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
