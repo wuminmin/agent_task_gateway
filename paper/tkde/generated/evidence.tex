@@ -222,10 +222,18 @@
 \newcommand{\ArtifactFormalStates}{1,324}
 \newcommand{\ArtifactFormalDistinct}{441}
 \newcommand{\ArtifactFormalDepth}{17}
-\newcommand{\VFiveImplementationCommit}{\texttt{464cb8a398cbf47f225eb8f7eaf3c666f3fde38a}}
+\newcommand{\EvidenceChainCommit}{\texttt{00acf61c977a}}
+\newcommand{\VFiveImplementationCommit}{\texttt{00acf61c977afb0094d39d96bab8e313f1dac9cb}}
 \newcommand{\VFiveImplementationSourceHash}{\nolinkurl{58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449}}
-\newcommand{\VFiveRawLogHash}{\nolinkurl{7b41914c3e6d352626c4fc9fa42478f7710337c408bc00385572358d9211c2e7}}
-\newcommand{\VFiveRawTestsPassed}{11}
+\newcommand{\VFiveRawLogHash}{\nolinkurl{e7517c435fabf122185cbf3c3eb531946ea79f7eb63ef64a1ebd03b6c96e3519}}
+\newcommand{\VFiveRawTestsPassed}{12}
+\newcommand{\VFiveFamilyPropertySeeds}{24}
+\newcommand{\VFiveFamilyPropertyTasks}{89}
+\newcommand{\VFiveFamilyPropertyMaxTasks}{7}
+\newcommand{\VFiveFamilyPropertyQueries}{693}
+\newcommand{\VFiveFamilyPropertyCommitted}{386}
+\newcommand{\VFiveFamilyPropertyRefused}{307}
+\newcommand{\VFiveFamilyPropertySaturatedSeeds}{22}
 \newcommand{\VFiveDeterministicMembers}{10,000}
 \newcommand{\VFiveRootCardinality}{100,000}
 \newcommand{\VFiveRootBlocks}{256}
@@ -291,6 +299,42 @@
 \newcommand{\RQFiveDayTwoToThreeSwitchMS}{0.000257}
 \newcommand{\RQFiveDayTwoToThreeFirstQueryMS}{39.756}
 \newcommand{\RQFiveDayTwoToThreeReplayMS}{11.562}
+\newcommand{\FinalVFiveSubphaseTableBody}{%
+visible SQL (PostgreSQL) & 2.7 & 27.5 & 128.9 \\
+companion SQL (PostgreSQL) & 7.7 & 487.0 & 203.4 \\
+visible preparation & 0.0 & 0.1 & 0.1 \\
+ordinal stream consumer (Go) & 46.1 & 2361.7 & 7010.9 \\
+witness merge and finish (Go) & 15.2 & 242.3 & 9327.0 \\
+result encoding (Parquet) & 11.5 & 22.5 & 334.4 \\
+settlement persist & 30.2 & 108.6 & 254.5 \\
+\midrule
+execute-and-derive (pipeline phase) & 74.5 & 3120.1 & 16729.2 \\
+server total & 155.4 & 3295.4 & 17382.9 \\%
+}
+\newcommand{\FinalVFiveSubphaseDominantSOneSFOne}{ordinal stream consumer (Go)}
+\newcommand{\FinalVFiveSubphaseDominantMSSOneSFOne}{46.1}
+\newcommand{\FinalVFiveSubphaseGoSideMSSOneSFOne}{61.4}
+\newcommand{\FinalVFiveSubphaseSQLSideMSSOneSFOne}{10.4}
+\newcommand{\FinalVFiveSubphaseGoSidePctSOneSFOne}{82}
+\newcommand{\FinalVFiveSubphaseExecuteMSSOneSFOne}{74.5}
+\newcommand{\FinalVFiveSubphaseSamplesSOneSFOne}{4}
+\newcommand{\FinalVFiveSubphaseMicrosPerFactSOneSFOne}{2.5}
+\newcommand{\FinalVFiveSubphaseDominantSTwoSFTen}{ordinal stream consumer (Go)}
+\newcommand{\FinalVFiveSubphaseDominantMSSTwoSFTen}{2361.7}
+\newcommand{\FinalVFiveSubphaseGoSideMSSTwoSFTen}{2604.1}
+\newcommand{\FinalVFiveSubphaseSQLSideMSSTwoSFTen}{514.5}
+\newcommand{\FinalVFiveSubphaseGoSidePctSTwoSFTen}{83}
+\newcommand{\FinalVFiveSubphaseExecuteMSSTwoSFTen}{3120.1}
+\newcommand{\FinalVFiveSubphaseSamplesSTwoSFTen}{4}
+\newcommand{\FinalVFiveSubphaseMicrosPerFactSTwoSFTen}{2.6}
+\newcommand{\FinalVFiveSubphaseDominantSSixHundredKByteSixteen}{witness merge and finish (Go)}
+\newcommand{\FinalVFiveSubphaseDominantMSSSixHundredKByteSixteen}{9327.0}
+\newcommand{\FinalVFiveSubphaseGoSideMSSSixHundredKByteSixteen}{16338.0}
+\newcommand{\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen}{332.2}
+\newcommand{\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen}{98}
+\newcommand{\FinalVFiveSubphaseExecuteMSSSixHundredKByteSixteen}{16729.2}
+\newcommand{\FinalVFiveSubphaseSamplesSSixHundredKByteSixteen}{4}
+\newcommand{\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen}{5.1}
 \newcommand{\FinalVFivePilotArtifactDeployments}{3}
 \newcommand{\FinalVFivePilotArtifactCells}{6}
 \newcommand{\FinalVFivePilotArtifactSamples}{54}
@@ -413,6 +457,208 @@ S6/10k-x4 & 390.88 & 381.18 & 375.60 & 4.0\% & 5.07 & 4.99 & 4.85 & 4.6\% \\%
 \newcommand{\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond}{11.3}
 \newcommand{\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond}{17.0}
 \newcommand{\FinalVFivePublicationConcurrencyRounds}{450}
+\newcommand{\FinalVFivePublicationProvSQLOneKPostgreSQLMS}{14}
+\newcommand{\FinalVFivePublicationProvSQLOneKProvSQLS}{1.9}
+\newcommand{\FinalVFivePublicationProvSQLOneKBDGS}{0.21}
+\newcommand{\FinalVFivePublicationProvSQLOneKDependencyFacts}{29,003}
+\newcommand{\FinalVFivePublicationProvSQLTenKPostgreSQLMS}{20}
+\newcommand{\FinalVFivePublicationProvSQLTenKProvSQLS}{18.8}
+\newcommand{\FinalVFivePublicationProvSQLTenKBDGS}{0.98}
+\newcommand{\FinalVFivePublicationProvSQLTenKDependencyFacts}{290,003}
+\newcommand{\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS}{45}
+\newcommand{\FinalVFivePublicationProvSQLFortyFiveKProvSQLS}{85.6}
+\newcommand{\FinalVFivePublicationProvSQLFortyFiveKBDGS}{3.74}
+\newcommand{\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts}{1,305,003}
+\newcommand{\FinalVFivePublicationProvSQLTableBody}{%
+1k & 3 & 29,003 & 14.0 & 1.88 & 0.21 & 134$\times$ & 14.8$\times$ & 9.1$\times$ \\
+10k & 3 & 290,003 & 20.1 & 18.81 & 0.98 & 938$\times$ & 48.6$\times$ & 19.3$\times$ \\
+45k & 3 & 1,305,003 & 44.8 & 85.56 & 3.74 & 1,911$\times$ & 83.5$\times$ & 22.9$\times$ \\%
+}
+\newcommand{\FinalVFivePublicationProvSQLSamples}{810}
+\newcommand{\FinalVFivePublicationProvSQLPerCell}{90}
+\newcommand{\FinalVFivePublicationProvSQLDependencyLinksVerified}{270}
+\newcommand{\FinalVFivePublicationProvSQLDependencyLinkMaxFacts}{1,305,003}
+\newcommand{\FinalVFivePublicationProvSQLOverBDGMin}{9}
+\newcommand{\FinalVFivePublicationProvSQLOverBDGMax}{23}
+\newcommand{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMin}{15}
+\newcommand{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax}{83}
+\newcommand{\FinalVFivePublicationAttackSequenceTableBody}{%
+A-pagination/complete-to-pages & 6 & 6 & -- & 12/18 & 12 & 18 & 5 \\
+A-pagination/pages-to-complete & 6 & 6 & -- & 12/18 & 12 & 18 & 5 \\
+B-equivalent-sql/variants-v1 & 5 & 4 & SQL\_NOT\_LOWERABLE & -- & 2 & 3 & 2 \\
+C-request-id/same-and-different & 1 & 1 & -- & -- & 6 & 9 & 1 \\
+D-split-union/complete-to-split & 4 & 3 & SQL\_NOT\_LOWERABLE & 12/18 & 12 & 18 & 6 \\
+D-split-union/split-to-complete & 4 & 3 & SQL\_NOT\_LOWERABLE & 12/18 & 12 & 18 & 6 \\
+E-threshold/preregistered-v1 & 6 & 5 & EXPOSURE\_BUDGET\_EXHAUSTED & -- & 13 & 18 & 5 \\%
+}
+\newcommand{\FinalVFivePublicationAttackStepTableBody}{%
+A-pagination/complete-to-pages & 1 & complete & root & 6 rows & 12/18/1 & 12/18/1 & settled \\
+ & 2 & page-1 & root & 2 rows & 4/6/1 & 0/0/1 & settled \\
+ & 3 & page-2 & root & 2 rows & 4/6/1 & 0/0/1 & settled \\
+ & 4 & page-3 & root & 2 rows & 4/6/1 & 0/0/1 & settled \\
+ & 5 & page-overlap & root & 2 rows & 4/6/1 & 0/0/1 & settled \\
+ & 6 & page-1-replay & root & 2 rows & 4/6/1 & 0/0/0 & replay \\
+A-pagination/pages-to-complete & 1 & page-1 & root & 2 rows & 4/6/1 & 4/6/1 & settled \\
+ & 2 & page-2 & root & 2 rows & 4/6/1 & 4/6/1 & settled \\
+ & 3 & page-3 & root & 2 rows & 4/6/1 & 4/6/1 & settled \\
+ & 4 & page-overlap & root & 2 rows & 4/6/1 & 0/0/1 & settled \\
+ & 5 & page-1-replay & root & 2 rows & 4/6/1 & 0/0/0 & replay \\
+ & 6 & complete & root & 6 rows & 12/18/1 & 0/0/1 & settled \\
+B-equivalent-sql/variants-v1 & 1 & equal-canonical & root & 1 row & 2/3/2 & 2/3/2 & settled \\
+ & 2 & equal-reversed & root & 1 row & 2/3/2 & 0/0/0 & settled \\
+ & 3 & equal-format-alias & root & 1 row & 2/3/2 & 0/0/0 & settled \\
+ & 4 & equal-numeric-spelling & root & 1 row & 2/3/2 & 0/0/0 & settled \\
+ & 5 & unsupported-set-operation & root & refused & 0/0/0 & 0/0/0 & SQL\_NOT\_LOWERABLE \\
+C-request-id/same-and-different & 1 & request-id-control & root & 3 rows & 6/9/1 & 6/9/1 & settled \\
+D-split-union/complete-to-split & 1 & complete & root & 6 rows & 12/18/2 & 12/18/2 & settled \\
+ & 2 & split-low & root & 2 rows & 4/6/2 & 0/0/2 & settled \\
+ & 3 & split-high & root & 4 rows & 8/12/2 & 0/0/2 & settled \\
+ & 4 & public-union-negative & root & refused & 0/0/0 & 0/0/0 & SQL\_NOT\_LOWERABLE \\
+D-split-union/split-to-complete & 1 & split-low & root & 2 rows & 4/6/2 & 4/6/2 & settled \\
+ & 2 & split-high & root & 4 rows & 8/12/2 & 8/12/2 & settled \\
+ & 3 & complete & root & 6 rows & 12/18/2 & 0/0/2 & settled \\
+ & 4 & public-union-negative & root & refused & 0/0/0 & 0/0/0 & SQL\_NOT\_LOWERABLE \\
+E-threshold/preregistered-v1 & 1 & threshold-300 & child & count=6 & 1/12/2 & 1/12/2 & settled \\
+ & 2 & threshold-320 & root & count=6 & 1/12/2 & 0/0/2 & settled \\
+ & 3 & outcome-primer-320-detail & root & 6 rows & 12/18/2 & 12/6/1 & settled \\
+ & 4 & outcome-primer-320-replay & root & 6 rows & 12/18/2 & 0/0/0 & replay \\
+ & 5 & outcome-primer-320-rewrite & root & 6 rows & 12/18/2 & 0/0/0 & replay \\
+ & 6 & threshold-880-budget & child & refused & 0/0/0 & 0/0/0 & EXPOSURE\_BUDGET\_EXHAUSTED \\%
+}
+\newcommand{\FinalVFivePublicationAttackThresholdTableBody}{%
+1 & threshold-300$^\dagger$ & count=6 & 1 & 12 & 2 & 2/5 & settled \\
+2 & threshold-320 & count=6 & 0 & 0 & 2 & 4/5 & settled \\
+3 & outcome-primer-320-detail & 6 rows & 12 & 6 & 1 & 5/5 & settled \\
+4 & outcome-primer-320-replay & 6 rows & 0 & 0 & 0 & 5/5 & replay \\
+5 & outcome-primer-320-rewrite & 6 rows & 0 & 0 & 0 & 5/5 & replay \\
+6 & threshold-880-budget$^\dagger$ & -- & 0 & 0 & 0 & 5/5 & refused \\%
+}
+\newcommand{\FinalVFivePublicationAttackSamples}{135}
+\newcommand{\FinalVFivePublicationAttackCells}{15}
+\newcommand{\FinalVFivePublicationAttackPerCell}{9}
+\newcommand{\FinalVFivePublicationAttackSequences}{7}
+\newcommand{\FinalVFivePublicationAttackCorpusDigest}{\texttt{483b667369a0}}
+\newcommand{\FinalVFivePublicationAttackPaginationSteps}{6}
+\newcommand{\FinalVFivePublicationAttackPaginationReleaseFacts}{12}
+\newcommand{\FinalVFivePublicationAttackPaginationDependencyFacts}{18}
+\newcommand{\FinalVFivePublicationAttackPaginationOutcomeFacts}{5}
+\newcommand{\FinalVFivePublicationAttackThresholdCeiling}{5}
+\newcommand{\FinalVFivePublicationAttackThresholdRejectionStep}{6}
+\newcommand{\FinalVFivePublicationAttackThresholdRejectionCode}{\texttt{EXPOSURE\_BUDGET\_EXHAUSTED}}
+\newcommand{\FinalVFivePublicationAttackThresholdRejectionReason}{\texttt{ROOT\_OUTCOME\_CEILING\_EXCEEDED}}
+\newcommand{\FinalVFivePublicationAttackThresholdProbes}{3}
+\newcommand{\FinalVFivePublicationAttackThresholdAnswered}{2}
+\newcommand{\FinalVFivePublicationRLSArmTableBody}{%
+PostgreSQL RLS & 100 & -- & 250 & -- & TRACE\_COMPLETED \\
+BDG, unlimited & 100 & -- & 250 & 10/18/27 & TRACE\_COMPLETED \\
+BDG, bounded & 36 & 37 & 66 & 6/12/15 & EXPOSURE\_BUDGET\_EXHAUSTED \\%
+}
+\newcommand{\FinalVFivePublicationRLSPrefixRelease}{(1,1) (2,2) (3,3) (4,4) (5,5) (6,6) (7,6) (8,6) (9,6) (10,6) (11,6) (12,6) (13,6) (14,6) (15,6) (16,6) (17,6) (18,6) (19,6) (20,6) (21,6) (22,6) (23,6) (24,6) (25,6) (26,6) (27,6) (28,6) (29,6) (30,6) (31,6) (32,6) (33,6) (34,6) (35,6) (36,6) (37,6) (38,6) (39,6) (40,6) (41,6) (42,6) (43,6) (44,6) (45,6) (46,6) (47,6) (48,6) (49,6) (50,6) (51,6) (52,6) (53,6) (54,6) (55,6) (56,6) (57,6) (58,6) (59,6) (60,6) (61,6) (62,6) (63,6) (64,6) (65,6) (66,6) (67,7) (68,8) (69,9) (70,9) (71,9) (72,9) (73,9) (74,9) (75,9) (76,9) (77,9) (78,9) (79,9) (80,9) (81,9) (82,9) (83,9) (84,9) (85,9) (86,9) (87,9) (88,9) (89,9) (90,9) (91,9) (92,9) (93,9) (94,9) (95,9) (96,9) (97,10) (98,10) (99,10) (100,10)}
+\newcommand{\FinalVFivePublicationRLSBudgetRelease}{7}
+\newcommand{\FinalVFivePublicationRLSUnionRelease}{10}
+\newcommand{\FinalVFivePublicationRLSPrefixDependency}{(1,2) (2,4) (3,6) (4,8) (5,10) (6,12) (7,12) (8,12) (9,12) (10,12) (11,12) (12,12) (13,12) (14,12) (15,12) (16,12) (17,12) (18,12) (19,12) (20,12) (21,12) (22,12) (23,12) (24,12) (25,12) (26,12) (27,12) (28,12) (29,12) (30,12) (31,12) (32,12) (33,12) (34,12) (35,12) (36,12) (37,18) (38,18) (39,18) (40,18) (41,18) (42,18) (43,18) (44,18) (45,18) (46,18) (47,18) (48,18) (49,18) (50,18) (51,18) (52,18) (53,18) (54,18) (55,18) (56,18) (57,18) (58,18) (59,18) (60,18) (61,18) (62,18) (63,18) (64,18) (65,18) (66,18) (67,18) (68,18) (69,18) (70,18) (71,18) (72,18) (73,18) (74,18) (75,18) (76,18) (77,18) (78,18) (79,18) (80,18) (81,18) (82,18) (83,18) (84,18) (85,18) (86,18) (87,18) (88,18) (89,18) (90,18) (91,18) (92,18) (93,18) (94,18) (95,18) (96,18) (97,18) (98,18) (99,18) (100,18)}
+\newcommand{\FinalVFivePublicationRLSBudgetDependency}{12}
+\newcommand{\FinalVFivePublicationRLSUnionDependency}{18}
+\newcommand{\FinalVFivePublicationRLSPrefixOutcome}{(1,2) (2,4) (3,6) (4,8) (5,10) (6,12) (7,13) (8,14) (9,15) (10,15) (11,15) (12,15) (13,15) (14,15) (15,15) (16,15) (17,15) (18,15) (19,15) (20,15) (21,15) (22,15) (23,15) (24,15) (25,15) (26,15) (27,15) (28,15) (29,15) (30,15) (31,15) (32,15) (33,15) (34,15) (35,15) (36,15) (37,17) (38,17) (39,19) (40,19) (41,21) (42,21) (43,21) (44,21) (45,21) (46,21) (47,21) (48,21) (49,21) (50,21) (51,21) (52,21) (53,21) (54,21) (55,21) (56,21) (57,21) (58,21) (59,21) (60,21) (61,21) (62,21) (63,21) (64,21) (65,21) (66,21) (67,23) (68,24) (69,26) (70,26) (71,26) (72,26) (73,26) (74,26) (75,26) (76,26) (77,26) (78,26) (79,26) (80,26) (81,26) (82,26) (83,26) (84,26) (85,26) (86,26) (87,26) (88,26) (89,26) (90,26) (91,26) (92,26) (93,26) (94,26) (95,26) (96,26) (97,27) (98,27) (99,27) (100,27)}
+\newcommand{\FinalVFivePublicationRLSBudgetOutcome}{18}
+\newcommand{\FinalVFivePublicationRLSUnionOutcome}{27}
+\newcommand{\FinalVFivePublicationRLSSamples}{54}
+\newcommand{\FinalVFivePublicationRLSPerCell}{9}
+\newcommand{\FinalVFivePublicationRLSQueries}{100}
+\newcommand{\FinalVFivePublicationRLSRowsRLS}{250}
+\newcommand{\FinalVFivePublicationRLSRowsBounded}{66}
+\newcommand{\FinalVFivePublicationRLSBoundedSuccessful}{36}
+\newcommand{\FinalVFivePublicationRLSBoundedRefusalIndex}{37}
+\newcommand{\FinalVFivePublicationRLSBoundedLedger}{6/12/15}
+\newcommand{\FinalVFivePublicationRLSControlErrorRLS}{\texttt{42501}}
+\newcommand{\FinalVFivePublicationRLSControlErrorBDG}{\texttt{COLUMN\_NOT\_APPROVED}}
+\newcommand{\FinalVFivePublicationRLSDrainRLSMS}{14}
+\newcommand{\FinalVFivePublicationRLSDrainUnlimitedS}{6.40}
+\newcommand{\FinalVFivePublicationRLSDrainBoundedS}{2.18}
+\newcommand{\FinalVFivePublicationCounterArmTableBody}{%
+set ledger (7/12/18), continued & -- & 36 & 37 & 57 & 7 & 6/12/15 \\
+cumulative row budget & 66 & 36 & 37 & 57 & 7 & 6/12/15 \\
+query-count budget & 36 & 36 & 37 & 57 & 7 & 6/12/15 \\%
+}
+\newcommand{\FinalVFivePublicationTraceZeroNoveltyQueries}{84}
+\newcommand{\FinalVFivePublicationCounterRowBudget}{66}
+\newcommand{\FinalVFivePublicationCounterRowLegitRefused}{57}
+\newcommand{\FinalVFivePublicationCounterQueryLegitRefused}{57}
+\newcommand{\FinalVFivePublicationCounterSetLegitRefused}{57}
+\newcommand{\FinalVFivePublicationCounterSetAdmitted}{36}
+\newcommand{\FinalVFivePublicationCounterSetReleased}{6/12/15}
+\newcommand{\FinalVFivePublicationCounterRowReleased}{6/12/15}
+\newcommand{\FinalVFivePublicationCounterQueryReleased}{6/12/15}
+\newcommand{\FinalVFivePublicationPermutedSetReleased}{6/12/15}
+\newcommand{\FinalVFivePublicationPermutedRowReleased}{10/18/27}
+\newcommand{\FinalVFivePublicationPermutedQueryReleased}{10/18/27}
+\newcommand{\FinalVFivePublicationPermutedSetAdmitted}{36}
+\newcommand{\FinalVFivePublicationPermutedRowAdmitted}{48}
+\newcommand{\FinalVFivePublicationPermutedQueryAdmitted}{36}
+\newcommand{\FinalVFivePublicationScaleTableBody}{%
+10,000 & 0\% & 10,000 & 27.5 & 38.5 & 121.1 & 63.3 \\
+10,000 & 50\% & 5,000 & 27.3 & 37.9 & 119.8 & 62.2 \\
+10,000 & 90\% & 1,000 & 27.4 & 37.6 & 120.0 & 62.3 \\
+10,000 & 100\% & 0 & 27.3 & 37.2 & 119.6 & 62.3 \\
+100,000 & 0\% & 100,000 & 167.2 & 55.2 & 279.6 & 64.0 \\
+100,000 & 50\% & 50,000 & 166.8 & 53.4 & 277.0 & 62.8 \\
+100,000 & 90\% & 10,000 & 167.1 & 48.6 & 271.8 & 63.1 \\
+100,000 & 100\% & 0 & 168.1 & 47.9 & 272.3 & 63.4 \\
+1,035,000 & 0\% & 1,035,000 & 1304.2 & 154.6 & 1517.2 & 62.8 \\
+1,035,000 & 50\% & 517,500 & 1305.2 & 138.7 & 1503.4 & 63.2 \\
+1,035,000 & 90\% & 103,500 & 1305.3 & 123.7 & 1484.8 & 62.4 \\
+1,035,000 & 100\% & 0 & 1308.7 & 118.6 & 1486.3 & 62.7 \\%
+}
+\newcommand{\FinalVFivePublicationScaleSamples}{2,160}
+\newcommand{\FinalVFivePublicationScaleDependencyLinksVerified}{7,560}
+\newcommand{\FinalVFivePublicationScaleDependencyLinkMaxFacts}{2,070,000}
+\newcommand{\FinalVFivePublicationScaleCells}{24}
+\newcommand{\FinalVFivePublicationScaleSettleTenKMS}{38}
+\newcommand{\FinalVFivePublicationScaleSettleMillionMS}{155}
+\newcommand{\FinalVFivePublicationScaleSettleMillionFullOverlapMS}{119}
+\newcommand{\FinalVFivePublicationScaleMillionHistory}{1,035,000}
+\newcommand{\FinalVFivePublicationScaleMillionDrainMS}{1,517}
+\newcommand{\FinalVFivePublicationRQFiveBuildS}{70.5}
+\newcommand{\FinalVFivePublicationRQFiveBuildMaxS}{74.3}
+\newcommand{\FinalVFivePublicationRQFiveRouteS}{18.0}
+\newcommand{\FinalVFivePublicationRQFiveRows}{345,000}
+\newcommand{\FinalVFivePublicationRQFiveSamplesPerCell}{12}
+\newcommand{\FinalVFivePublicationIndependentOracleSamples}{2,214}
+\newcommand{\TPCHQueries}{22}
+\newcommand{\TPCHLowerableAsWritten}{0}
+\newcommand{\TPCHLowerableExplicitJoin}{0}
+\newcommand{\TPCHCommaJoinQueries}{13}
+\newcommand{\TPCHSubqueryQueries}{7}
+\newcommand{\TPCHArithmeticQueries}{7}
+\newcommand{\TPCHResultsDigest}{\texttt{1ce222a24ac4}}
+\newcommand{\TPCHReasonTableBody}{%
+subquery (FROM, IN, EXISTS, scalar) & SUBQUERY\_UNSUPPORTED & 6 & Q07, Q08, Q09, Q13, Q15, Q22 \\
+arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 5 & Q01, Q05, Q06, Q12, Q19 \\
+LIMIT over a multi-product join & PAGINATION\_UNSUPPORTED & 5 & Q02, Q03, Q10, Q18, Q21 \\
+arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 2 & Q14, Q17 \\
+COUNT(DISTINCT) & AGGREGATE\_MODIFIER\_UNSUPPORTED & 1 & Q16 \\
+date/interval arithmetic literal & FILTER\_LITERAL\_UNSUPPORTED & 1 & Q04 \\
+IN (subquery) predicate & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q20 \\
+HAVING & HAVING\_UNSUPPORTED & 1 & Q11 \\%
+}
+\newcommand{\GeneratedPlans}{5,000}
+\newcommand{\GeneratedFixtures}{50}
+\newcommand{\GeneratedRowsMin}{5}
+\newcommand{\GeneratedRowsMax}{49}
+\newcommand{\GeneratedMismatches}{0}
+\newcommand{\GeneratedHashMismatches}{0}
+\newcommand{\GeneratedReleaseFacts}{54,439}
+\newcommand{\GeneratedDependencyFacts}{214,563}
+\newcommand{\GeneratedProjectPlans}{1,668}
+\newcommand{\GeneratedGroupPlans}{1,663}
+\newcommand{\GeneratedGlobalPlans}{1,669}
+\newcommand{\GeneratedJoinPlans}{1,681}
+\newcommand{\GeneratedSelectPlans}{3,313}
+\newcommand{\GeneratedPagePlans}{555}
+\newcommand{\GeneratedSplitChecks}{383}
+\newcommand{\GeneratedPageChecks}{383}
+\newcommand{\GeneratedSeed}{20260830}
+\newcommand{\GeneratedResultsDigest}{\texttt{fdba7fe052a3}}
 \newcommand{\FinalVFivePilotSOneNovelS}{0.770}
 \newcommand{\FinalVFivePilotSOneReleaseFacts}{100,000}
 \newcommand{\FinalVFivePilotSOneDependencyFacts}{200,000}

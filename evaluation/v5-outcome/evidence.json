@@ -1,7 +1,7 @@
 {
   "compose_execution": {
     "receipt": "evaluation/v5-outcome/compose-receipt.json",
-    "receipt_sha256": "fe96414823024fee37b341b260581e3a15760c43392ab170c0892c4f423a6773"
+    "receipt_sha256": "96e4336696fbc3eb085e5700ebb071d408d51d4dc2b24b4cd305587210e10a1b"
   },
   "deterministic_set": {
     "duplicate_idempotent": true,
@@ -9,7 +9,7 @@
     "permutation_deterministic": true,
     "tamper_rejected": true
   },
-  "implementation_base_commit": "464cb8a398cbf47f225eb8f7eaf3c666f3fde38a",
+  "implementation_base_commit": "00acf61c977afb0094d39d96bab8e313f1dac9cb",
   "postgres_committed_graph": {
     "blocks_loaded": 1,
     "blocks_reused": 255,
@@ -31,16 +31,16 @@
       "./internal/exposure",
       "./internal/control",
       "-run",
-      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident)$"
+      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident|OrdinalRootFamilyRandomSequencesConserveExactNovelty)$"
     ],
     "exit_code": 0,
     "go_version": "go version go1.25.14 linux/amd64",
     "packages_passed": 2,
     "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "7b41914c3e6d352626c4fc9fa42478f7710337c408bc00385572358d9211c2e7",
+    "raw_log_sha256": "e7517c435fabf122185cbf3c3eb531946ea79f7eb63ef64a1ebd03b6c96e3519",
     "tests_failed": 0,
-    "tests_passed": 11,
+    "tests_passed": 12,
     "tests_skipped": 0
   },
   "same_prefix_multichunk": {
@@ -189,5 +189,5 @@
     ],
     "sha256": "58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449"
   },
-  "submission_commit": "464cb8a398cbf47f225eb8f7eaf3c666f3fde38a"
+  "submission_commit": "00acf61c977afb0094d39d96bab8e313f1dac9cb"
 }
