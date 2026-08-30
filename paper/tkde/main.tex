@@ -1137,7 +1137,7 @@ composite per answered step), not what an answer reveals, and not rejected
 probes, which $B_Q$ bounds: a binary search on one hidden value fits within
 $B_O=128$ answered steps or $B_Q$ refusals. Ranking a hidden field is not admitted:
 the lowerer rejects an \code{ORDER BY} column that is not selected
-(\code{ORDER\_FIELD\_NOT\_SELECTED}), so a paged \code{SELECT id ... ORDER
+(\code{ORDER_FIELD_NOT_SELECTED}), so a paged \code{SELECT id ... ORDER
 BY salary} must release \code{salary}, and only the Catalog tie-break keys
 that complete a total order are order-only.
 
@@ -1231,8 +1231,19 @@ RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
 \FinalVFivePublicationRQFiveBuildS{}~s p50); Outcome regressions cover empty
-probes, replay, radix tamper, and digest binding, and the supplement's
-evidence table labels the source state of every line.
+probes, replay, radix tamper, and digest binding. Beyond the hand-written
+cases, a generated-plan differential campaign (\GeneratedPlans{} random
+plans over \GeneratedFixtures{} random fixtures of
+\GeneratedRowsMin{}--\GeneratedRowsMax{} rows: selections with
+three-valued predicates, projections, two-source equijoins, grouped and
+global aggregates, pages) compares the production algebra against an
+independent reference evaluator written from the operator rules in the RQ1
+oracle's vocabulary: \GeneratedMismatches{} Result/Dependency set
+mismatches and \GeneratedHashMismatches{} FactID hash disagreements over
+\GeneratedReleaseFacts{} Result and \GeneratedDependencyFacts{} Dependency
+Facts, with split-projection and page-partition unions equal to the complete
+query in every one of \GeneratedSplitChecks{} checks (supplement). The
+supplement's evidence table labels the source state of every line.
 
 The core workloads (the campaign's \emph{Baseline} profile): S1, a
 two-column projection of the frozen 50,000-order corpus under an order-key

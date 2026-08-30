@@ -670,6 +670,7 @@ Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/subphase-pilot-06} & pilot; not publication evidence \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
+Generated-plan campaign (Section~\ref{sec:generated-supp}) & repository head & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
 TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & repository head & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
 TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
@@ -1440,9 +1441,12 @@ budgets in any order, which is the property the paper claims for it.
 \begin{table}[t]
 \centering
 \caption{Counter arms on the adaptive trace (derived, not run): budget,
-queries admitted, first refusal, refused zero-novelty (legitimate) and novel
-queries, and facts released (Release/Dependency/Outcome) in the trace's
-order; then facts released under a novelty-first order.}
+queries admitted, first refusal, refused queries that add no fact to the
+full-trace union (``legit.'') versus refused queries that do, and facts
+released (Release/Dependency/Outcome) in the trace's order; then facts
+released under a novelty-first order. The set ledger refuses a zero-novelty
+query only when it repeats the facts of the refused query 37, which never
+entered the ledger.}
 \label{tab:counter-arms-supp}
 \small
 \begin{tabular}{lrrrrrl}
@@ -1678,6 +1682,40 @@ SHA-256, PostgreSQL version, oracle fixture digest, differential and
 metamorphic check counts, and statement count.  These controls make the stress
 test reproducible without enlarging its evidentiary meaning.  The main paper's
 RQ2 conclusion rests instead on the closed-language FactSet/charge checks.
+
+\section{Generated-Plan Differential Campaign}
+\label{sec:generated-supp}
+
+\filepath{evaluation/generatedalgebra} draws random fixtures (an
+\code{expenses} relation of \GeneratedRowsMin{}--\GeneratedRowsMax{} rows
+with text, numeric, and bigint fields and occasional NULLs, and a
+\code{departments} dimension) and random plans in the closed fragment:
+selections with one or two three-valued conjuncts (equality and
+inequality on text and numeric fields), projections, the
+departments--expenses equijoin, grouped aggregates (\code{count(*)},
+\code{sum}, \code{min}, \code{max}, with the group key visible or hidden),
+global aggregates, and pages over the canonical order. Each plan is
+evaluated by the production V2 algebra (\code{internal/exposure}) and by a
+reference evaluator written from the operator rules of
+the Complete Inference Rules section in the semantic-fact vocabulary of the RQ1
+oracle (\code{evaluation/exposureoracle}, which imports no production
+package): base-row and base-cell facts for surviving rows, predicate and
+join-key cells in the dependency footprint, and derived facts whose witness
+commitments are recomputed from the members. Result and Dependency sets must
+agree fact for fact, every production FactID hash must equal the reference
+hash of its semantic fact, and for projection plans the union of the
+single-field projections and the union of a page partition must equal the
+complete query. Seed \GeneratedSeed{}, \GeneratedPlans{} plans
+(\GeneratedProjectPlans{} projections, \GeneratedGroupPlans{} grouped and
+\GeneratedGlobalPlans{} global aggregates; \GeneratedJoinPlans{} with a
+join, \GeneratedSelectPlans{} with a selection, \GeneratedPagePlans{} paged):
+\GeneratedMismatches{} set mismatches, \GeneratedHashMismatches{} hash
+mismatches, \GeneratedSplitChecks{} split checks and \GeneratedPageChecks{}
+page checks passed, \GeneratedReleaseFacts{} Result and
+\GeneratedDependencyFacts{} Dependency Facts compared (results digest
+\GeneratedResultsDigest{}; \code{make eval-generated-algebra}). The
+campaign covers the algebra, not the Gateway path; unions and nested Views
+are not generated.
 
 \section{TPC-H Lowerability of the Closed Fragment}
 \label{sec:tpch-lowerability-supp}

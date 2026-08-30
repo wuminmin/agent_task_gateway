@@ -1,0 +1,26 @@
+{
+  "version": "taskgate-generated-algebra-v1",
+  "seed": 20260830,
+  "plans": 5000,
+  "fixtures": 50,
+  "expense_rows_min_max": [
+    5,
+    49
+  ],
+  "coverage": {
+    "global": 1669,
+    "group": 1663,
+    "join": 1681,
+    "page": 555,
+    "project": 1668,
+    "select": 3313
+  },
+  "mismatches": 0,
+  "hash_mismatches": 0,
+  "conservation_checks": {
+    "page_partition_equals_complete": 383,
+    "split_projection_equals_complete": 383
+  },
+  "release_facts_compared": 54439,
+  "dependency_facts_compared": 214563
+}

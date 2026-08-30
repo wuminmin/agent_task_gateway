@@ -1897,6 +1897,33 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\TPCHResultsDigest}}{{\texttt{{{hashlib.sha256(tpch_path.read_bytes()).hexdigest()[:12]}}}}}",
         r"\newcommand{\TPCHReasonTableBody}{%" + "\n" + "\n".join(reason_rows) + "%\n}",
     ])
+    # Generated-plan differential campaign (evaluation/generatedalgebra).
+    generated_path = ROOT / "evaluation/generatedalgebra/results.json"
+    generated = json.loads(generated_path.read_text(encoding="utf-8"))
+    if generated.get("mismatches") != 0 or generated.get("hash_mismatches") != 0 or generated.get("failures"):
+        raise SystemExit("evaluation/generatedalgebra/results.json records mismatches; the manuscript may not cite it as clean")
+    coverage = generated["coverage"]
+    conservation = generated["conservation_checks"]
+    lines.extend([
+        rf"\newcommand{{\GeneratedPlans}}{{{comma(generated['plans'])}}}",
+        rf"\newcommand{{\GeneratedFixtures}}{{{generated['fixtures']}}}",
+        rf"\newcommand{{\GeneratedRowsMin}}{{{generated['expense_rows_min_max'][0]}}}",
+        rf"\newcommand{{\GeneratedRowsMax}}{{{generated['expense_rows_min_max'][1]}}}",
+        rf"\newcommand{{\GeneratedMismatches}}{{{generated['mismatches']}}}",
+        rf"\newcommand{{\GeneratedHashMismatches}}{{{generated['hash_mismatches']}}}",
+        rf"\newcommand{{\GeneratedReleaseFacts}}{{{comma(generated['release_facts_compared'])}}}",
+        rf"\newcommand{{\GeneratedDependencyFacts}}{{{comma(generated['dependency_facts_compared'])}}}",
+        rf"\newcommand{{\GeneratedProjectPlans}}{{{comma(coverage.get('project', 0))}}}",
+        rf"\newcommand{{\GeneratedGroupPlans}}{{{comma(coverage.get('group', 0))}}}",
+        rf"\newcommand{{\GeneratedGlobalPlans}}{{{comma(coverage.get('global', 0))}}}",
+        rf"\newcommand{{\GeneratedJoinPlans}}{{{comma(coverage.get('join', 0))}}}",
+        rf"\newcommand{{\GeneratedSelectPlans}}{{{comma(coverage.get('select', 0))}}}",
+        rf"\newcommand{{\GeneratedPagePlans}}{{{comma(coverage.get('page', 0))}}}",
+        rf"\newcommand{{\GeneratedSplitChecks}}{{{comma(conservation.get('split_projection_equals_complete', 0))}}}",
+        rf"\newcommand{{\GeneratedPageChecks}}{{{comma(conservation.get('page_partition_equals_complete', 0))}}}",
+        rf"\newcommand{{\GeneratedSeed}}{{{generated['seed']}}}",
+        rf"\newcommand{{\GeneratedResultsDigest}}{{\texttt{{{hashlib.sha256(generated_path.read_bytes()).hexdigest()[:12]}}}}}",
+    ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",
