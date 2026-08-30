@@ -1092,11 +1092,8 @@ $10^5\times16$ Product in 100 pages releases $1.6\times10^6$ Facts and 100
 composites, each page legal under any row limit, and a second sweep is
 refused at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
 rows times aggregable fields bounds the \emph{distinct} base facts any
-aggregate sequence touches, not how many run. $B_O$ bounds how many distinct predicates a task may \emph{settle}
-(one atom and composite per answered ladder step), not what an answer
-reveals, and not rejected probes, which $B_Q$ bounds: a binary search on
-one hidden value fits within $B_O=128$ answered steps or $B_Q$ refusals.
-Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
+aggregate sequence touches, not how many run (Section~\ref{sec:model}
+bounds settled and refused predicates). Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
 not selected is rejected (\code{ORDER_FIELD_NOT_SELECTED}), so
 \code{SELECT id ... ORDER BY salary} must release \code{salary}.
 
