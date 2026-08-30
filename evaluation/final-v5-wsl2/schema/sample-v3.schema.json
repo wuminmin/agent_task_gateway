@@ -783,10 +783,26 @@
                 ],
                 "not": {
                   "anyOf": [
-                    {"required": ["history_dependency_link"]},
-                    {"required": ["candidate_dependency_link"]},
-                    {"required": ["root_before_dependency_link"]},
-                    {"required": ["root_after_dependency_link"]}
+                    {
+                      "required": [
+                        "history_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "candidate_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "root_before_dependency_link"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "root_after_dependency_link"
+                      ]
+                    }
                   ]
                 }
               }
@@ -801,7 +817,9 @@
                     ]
                   }
                 },
-                "required": ["version"]
+                "required": [
+                  "version"
+                ]
               },
               "then": {
                 "required": [
@@ -1666,6 +1684,9 @@
             },
             "failure_stage": {
               "type": "string"
+            },
+            "base_tuple_link": {
+              "$ref": "#/$defs/provSQLBaseTupleLinkV1"
             }
           }
         },
@@ -2246,36 +2267,87 @@
         "linked_expected"
       ],
       "properties": {
-        "version": {"const": "taskgate-outcome-candidate-domain-link-v1"},
-        "generator_version": {"const": "taskgate-final-v5-exposure-scale-outcome-candidate-v1"},
-        "frozen_catalog_sha256": {"$ref": "#/$defs/sha256"},
-        "activated_catalog_sha256": {"$ref": "#/$defs/sha256"},
-        "candidate_facts": {"enum": [10000, 100000, 1035000]},
-        "frozen_expected": {"$ref": "#/$defs/outcomeCandidateExpectationV1"},
-        "linked_expected": {"$ref": "#/$defs/outcomeCandidateExpectationV1"}
+        "version": {
+          "const": "taskgate-outcome-candidate-domain-link-v1"
+        },
+        "generator_version": {
+          "const": "taskgate-final-v5-exposure-scale-outcome-candidate-v1"
+        },
+        "frozen_catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "activated_catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidate_facts": {
+          "enum": [
+            10000,
+            100000,
+            1035000
+          ]
+        },
+        "frozen_expected": {
+          "$ref": "#/$defs/outcomeCandidateExpectationV1"
+        },
+        "linked_expected": {
+          "$ref": "#/$defs/outcomeCandidateExpectationV1"
+        }
       }
     },
     "provSQLDependencySetVerificationV1": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "version", "match", "expected_cardinality", "expected_semantic_set_sha256",
-        "observed_cardinality", "observed_semantic_set_sha256", "production_set_sha256",
-        "production_dictionary_set_sha256", "observed_ordinal_set_sha256",
-        "expected_ordinals_missing", "unexpected_actual_ordinals"
+        "version",
+        "match",
+        "expected_cardinality",
+        "expected_semantic_set_sha256",
+        "observed_cardinality",
+        "observed_semantic_set_sha256",
+        "production_set_sha256",
+        "production_dictionary_set_sha256",
+        "observed_ordinal_set_sha256",
+        "expected_ordinals_missing",
+        "unexpected_actual_ordinals"
       ],
       "properties": {
-        "version": {"const": "taskgate-provsql-dependency-set-verification-v1"},
-        "match": {"type": "boolean"},
-        "expected_cardinality": {"type": "integer", "minimum": 1},
-        "expected_semantic_set_sha256": {"$ref": "#/$defs/sha256"},
-        "observed_cardinality": {"type": "integer", "minimum": 1},
-        "observed_semantic_set_sha256": {"$ref": "#/$defs/sha256"},
-        "production_set_sha256": {"$ref": "#/$defs/sha256"},
-        "production_dictionary_set_sha256": {"$ref": "#/$defs/sha256"},
-        "observed_ordinal_set_sha256": {"$ref": "#/$defs/sha256"},
-        "expected_ordinals_missing": {"type": "integer", "minimum": 0},
-        "unexpected_actual_ordinals": {"type": "integer", "minimum": 0}
+        "version": {
+          "const": "taskgate-provsql-dependency-set-verification-v1"
+        },
+        "match": {
+          "type": "boolean"
+        },
+        "expected_cardinality": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_semantic_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_cardinality": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_semantic_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "production_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "production_dictionary_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_ordinal_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_ordinals_missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unexpected_actual_ordinals": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "scaleDependencySetVerificationV1": {
@@ -2300,7 +2372,11 @@
           "const": "taskgate-scale-dependency-set-verification-v1"
         },
         "role": {
-          "enum": ["candidate", "existing", "union"]
+          "enum": [
+            "candidate",
+            "existing",
+            "union"
+          ]
         },
         "match": {
           "type": "boolean"
@@ -2496,6 +2572,7 @@
           "aggregate_tokens",
           "artifact_bytes_after",
           "artifact_bytes_before",
+          "base_tuple_link",
           "binding_file_sha256",
           "binding_sha256",
           "boundary",
@@ -5401,6 +5478,75 @@
         "publication_identity": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "provSQLBaseTupleLinkV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "roots",
+        "input_gates",
+        "orders_rows",
+        "lineitem_rows",
+        "nonce_rows",
+        "unmapped_input_gates",
+        "provsql_row_facts",
+        "provsql_row_fact_set_sha256",
+        "oracle_row_facts",
+        "oracle_row_fact_set_sha256",
+        "match",
+        "expansion_ms"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_gates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "orders_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lineitem_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nonce_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmapped_input_gates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provsql_row_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provsql_row_fact_set_sha256": {
+          "type": "string"
+        },
+        "oracle_row_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oracle_row_fact_set_sha256": {
+          "type": "string"
+        },
+        "match": {
+          "type": "boolean"
+        },
+        "expansion_ms": {
+          "type": "number",
+          "minimum": 0
         }
       }
     }

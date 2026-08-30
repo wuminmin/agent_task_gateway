@@ -1346,6 +1346,32 @@ type AttackRejectedQueryEvidence struct {
 	Receipts           int64  `json:"receipts"`
 }
 
+// ProvSQLBaseTupleLinkV1 links ProvSQL's own provenance circuit to the
+// oracle: every output root of the ProvSQL arm is expanded through
+// provsql.get_children to its input gates, each input gate is mapped to the
+// base row that carries it, the rows are expressed as the oracle's canonical
+// base-row Facts, and that set is compared with the oracle's enumeration for
+// the same scale and nonce. ProvSQL is a third-party implementation, so a
+// match is a base-row Dependency check that shares no code with either the
+// production encoder or the oracle package.
+type ProvSQLBaseTupleLinkV1 struct {
+	Version                  string `json:"version"`
+	Roots                    int64  `json:"roots"`
+	InputGates               int64  `json:"input_gates"`
+	OrdersRows               int64  `json:"orders_rows"`
+	LineitemRows             int64  `json:"lineitem_rows"`
+	NonceRows                int64  `json:"nonce_rows"`
+	UnmappedInputGates       int64  `json:"unmapped_input_gates"`
+	ProvSQLRowFacts          int64  `json:"provsql_row_facts"`
+	ProvSQLRowFactSetSHA256  string `json:"provsql_row_fact_set_sha256"`
+	OracleRowFacts           int64  `json:"oracle_row_facts"`
+	OracleRowFactSetSHA256   string `json:"oracle_row_fact_set_sha256"`
+	Match                    bool   `json:"match"`
+	ExpansionMS              float64 `json:"expansion_ms"`
+}
+
+const ProvSQLBaseTupleLinkV1Version = "taskgate-provsql-base-tuple-link-v1"
+
 type ProvSQLVerificationEvidence struct {
 	Version                       string                              `json:"version"`
 	Boundary                      string                              `json:"boundary"`
@@ -1373,6 +1399,7 @@ type ProvSQLVerificationEvidence struct {
 	ExpectedDependencyFacts       int64                               `json:"expected_dependency_facts"`
 	ExpectedDependencySHA256      string                              `json:"expected_dependency_sha256"`
 	DependencyLink                *ProvSQLDependencySetVerificationV1 `json:"dependency_link,omitempty"`
+	BaseTupleLink                 *ProvSQLBaseTupleLinkV1             `json:"base_tuple_link,omitempty"`
 	TypedDrainFields              int64                               `json:"typed_drain_fields"`
 	TypedDrainSHA256              string                              `json:"typed_drain_sha256"`
 	FieldOIDs                     []uint32                            `json:"field_oids"`

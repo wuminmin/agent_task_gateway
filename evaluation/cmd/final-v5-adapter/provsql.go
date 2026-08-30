@@ -64,6 +64,7 @@ type provSQLExecution struct {
 	After             provSQLMetrics
 	RepresentationSHA string
 	RootTypesVerified bool
+	BaseTupleLink     *experiment.ProvSQLBaseTupleLinkV1
 }
 
 type provSQLAggregateRow struct {
@@ -349,7 +350,108 @@ func (adapter *provSQLAdapter) provSQLVerification(operation experiment.AdapterO
 		GatesBefore: execution.Before.Gates, GatesAfter: execution.After.Gates,
 		ArtifactBytesBefore: execution.Before.ArtifactBytes, ArtifactBytesAfter: execution.After.ArtifactBytes,
 		RepresentationSHA256: execution.RepresentationSHA,
+		BaseTupleLink:        execution.BaseTupleLink,
 	}
+}
+
+// expandProvSQLBaseTuples walks ProvSQL's circuit from the output roots to
+// its input gates (provsql.get_children), maps every input gate to the base
+// row whose provsql column carries it, builds the oracle's canonical base-row
+// Fact for each such row, and compares the resulting set with the oracle's
+// own enumeration for this scale and nonce. ProvSQL's circuit is the only
+// witness of which base tuples contributed; the oracle package builds the
+// identities but plays no part in the expansion.
+func expandProvSQLBaseTuples(ctx context.Context, conn *pgx.Conn, roots []string, limit, nonce int64) (experiment.ProvSQLBaseTupleLinkV1, error) {
+	started := time.Now()
+	link := experiment.ProvSQLBaseTupleLinkV1{Version: experiment.ProvSQLBaseTupleLinkV1Version, Roots: int64(len(roots))}
+	rows, err := conn.Query(ctx, `WITH RECURSIVE walk(gate) AS (
+  SELECT DISTINCT r::uuid FROM unnest($1::text[]) AS r
+  UNION
+  SELECT child FROM walk, LATERAL unnest(provsql.get_children(walk.gate)) AS child
+)
+SELECT gate::text FROM walk WHERE provsql.get_gate_type(gate) = 'input'`, roots)
+	if err != nil {
+		return link, fmt.Errorf("expand ProvSQL circuit: %w", err)
+	}
+	var inputs []string
+	for rows.Next() {
+		var gate string
+		if err := rows.Scan(&gate); err != nil {
+			rows.Close()
+			return link, err
+		}
+		inputs = append(inputs, gate)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return link, err
+	}
+	link.InputGates = int64(len(inputs))
+	if len(inputs) == 0 {
+		return link, errors.New("ProvSQL circuit expansion reached no input gate")
+	}
+	type baseRow struct {
+		product int
+		keys    []any
+	}
+	var mapped []baseRow
+	mappedRows, err := conn.Query(ctx, `SELECT 0, orderkey::bigint, NULL::integer FROM final_v5_provsql.orders WHERE provsql = ANY($1::uuid[])
+UNION ALL SELECT 1, orderkey::bigint, linenumber::integer FROM final_v5_provsql.lineitem WHERE provsql = ANY($1::uuid[])
+UNION ALL SELECT 2, nonce_id::bigint, NULL::integer FROM final_v5_provsql.nonce WHERE provsql = ANY($1::uuid[])`, inputs)
+	if err != nil {
+		return link, fmt.Errorf("map ProvSQL input gates to base rows: %w", err)
+	}
+	for mappedRows.Next() {
+		var product int
+		var first int64
+		var second *int32
+		if err := mappedRows.Scan(&product, &first, &second); err != nil {
+			mappedRows.Close()
+			return link, err
+		}
+		switch product {
+		case 0:
+			link.OrdersRows++
+			mapped = append(mapped, baseRow{product: 0, keys: []any{first}})
+		case 1:
+			link.LineitemRows++
+			if second == nil {
+				mappedRows.Close()
+				return link, errors.New("ProvSQL lineitem input gate lacks a line number")
+			}
+			mapped = append(mapped, baseRow{product: 1, keys: []any{first, int64(*second)}})
+		default:
+			link.NonceRows++
+			mapped = append(mapped, baseRow{product: 2, keys: []any{first}})
+		}
+	}
+	mappedRows.Close()
+	if err := mappedRows.Err(); err != nil {
+		return link, err
+	}
+	link.UnmappedInputGates = link.InputGates - int64(len(mapped))
+	digests := make([]string, 0, len(mapped))
+	for _, row := range mapped {
+		fact, err := finalv5oracle.ProvSQLBaseRowFactFromKeys(row.product, row.keys)
+		if err != nil {
+			return link, err
+		}
+		digests = append(digests, fact.SHA256)
+	}
+	link.ProvSQLRowFacts = int64(len(digests))
+	link.ProvSQLRowFactSetSHA256 = finalv5oracle.FactDigestSetSHA256(digests)
+	link.OracleRowFacts, link.OracleRowFactSetSHA256, err = finalv5oracle.ProvSQLOracleBaseRowSet(limit, nonce)
+	if err != nil {
+		return link, err
+	}
+	link.Match = link.UnmappedInputGates == 0 && link.ProvSQLRowFacts == link.OracleRowFacts &&
+		link.ProvSQLRowFactSetSHA256 == link.OracleRowFactSetSHA256
+	link.ExpansionMS = durationMS(time.Since(started))
+	if !link.Match {
+		return link, fmt.Errorf("ProvSQL base tuples differ from the oracle's base-row facts: provsql=%d oracle=%d unmapped=%d",
+			link.ProvSQLRowFacts, link.OracleRowFacts, link.UnmappedInputGates)
+	}
+	return link, nil
 }
 
 func (adapter *provSQLAdapter) retainedProvSQLFailure(operation experiment.AdapterOperation, expected boundQueryExpectation,
@@ -876,6 +978,13 @@ func executeProvSQLExternal(ctx context.Context, conn *pgx.Conn, spec provsqlfix
 			return result, err
 		}
 		result.RootTypesVerified = true
+		// Outside every timing boundary: expand the circuit to its input gates
+		// and link the base tuples to the oracle's base-row Facts.
+		link, linkErr := expandProvSQLBaseTuples(ctx, conn, append(append([]string(nil), aggregateRoots...), rowRoots...), spec.Limit, nonce)
+		if linkErr != nil {
+			return result, linkErr
+		}
+		result.BaseTupleLink = &link
 	}
 	if result.AvailableMS <= 0 || result.FullDrainMS <= 0 || result.AvailableMS > result.FullDrainMS {
 		return result, errors.New("external complete-drain timing boundary is invalid")
