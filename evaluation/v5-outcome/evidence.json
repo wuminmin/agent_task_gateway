@@ -1,7 +1,7 @@
 {
   "compose_execution": {
     "receipt": "evaluation/v5-outcome/compose-receipt.json",
-    "receipt_sha256": "568fc85f00ed56a46d8da4d29d9538b1ea65f63584b453621e48beb8bf09ccae"
+    "receipt_sha256": "00271b17fc8dd78204840070bcc1cf4fc1ebe3f186c3a37e495ae87e6d3170e3"
   },
   "deterministic_set": {
     "duplicate_idempotent": true,
@@ -9,7 +9,7 @@
     "permutation_deterministic": true,
     "tamper_rejected": true
   },
-  "implementation_base_commit": "f35945915d505a4dcbd6f497d1c36e1cb4244baa",
+  "implementation_base_commit": "865621fe300d1ab22f5fe80727f2e3c72603f10a",
   "postgres_committed_graph": {
     "blocks_loaded": 1,
     "blocks_reused": 255,
@@ -38,7 +38,7 @@
     "packages_passed": 2,
     "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "833d2efab457719818c3dc05a41c9a97b033dd9f9cbe20684c370f30537985f7",
+    "raw_log_sha256": "8fd06b7764b53841c0ae695a86d34942ab8b02cc3563243bf87d7ffff0df50b8",
     "tests_failed": 0,
     "tests_passed": 12,
     "tests_skipped": 0
@@ -189,5 +189,5 @@
     ],
     "sha256": "58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449"
   },
-  "submission_commit": "f35945915d505a4dcbd6f497d1c36e1cb4244baa"
+  "submission_commit": "865621fe300d1ab22f5fe80727f2e3c72603f10a"
 }

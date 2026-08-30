@@ -222,10 +222,10 @@
 \newcommand{\ArtifactFormalStates}{1,324}
 \newcommand{\ArtifactFormalDistinct}{441}
 \newcommand{\ArtifactFormalDepth}{17}
-\newcommand{\EvidenceChainCommit}{\texttt{f35945915d50}}
-\newcommand{\VFiveImplementationCommit}{\texttt{f35945915d505a4dcbd6f497d1c36e1cb4244baa}}
+\newcommand{\EvidenceChainCommit}{\texttt{865621fe300d}}
+\newcommand{\VFiveImplementationCommit}{\texttt{865621fe300d1ab22f5fe80727f2e3c72603f10a}}
 \newcommand{\VFiveImplementationSourceHash}{\nolinkurl{58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449}}
-\newcommand{\VFiveRawLogHash}{\nolinkurl{833d2efab457719818c3dc05a41c9a97b033dd9f9cbe20684c370f30537985f7}}
+\newcommand{\VFiveRawLogHash}{\nolinkurl{8fd06b7764b53841c0ae695a86d34942ab8b02cc3563243bf87d7ffff0df50b8}}
 \newcommand{\VFiveRawTestsPassed}{12}
 \newcommand{\VFiveFamilyPropertySeeds}{24}
 \newcommand{\VFiveFamilyPropertyTasks}{89}
@@ -655,6 +655,25 @@ arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 6 & Q1.1, 
 OR disjunction in WHERE & BOOLEAN\_OPERATOR\_UNSUPPORTED & 2 & Q3.3, Q3.4 \\
 ORDER BY on an aggregate alias & QUERYPLAN\_VALIDATION\_FAILED & 2 & Q3.1, Q3.2 \\
 BETWEEN over text literals & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q2.2 \\%
+}
+\newcommand{\AgentWorkloadQueries}{40}
+\newcommand{\AgentWorkloadLowerable}{18}
+\newcommand{\AgentWorkloadLowerablePct}{45}
+\newcommand{\AgentWorkloadHavingQueries}{5}
+\newcommand{\AgentWorkloadStarQueries}{4}
+\newcommand{\AgentWorkloadFunctionQueries}{4}
+\newcommand{\AgentWorkloadArithmeticQueries}{3}
+\newcommand{\AgentWorkloadResultsDigest}{\texttt{537cf08ef6b7}}
+\newcommand{\AgentWorkloadReasonTableBody}{%
+HAVING & HAVING\_UNSUPPORTED & 5 & Q05, Q12, Q15, Q19, Q25 \\
+AVG or a scalar function in the projection & AGGREGATE\_UNSUPPORTED & 4 & Q04, Q06, Q14, Q40 \\
+SELECT * & STAR\_PROJECTION\_UNSUPPORTED & 4 & Q10, Q30, Q35, Q37 \\
+arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 3 & Q09, Q20, Q32 \\
+non-literal comparison (column or subquery) & FILTER\_LITERAL\_UNSUPPORTED & 2 & Q33, Q39 \\
+LEFT JOIN & LEFT\_JOIN\_UNSUPPORTED & 1 & Q24 \\
+COUNT(DISTINCT) & AGGREGATE\_MODIFIER\_UNSUPPORTED & 1 & Q11 \\
+OR disjunction in WHERE & BOOLEAN\_OPERATOR\_UNSUPPORTED & 1 & Q31 \\
+LIMIT over a multi-product join & PAGINATION\_UNSUPPORTED & 1 & Q27 \\%
 }
 \newcommand{\GeneratedPlans}{5,000}
 \newcommand{\GeneratedFixtures}{50}
