@@ -644,6 +644,7 @@ RQ4 archived ordinal/bitmap & recorded in \code{evaluation/exposure-performance/
 RQ5 publication and routing & repository head & \code{evaluation/daily-publication/evidence/}, \code{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
 V5 outcome-set regressions & \VFiveImplementationCommit{} & \code{evaluation/v5-outcome/evidence.json}, \code{raw/go-test.jsonl}, \code{compose-receipt.json} & \code{scripts/record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \code{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \code{campaign-evidence.json}, \code{deployments/*/raw/*.jsonl} & \code{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
+Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \code{deployments/*/raw/*.jsonl} plus \code{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \code{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
 TLC (Table VI) & repository head & \code{formal/results/*.json}, \code{*.log} & \code{make formal} \\
 \bottomrule
@@ -1165,6 +1166,106 @@ median.}
 Width & Mode & Rounds & Drain p50 & Drain p95 & Req./s \\
 \midrule
 \FinalVFivePublicationConcurrencyTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Publication Campaign: Attack Corpus}
+\label{sec:attack-publication-supp}
+
+The attack profile of campaign \FinalVFivePublicationCampaign{} replays the
+frozen corpus \code{evaluation/finalv5attack/corpus-v1.json} (SHA-256 prefix
+\FinalVFivePublicationAttackCorpusDigest{}, bound into every retained sample)
+against a fresh root task per sample: \FinalVFivePublicationAttackCells{}
+cells---\FinalVFivePublicationAttackSequences{} sequences, each in a direct
+PostgreSQL arm and a governed novel arm, the request-identity sequence also in
+both replay arms---with \FinalVFivePublicationAttackPerCell{} samples per cell
+over three deployments, \FinalVFivePublicationAttackSamples{} samples in all.
+The generator requires the per-step outcome of every sample in a cell to be
+identical, the per-step charges to sum to the sample's settled charge, every
+decomposition to have charged exactly its complete query's Result and
+Dependency Facts, and the threshold ladder to end in exactly one
+\FinalVFivePublicationAttackThresholdRejectionCode{} refusal
+(\FinalVFivePublicationAttackThresholdRejectionReason{}) at its preregistered
+Outcome ceiling of \FinalVFivePublicationAttackThresholdCeiling{}.
+Table~\ref{tab:attack-sequences-supp} summarizes each governed sequence and
+Table~\ref{tab:attack-steps-supp} lists every step with its actual and
+charged Facts. The direct arm charges nothing and refuses nothing: it answered
+every step, including both set-operation variants and the third threshold
+probe. The corpus is preregistered; it does not search a strategy space, and
+its Outcome charges follow the frozen profile's page and range composites.
+
+\begin{table}[t]
+\centering
+\caption{Attack corpus, governed arm, per sequence: steps, accepted steps,
+refusal code, the complete query's actual Result/Dependency Facts where the
+sequence has one, and the Facts charged over the whole sequence.}
+\label{tab:attack-sequences-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrlrrrr}
+\toprule
+Sequence & Steps & Acc. & Refused & Complete $R$/$D$ & $R$ & $D$ & $O$ \\
+\midrule
+\FinalVFivePublicationAttackSequenceTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Attack corpus, governed arm, per step: issuing task (root or
+delegated child), visible result, actual and charged Result/Dependency/Outcome
+Facts, and decision. Identical in every sample of a cell.}
+\label{tab:attack-steps-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrlllllr}
+\toprule
+Sequence & \# & Step & Task & Result & Actual $R$/$D$/$O$ & Charged $R$/$D$/$O$ & Decision \\
+\midrule
+\FinalVFivePublicationAttackStepTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Publication Campaign: ProvSQL-Paired Provenance Capture}
+\label{sec:provsql-publication-supp}
+
+The ProvSQL profile of the same campaign pairs three real systems on the same
+host and byte-identical SQL: PostgreSQL~16.14 from a digest-pinned image,
+ProvSQL~1.11.0 built on that exact base image, and BDG's public
+\code{query_sql} path with settlement, receipt, and AVAILABLE delivery. The
+query is the orders--lineitem equijoin over the first 1,000, 10,000, or 45,000
+orders of a deterministic 50,000-order, 250,000-line fixture (TPC-H-shaped,
+generated from repository formulas, not the official benchmark), grouped by
+order status into three rows carrying a price sum, a line-number sum, and a
+count, and joined to one provenance-tracked nonce row that changes on every
+execution so that ProvSQL builds a novel circuit each time. The timed interval
+on every arm is the client's complete drain of the ordered result; on ProvSQL
+it therefore includes query rewriting, aggregate-token construction, and
+persistent circuit construction, and excludes semiring evaluation,
+probability computation, and Shapley values; on BDG it includes derivation,
+settlement, publication, and delivery. Warm business-data cache, disabled
+parallel gather, the simple text protocol, and a recorded per-statement
+timeout hold on both database sessions; execution order within each pair is
+randomized from a recorded seed. Table~\ref{tab:provsql-publication}
+reports medians over \FinalVFivePublicationProvSQLPerCell{} samples per cell
+(\FinalVFivePublicationProvSQLSamples{} in all). The boundary is asymmetric by
+construction and the ratios price exact typed-set derivation plus settlement
+against general circuit capture; they do not rank the systems.
+
+\begin{table}[t]
+\centering
+\caption{ProvSQL-paired cells: rows returned, BDG Dependency Facts settled,
+median complete-drain time per system, and ratios.}
+\label{tab:provsql-publication}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Scale & Rows & Dep.\ Facts & PostgreSQL (ms) & ProvSQL (s) & BDG (s) & ProvSQL/PG & BDG/PG & ProvSQL/BDG \\
+\midrule
+\FinalVFivePublicationProvSQLTableBody
 \bottomrule
 \end{tabular}
 \end{table}

@@ -1677,7 +1677,7 @@ def main(argv: list[str] | None = None) -> None:
             elif step["scalar_int64"] is not None:
                 result = f"count={step['scalar_int64']}"
             else:
-                result = f"{step['row_count']} rows"
+                result = f"{step['row_count']} row" + ("s" if step["row_count"] != 1 else "")
             step_rows.append(" & ".join([
                 tex(sequence) if index == 1 else "", str(index), tex(step["variant_id"]),
                 "child" if step["task_route"] == "delegated_child" else "root", result,
@@ -1698,7 +1698,7 @@ def main(argv: list[str] | None = None) -> None:
         elif step["scalar_int64"] is not None:
             result, decision = f"count={step['scalar_int64']}", "settled"
         else:
-            result = f"{step['row_count']} rows"
+            result = f"{step['row_count']} row" + ("s" if step["row_count"] != 1 else "")
             decision = "replay" if step["classification"] == "semantic_replay" else "settled"
         threshold_rows.append(" & ".join([
             str(index), tex(step["variant_id"]), "child" if step["task_route"] == "delegated_child" else "root", result,
