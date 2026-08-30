@@ -299,6 +299,7 @@ func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err erro
 			return err
 		}
 	}
+	matched := make([]*releaseCursor, 0, len(cursors))
 	for {
 		var lowest *releaseCursor
 		for _, cursor := range cursors {
@@ -316,6 +317,9 @@ func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err erro
 		if err := visit(hash, payload); err != nil {
 			return err
 		}
+		// Compare every equal-hash cursor before advancing any of them:
+		// advancing zeroes the visited payload.
+		matched = matched[:0]
 		for _, cursor := range cursors {
 			if !cursor.active || cursor.hash != hash {
 				continue
@@ -323,6 +327,9 @@ func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err erro
 			if cursor != lowest && !bytes.Equal(cursor.payload, payload) {
 				return fmt.Errorf("%w: fact hash collision for %s", ErrInvalid, hex.EncodeToString(hash[:]))
 			}
+			matched = append(matched, cursor)
+		}
+		for _, cursor := range matched {
 			if err := cursor.advance(); err != nil {
 				return err
 			}
