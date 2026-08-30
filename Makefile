@@ -51,6 +51,9 @@ eval-exposure-storage:
 eval-provenance-baseline:
 	./evaluation/provenance-baseline/run.sh
 
+eval-tpch-lowerability:
+	go run ./evaluation/cmd/tpch-lowerability
+
 eval-daily-publication-validate:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest evaluation/daily-publication/test_harness.py
 	PYTHONDONTWRITEBYTECODE=1 python3 evaluation/daily-publication/evidence/validate.py
