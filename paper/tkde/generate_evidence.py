@@ -1754,6 +1754,27 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationRLSControlErrorRLS}}{{\texttt{{{tex(rls['control']['rls']['authorization_error'])}}}}}",
         rf"\newcommand{{\FinalVFivePublicationRLSControlErrorBDG}}{{\texttt{{{tex(rls['control']['bounded']['authorization_error'])}}}}}",
     ])
+    # Counter arms derived from the sealed trace (admission is set arithmetic).
+    arms = rls["counter_arms"]
+    arm_rows = []
+    for key, label in (("set_ledger", "set ledger (7/12/18), continued"), ("row_budget", "cumulative row budget"), ("query_budget", "query-count budget")):
+        item = arms[key]
+        budget = str(item.get("budget", "--"))
+        arm_rows.append(" & ".join([label, budget, str(item["admitted"]), str(item["first_refusal"] or "--"),
+                                    str(item["legitimate_refused"]), str(item["novel_refused"]),
+                                    "/".join(str(v) for v in item["released"])]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationCounterArmTableBody}{%" + "\n" + "\n".join(arm_rows) + "%\n}")
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationTraceZeroNoveltyQueries}}{{{arms['zero_novelty_queries']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterRowBudget}}{{{arms['row_budget']['budget']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterRowLegitRefused}}{{{arms['row_budget']['legitimate_refused']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterQueryLegitRefused}}{{{arms['query_budget']['legitimate_refused']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterSetLegitRefused}}{{{arms['set_ledger']['legitimate_refused']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterSetAdmitted}}{{{arms['set_ledger']['admitted']}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterSetReleased}}{{{'/'.join(str(v) for v in arms['set_ledger']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterRowReleased}}{{{'/'.join(str(v) for v in arms['row_budget']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationCounterQueryReleased}}{{{'/'.join(str(v) for v in arms['query_budget']['released'])}}}",
+    ])
     # Dependency-history scale: settlement against a pre-seeded ledger.
     scale = publication["scale"]
     scale_rows = []

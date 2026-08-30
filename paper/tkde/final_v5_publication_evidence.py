@@ -566,6 +566,8 @@ def _rls_stats(samples):
         if observed_code != expected_code or filtered is not True or expected_rows != 0 or observed_rows != 0:
             raise PublicationEvidenceError(f"rls policy-denied control {arm} did not fail closed as preregistered")
         control[arm] = {"rows": 0, "authorization_error": observed_code}
+    trace = by_cell[f"{RLS_TRACE_CELL}/unlimited"][0]["rls_verification"]
+    counter_arms = _counter_arms(trace["oracle_trace"], [step["row_count"] for step in trace["steps"]], budgets, first_over)
     return {
         "samples": len(samples),
         "samples_per_cell": per_cell.pop(),
@@ -576,6 +578,75 @@ def _rls_stats(samples):
         "first_over_budget": first_over,
         "arms": arms,
         "control": control,
+        "counter_arms": counter_arms,
+    }
+
+
+def _counter_arms(oracle_trace, rows, budgets, first_over):
+    """Deterministic admission of the same trace under counter budgets.
+
+    Derived from the sealed trace, not from a separate run: ``oracle_trace``
+    holds every query's Release/Dependency/Outcome fact hashes as counted by
+    the independent oracle, and ``rows`` the rows each query returns. A
+    cumulative row budget and a query-count budget are calibrated to refuse
+    at the same query as the exposure budgets did; the set ledger is
+    simulated past its first refusal (the campaign arm stops there) so the
+    three arms can be compared on legitimate refusals and facts released.
+    """
+    dims = ("release", "dependency", "outcome")
+    facts = [tuple(set(entry.get(dim) or []) for dim in dims) for entry in oracle_trace]
+    if len(facts) != len(rows):
+        raise PublicationEvidenceError("oracle trace and step rows disagree in length")
+    seen = [set(), set(), set()]
+    novel = []
+    for query in facts:
+        novel.append(any(query[i] - seen[i] for i in range(3)))
+        for i in range(3):
+            seen[i] |= query[i]
+    zero_novelty = [not n for n in novel]
+
+    def summarize(admitted):
+        released = [set(), set(), set()]
+        for k, ok in enumerate(admitted):
+            if ok:
+                for i in range(3):
+                    released[i] |= facts[k][i]
+        refused = [k for k, ok in enumerate(admitted) if not ok]
+        return {
+            "admitted": sum(admitted),
+            "refused": len(refused),
+            "first_refusal": (refused[0] + 1) if refused else None,
+            "legitimate_refused": sum(1 for k in refused if zero_novelty[k]),
+            "novel_refused": sum(1 for k in refused if novel[k]),
+            "released": tuple(len(r) for r in released),
+        }
+
+    ledger = [set(), set(), set()]
+    set_admitted = []
+    for query in facts:
+        fits = all(len(ledger[i] | query[i]) <= budgets[i] for i in range(3))
+        set_admitted.append(fits)
+        if fits:
+            for i in range(3):
+                ledger[i] |= query[i]
+    if set_admitted.index(False) + 1 != first_over:
+        raise PublicationEvidenceError("simulated set ledger does not refuse where the campaign arm did")
+    row_budget = sum(rows[: first_over - 1])
+    cumulative = 0
+    row_admitted = []
+    for r in rows:
+        if cumulative + r <= row_budget:
+            cumulative += r
+            row_admitted.append(True)
+        else:
+            row_admitted.append(False)
+    query_budget = first_over - 1
+    query_admitted = [k < query_budget for k in range(len(rows))]
+    return {
+        "zero_novelty_queries": sum(zero_novelty),
+        "set_ledger": summarize(set_admitted),
+        "row_budget": {"budget": row_budget, **summarize(row_admitted)},
+        "query_budget": {"budget": query_budget, **summarize(query_admitted)},
     }
 
 

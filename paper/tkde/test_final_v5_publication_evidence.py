@@ -252,11 +252,20 @@ def _rls_sample(cell: str, drain_ms: float) -> dict:
                           "actual_release_facts": delta[0], "actual_dependency_facts": delta[1], "actual_outcome_facts": delta[2]})
             if not rejected:
                 prev = card
+        trace = []
+        prev_card = (0, 0, 0)
+        for k in range(1, 101):
+            card = tuple(prefixes[k - 1][d]["cardinality"] for d in ("release", "dependency", "outcome"))
+            entry = {}
+            for i, d in enumerate(("release", "dependency", "outcome")):
+                entry[d] = [f"{d}-{j}" for j in range(prev_card[i], card[i])] or [f"{d}-0"]
+            trace.append(entry)
+            prev_card = card
         verification = {"successful_queries": stop if arm != "bounded" else 36,
                         "first_rejection_index": 37 if arm == "bounded" else None,
                         "stop_reason": "EXPOSURE_BUDGET_EXHAUSTED" if arm == "bounded" else "TRACE_COMPLETED",
                         "results_after_budget": 0, "steps": steps,
-                        "oracle_result": prefixes[99], "oracle_prefixes": prefixes}
+                        "oracle_result": prefixes[99], "oracle_prefixes": prefixes, "oracle_trace": trace}
         if arm != "rls":
             ledger = prev if arm == "unlimited" else (6, 12, 15)
             verification["final_root"] = {"release_cardinality": ledger[0], "dependency_cardinality": ledger[1], "outcome_cardinality": ledger[2]}
@@ -481,6 +490,12 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(rls["arms"]["bounded"]["first_rejection_index"], 37)
         self.assertEqual(rls["arms"]["bounded"]["ledger"], (6, 12, 15))
         self.assertEqual(rls["control"]["rls"]["authorization_error"], "42501")
+        arms = rls["counter_arms"]
+        self.assertEqual(arms["set_ledger"]["first_refusal"], 37)
+        self.assertEqual(arms["query_budget"]["budget"], 36)
+        self.assertEqual(arms["query_budget"]["first_refusal"], 37)
+        self.assertEqual(arms["row_budget"]["first_refusal"], 37)
+        self.assertGreaterEqual(arms["query_budget"]["legitimate_refused"], arms["set_ledger"]["legitimate_refused"])
         scale = stats["scale"]
         self.assertEqual(len(scale["cells"]), 24)
         cell = scale["cells"]["dependency-e2e/1035000-overlap-50/novel"]
