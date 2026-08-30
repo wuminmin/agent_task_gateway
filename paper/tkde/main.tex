@@ -1244,7 +1244,8 @@ cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
 samples passing, with a verified Receipt on every governed arm.
 Table~\ref{tab:baseline-main} gives
 the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
-Baseline cells a novel governed query costs
+Baseline cells (one per workload, scale, and mode; Table~\ref{tab:baseline-main}
+shows the sixteen workload/scale rows) a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
 times its direct PostgreSQL equivalent, and that cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
@@ -1300,7 +1301,11 @@ of S6/100k-x16 is \texttt{\FinalVFivePublicationPhaseDominantSSixHundredKByteSix
 the Control settlement transaction that computes exact novelty and advances
 the root head takes \FinalVFivePublicationPhaseSettlementMSSOneSFOne{}~ms at
 S1/SF1 and \FinalVFivePublicationPhaseSettlementMSSSixHundredKByteSixteen{}~ms
-at S6/100k-x16.
+at S6/100k-x16; the other four phases (prepare, artifact staging,
+publication, finalize) are the governed floor every response pays,
+replays included, so the semantic-replay median of a cell bounds that floor
+and the rest of the novel median is derivation plus settlement. No arm runs
+the governed path with accounting disabled.
 Same-root contention is measured separately: rounds of 10 and 50 concurrent
 requests against one root family at its budget boundary. A single request
 drains in \FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial

@@ -1089,7 +1089,8 @@ Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 re
 
 The receipt uses \code{observation_sha256} and the component
 digests \code{release_set_sha256},
-\code{influence_set_sha256}, and
+\code{influence_set_sha256} (the wire and macro name \code{influence}
+denotes the paper's Dependency dimension throughout), and
 \code{outcome_set_sha256}; it has no field named
 \code{candidate_digest}, \code{effect_digest}, or
 \code{profile_digest}.
@@ -1548,7 +1549,7 @@ budgets in any order, which is the property the paper claims for it.
 \centering
 \caption{Counter arms on the adaptive trace (derived, not run): budget,
 queries admitted, first refusal, refused queries that add no fact to the
-full-trace union (``legit.'') versus refused queries that do, and facts
+full-trace union (``non-novel'') versus refused queries that do, and facts
 released (Release/Dependency/Outcome) in the trace's order; then facts
 released under a novelty-first order. The set ledger refuses a zero-novelty
 query only when it repeats the facts of the refused query 37, which never
@@ -1557,7 +1558,7 @@ entered the ledger.}
 \small
 \begin{tabular}{lrrrrrl}
 \toprule
-Arm & Budget & Admitted & Refused at & Legit.\ refused & Novel refused & Released \\
+Arm & Budget & Admitted & Refused at & Non-novel refused & Novel refused & Released \\
 \midrule
 \FinalVFivePublicationCounterArmTableBody
 \midrule

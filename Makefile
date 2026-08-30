@@ -54,6 +54,9 @@ eval-provenance-baseline:
 eval-tpch-lowerability:
 	go run ./evaluation/cmd/tpch-lowerability
 
+eval-ssb-lowerability:
+	go run ./evaluation/cmd/ssb-lowerability
+
 eval-generated-algebra:
 	go run ./evaluation/cmd/generated-algebra
 
