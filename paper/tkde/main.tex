@@ -156,7 +156,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.66\textwidth}{!}{%
+\resizebox{0.62\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -304,10 +304,10 @@ fragment and settles cumulative novelty before release.
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
 Passant formalizes optimizer-invariant aggregate predicates over each output
 tuple's bag of provenance monomials, rewrites or terminates violating queries,
-and constrains writes through source, sink, and required-source policies;
-that per-query model covers contributor thresholds, prohibited source
-combinations, grounding, and prompt-bound flows that BDG does not subsume,
-and leaves trajectory policy to future work. BDG differs in temporal unit:
+and constrains writes through source, sink, and required-source policies,
+covering contributor thresholds, source combinations, grounding, and
+prompt-bound flows that BDG does not subsume; trajectory policy is its future
+work. BDG differs in temporal unit:
 after authorization and any flow check it persists Result, Dependency, and
 Outcome sets under one root and charges exact novelty across queries,
 retries, pages, supported rewrites, and descendants in one root-head
@@ -400,8 +400,8 @@ observable: a rejected attempt reveals that its novel effect exceeded the
 remaining budget and charges only one unit of the request budget
 (Section~\ref{sec:online}), so the threshold information an agent can extract
 through rejections is bounded by that budget, summed over the approved task
-tree, not by $B_X$. Four boundaries hold at this goal, not only in
-Section~\ref{sec:limits}: the goal counts declared identities, not
+tree, not by $B_X$. Four boundaries hold at this goal: it counts declared
+identities, not
 inference (a ladder of distinct probes is bounded by $B_O$, not by what a
 probe reveals); order-only fields are outside this profile; every approved
 root and every publication epoch has fresh capacity; and each rejection
@@ -1095,10 +1095,9 @@ same fact, only the first successful settlement accounts it, revoking the
 root blocks new descendant queries while a terminal request ID stays
 readable, and creating workers or task nodes cannot create fresh exposure
 capacity; every child grant is itself a human-approved authorization on the
-Catalog's approval route (the prototype's only mode is manual approval), so
-the tree's size, and with it the summed request budget of
-Proposition~\ref{prop:probing-bound}, is set by approvals, not by the agent.
-Settlement checks the settling task's own signed ceiling against
+Catalog's route (the prototype's only mode is manual approval), so the tree's
+size, and the summed request budget of Proposition~\ref{prop:probing-bound},
+is set by approvals, not by the agent. Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
@@ -1168,8 +1167,8 @@ Section~\ref{sec:attack-provsql} shows such a ladder refused at its ceiling. One
 \code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals the salary
 ordering while charging no dependency on \code{salary}, because order-only
 fields are outside this profile (Section~\ref{sec:model}); charging sort keys
-as dependencies is a one-rule change the prototype does not implement, so an
-administrator must withhold sortable sensitive fields from the approved scope.
+as dependencies is a one-rule change not yet implemented, so sortable
+sensitive fields must be withheld from the approved scope.
 
 \section{System Realization}
 \label{sec:system}
@@ -1194,9 +1193,8 @@ stored ledger identities are never silently reinterpreted.
 lake/warehouse $\rightarrow$ curated data products $\rightarrow$ immutable
 Reporting Publications $\rightarrow$ BDG $\rightarrow$ agent, fronting the
 governed serving tier and replacing none of the lake, Catalog, IAM/HR,
-OA/BPM, object store, RLS/DFC, audit, or agent platform (the supplement's
-interface table defines the brownfield path, not a completed production
-deployment); OA/BPM may impose principal- or tenant-level issuance policies
+OA/BPM, object store, RLS/DFC, audit, or agent platform (supplement
+interface table; not a completed production deployment); OA/BPM may impose principal- or tenant-level issuance policies
 across roots, while the ledger stays scoped to one root family. The trusted
 parties are those of Section~\ref{sec:model}: crashes, concurrency, stale
 bindings, replay, and promotion failure are in scope; compromised trusted
@@ -1220,9 +1218,8 @@ two facts per dimension, limits $1/1/2$, and one replay
 (\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
 explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
 \ArtifactFormalStates{} states (bounds in the supplement). They are sanity
-checks of the abstract transition systems that start after compilation and
-abstract away SQL, rows, hashes, signatures, networking, and ciphertext, not
-assurance of deep interleavings. Executable Go/PostgreSQL differential,
+checks that start after compilation and abstract away SQL, rows, hashes,
+signatures, networking, and ciphertext. Executable Go/PostgreSQL differential,
 concurrency, tamper, and fault-injection tests check implementation
 correspondence, including radix partitioning and object reuse; the
 supplement maps the layers and their gaps. We claim bounded model checking
@@ -1427,8 +1424,8 @@ novel medians of a Baseline cell differ by at most
 (commit \FinalVFivePilotArtifactCommit{}) are non-publication mechanism
 evidence cited only in the supplement. One residual freedom lies outside the
 mechanism: an Adapter may open several measurement windows and submit only
-one; the protocol, not the Gateway, forbids that, and every retained sample
-is the single window the protocol allowed. RQ1--RQ3 use small fixtures;
+one; the protocol forbids that, and every retained sample is the single
+window it allowed. RQ1--RQ3 use small fixtures;
 ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
 official); the archived V4 run used one index build; RQ5 sums three
 sequential warm child intervals behind an experiment controller. No result
