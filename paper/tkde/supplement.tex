@@ -669,6 +669,7 @@ V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
+TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & repository head & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
 TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
@@ -1602,6 +1603,42 @@ SHA-256, PostgreSQL version, oracle fixture digest, differential and
 metamorphic check counts, and statement count.  These controls make the stress
 test reproducible without enlarging its evidentiary meaning.  The main paper's
 RQ2 conclusion rests instead on the closed-language FactSet/charge checks.
+
+\section{TPC-H Lowerability of the Closed Fragment}
+\label{sec:tpch-lowerability-supp}
+
+To quantify the closed fragment against a standard ad-hoc analytical workload,
+the 22 TPC-H query templates (validation substitution parameters, hand
+transcribed; TPC-derived, not an official run) were lowered through the
+production \code{internal/sqllowering} package against a synthetic eight-table
+Catalog exposing every TPC-H column with \code{count}, \code{sum}, \code{min},
+\code{max}, and \code{avg} approved (\filepath{evaluation/tpchlowerability},
+results digest \TPCHResultsDigest{}). As written,
+\TPCHLowerableAsWritten{} of \TPCHQueries{} lower; \TPCHCommaJoinQueries{}
+stop at the comma-join FROM shape, which the lowerer marks
+retryable-after-rewrite. After the one purely syntactic normalization of those
+comma joins to explicit \code{JOIN ... ON}, \TPCHLowerableExplicitJoin{} lower;
+Table~\ref{tab:tpch-lowerability} lists the first semantic rejection per
+query. The lowerer stops at the first rejection, so each row names the first
+construct met, not every unsupported one. The result is a boundary statement,
+not a deficiency the paper claims to close: the fragment serves governed
+reporting Products, and TPC-H's subqueries, arithmetic inside aggregates,
+multi-product pagination, HAVING, and COUNT(DISTINCT) are outside it.
+
+\begin{table}[t]
+\centering
+\caption{First rejection reason of each TPC-H template after explicit-join
+normalization.}
+\label{tab:tpch-lowerability}
+\small
+\begin{tabular}{llrl}
+\toprule
+Construct & Reason code & Queries & TPC-H \\
+\midrule
+\TPCHReasonTableBody
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Enterprise Integration and Governance Vision}
 \label{sec:supp-enterprise-vision}
