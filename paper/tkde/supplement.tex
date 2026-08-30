@@ -233,7 +233,7 @@ Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every 
 Inner join & Every matching child-row pair at one binary fold step under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
 Union-distinct & Classes under componentwise \code{IS NOT DISTINCT FROM} & Include every candidate and every distinctness field, including hidden fields; max-merge alternative witnesses \\
 \shortstack[l]{Group/\\aggregate} & One output per key class; global empty input yields one row & Include group-key inputs and every declared aggregate argument; \code{COUNT(*)} uses member rows, and NULL/non-extreme inputs remain dependencies \\
-Page & Stable total-order slice; annotations copied & Account selected output rows only; non-output rows, rank, and order-only fields are outside the profile \\
+Page & Stable total-order slice; annotations copied & Account selected output rows only; non-output rows and rank are outside the profile; ORDER BY columns must be selected, so only the Catalog tie-break suffix is order-only \\
 \bottomrule
 \end{tabular}
 \end{table}

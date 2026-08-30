@@ -142,7 +142,7 @@ never exposed to the agent.
 result exposure} identifies selected result values (wire label \emph{release});
 accounting can precede availability. The \emph{positive-output dependency
 footprint} identifies the base facts the declared rules read---neither minimal
-causes nor all physical reads, and not order-only fields---so a one-cell
+causes nor all physical reads---so a one-cell
 aggregate can expose large input. \emph{Query outcome} combines canonical
 predicate atoms with one normalized query/result composite. Existing members
 add zero novelty: related thresholds reuse shared atoms but charge different
@@ -380,8 +380,10 @@ remaining budget and charges only one unit of the request budget
 (Section~\ref{sec:online}), so the threshold information an agent can extract
 through rejections is bounded by that budget, summed over the approved task
 tree, not by $B_X$. Four boundaries hold at this goal: it counts declared
-identities, not inference; order-only fields are outside this profile; every
-approved root and every publication epoch has fresh capacity; and the
+identities, not inference; the Catalog tie-break keys that complete a page
+order are the only order-only fields (every \code{ORDER BY} column must be
+selected, so ordered values are Released); every approved root and every
+publication epoch has fresh capacity; and the
 settlement decision is two data-dependent counter channels. A rejected
 attempt is a chosen membership question over unaccounted facts (``does this
 predicate's footprint exceed what remains?'') answered by one bit, charged
@@ -540,8 +542,9 @@ result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
 versioned profile $\pi$.  The latter are the base facts the inductive rules
 below select for successfully derived output rows and cells; they are not
-minimal causal provenance or all physical reads, and the order keys and
-tie-break suffix of Page are excluded by this profile.
+minimal causal provenance or all physical reads; the admitted language
+requires every \code{ORDER BY} column to be selected, so only the Catalog
+tie-break suffix of Page is order-only and outside this profile.
 $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
 query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
@@ -1135,12 +1138,11 @@ measured cell). $B_O$ bounds how many distinct predicates a task may
 \emph{settle} (a ladder \code{amount > t} is charged one atom and one
 composite per answered step), not what an answer reveals, and not rejected
 probes, which $B_Q$ bounds: a binary search on one hidden value fits within
-$B_O=128$ answered steps or $B_Q$ refusals. One sequence it
-does not block: \code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals
-the salary ordering while charging no dependency on \code{salary}, because
-order-only fields are outside this profile (Section~\ref{sec:model});
-charging sort keys as dependencies is a one-rule change not yet implemented,
-so sortable sensitive fields must be withheld from the approved scope.
+$B_O=128$ answered steps or $B_Q$ refusals. Ranking a hidden field is not admitted:
+the lowerer rejects an \code{ORDER BY} column that is not selected
+(\code{ORDER\_FIELD\_NOT\_SELECTED}), so a paged \code{SELECT id ... ORDER
+BY salary} must release \code{salary}, and only the Catalog tie-break keys
+that complete a total order are order-only.
 
 \section{System Realization}
 \label{sec:system}
