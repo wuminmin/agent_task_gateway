@@ -1252,6 +1252,7 @@ Dependency Facts, and the threshold ladder to end in exactly one
 (\FinalVFivePublicationAttackThresholdRejectionReason{}) at its preregistered
 Outcome ceiling of \FinalVFivePublicationAttackThresholdCeiling{}.
 Table~\ref{tab:attack-sequences-supp} summarizes each governed sequence and
+Table~\ref{tab:threshold-ladder} traces the threshold ladder and
 Table~\ref{tab:attack-steps-supp} lists every step with its actual and
 charged Facts. The direct arm charges nothing and refuses nothing: it answered
 every step, including both set-operation variants and the third threshold
@@ -1271,6 +1272,24 @@ sequence has one, and the Facts charged over the whole sequence.}
 Sequence & Steps & Acc. & Refused & Complete $R$/$D$ & $R$ & $D$ & $O$ \\
 \midrule
 \FinalVFivePublicationAttackSequenceTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Threshold ladder, governed arm: per-step charge ($\Delta$
+Result/Dependency/Outcome Facts), cumulative Outcome charge against the root
+ceiling, and decision ($^\dagger$ issued by the delegated child; refused =
+\FinalVFivePublicationAttackThresholdRejectionCode{}); identical in all
+\FinalVFivePublicationAttackPerCell{} samples.}
+\label{tab:threshold-ladder}
+\small
+\begin{tabular}{rllrrrll}
+\toprule
+\# & Step & Result & $\Delta R$ & $\Delta D$ & $\Delta O$ & $\Sigma O$ & Decision \\
+\midrule
+\FinalVFivePublicationAttackThresholdTableBody
 \bottomrule
 \end{tabular}
 \end{table}
