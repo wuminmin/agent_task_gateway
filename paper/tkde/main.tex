@@ -113,38 +113,31 @@ pricing develops anti-arbitrage objectives
 where results came from \cite{green2007provenance,amsterdamer2011aggregate};
 BDG asks how human authorization can create a stateful disclosure budget
 conserved across adaptive querying and delegation, without inspecting an LLM
-or depending on an agent-specific planner.
-
-Enterprise operational analytics commonly serves scheduled ETL outputs rather
-than OLTP primaries. BDG compiles each completed cut into an immutable
-publication. New roots may bind the next cut; unfinished roots and descendants
-remain on the prior one through version routing or fail closed. BDG therefore
-addresses adaptive disclosure within one reporting epoch, not freshness or
-consistency over a changing database.
+or depending on an agent-specific planner. Enterprise operational analytics
+commonly serves scheduled ETL outputs rather than OLTP primaries; BDG compiles
+each completed cut into an immutable publication, new roots may bind the next
+cut, and unfinished roots stay on the prior one through version routing or
+fail closed, so BDG addresses adaptive disclosure within one reporting epoch,
+not freshness over a changing database.
 
 Large enterprises already operate lakes or warehouses, reporting marts, Data
 Catalogs, identity directories, and approval workflows, but none of them turns
 one approved purpose into a machine-enforceable contract across an agent's
-queries, retries, pages, and delegated subtasks; implementing that contract per
-agent--Product pair fragments the control surface.
-
-Marketplace-integrated agents now close the discovery-and-request half of
-this gap: Data Product MCP lets an agent find, request, and query governed
-data products over MCP and validates the declared purpose against
-natural-language contracts with an LLM-based governance check before each
-query \cite{tonnarelli2026dataproductmcp}. The other half remains open. Once a
-purpose is approved, per-query checks do not state how much governed data the
+queries, retries, pages, and delegated subtasks. Marketplace-integrated agents
+close the discovery-and-request half of this gap: Data Product MCP lets an
+agent find, request, and query governed data products over MCP and validates
+the declared purpose against natural-language contracts with an LLM-based
+check before each query \cite{tonnarelli2026dataproductmcp}. Once a purpose
+is approved, per-query checks still do not state how much governed data the
 task has cumulatively released across retries, pages, rewrites, and delegated
-subtasks, and that system's own expert panel names not letting a language
-model make security decisions as an adoption barrier. BDG starts at that
-boundary.
-
-BDG is a brownfield-compatible data-egress layer at the governed serving tier:
+subtasks, and that system's own expert panel names letting a language model
+make security decisions as an adoption barrier. BDG starts at that boundary
+as a brownfield-compatible data-egress layer at the governed serving tier:
 the reporting pipeline supplies immutable publications, the Catalog supplies
 Products and attested stable keys, identity and workflow systems supply
 subject, purpose, and approval, and BDG compiles these into a signed task
-contract and settles cumulative exposure at a model-independent database
-boundary; the raw lake is never exposed to the agent.
+contract settled at a model-independent database boundary; the raw lake is
+never exposed to the agent.
 
 \system budgets the root task in three set-valued dimensions. \emph{Accounted
 result exposure} identifies selected result values (wire label \emph{release});
@@ -157,14 +150,9 @@ query/result composite. Existing set members add zero novelty: related
 thresholds reuse shared atoms but charge different literals/composites, while
 exact replay remains free.
 
-The system follows a withhold-before-settlement discipline:
-
-\begin{center}
-\small
-\code{reserve -> replay lookup / execute+stream -> derive -> settle -> publish}.
-\end{center}
-
-The visible query and ordinal companion share one frozen PostgreSQL snapshot
+The system follows a withhold-before-settlement discipline
+(\code{reserve -> replay lookup / execute+stream -> derive -> settle -> publish}):
+the visible query and ordinal companion share one frozen PostgreSQL snapshot
 and remain withheld while one Control transaction computes exact set novelty,
 checks all limits, advances the root head, and commits audit, receipt, and a
 PENDING intent; a recoverable object-store step then promotes the staged
@@ -173,7 +161,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.86\textwidth}{!}{%
+\resizebox{0.8\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -241,29 +229,26 @@ object and a second transaction records AVAILABLE/CONSUMED
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{BDG uses publication-time ordinals for frozen Release/dependency
-facts and an exact Merkle-radix set for Outcome atom/composite hashes.
-Root-family accounting is atomic; Parquet publication is recoverable and
-fail-closed between PENDING and AVAILABLE.
-A cache hit reuses only a committed
-observation and encrypted materialization; authorization, resource metering,
-audit, receipt, and commit-before-release still execute.}
+\caption{Publication-time ordinals identify frozen Release/Dependency facts
+and an exact Merkle-radix set holds Outcome hashes; root-family accounting is
+atomic, Parquet publication is recoverable and fail-closed between PENDING and
+AVAILABLE, and a cache hit reuses only a committed observation while
+authorization, metering, audit, receipt, and commit-before-release still run.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
 Our unsubmitted SessionBound working manuscript, available as a preliminary
 preprint, introduced the task-scoped authorization substrate
 \cite{wu2026sessionbound}: a control plane that turns an approved task into a
-signed, budgeted, auditable database session, and a runtime that enforces safe
-views, row scope, denied fields, operation limits, per-session query and
-disclosure counters, and receipts. It has not been accepted or submitted to
-TDSC. Everything that makes the budget a set rather than a counter is new here:
-the typed FactID semantics and closed algebra, the same-snapshot ordinal
-companion and bitmap/Merkle-radix ledgers, canonical Outcome atoms and
-composites, exact profile-relative novelty with atomic three-budget settlement
-before \code{AVAILABLE}, root-family delegation conservation, the theorems and
-bounded models, and the publication campaign. This article's five
-implementation-backed contributions are:
+signed, budgeted, auditable database session with safe views, row scope,
+denied fields, operation limits, per-session counters, and receipts; it has
+not been accepted or submitted to TDSC. Everything that makes the budget a set
+rather than a counter is new here: the typed FactID semantics and closed
+algebra, the same-snapshot ordinal companion and bitmap/Merkle-radix ledgers,
+canonical Outcome atoms and composites, exact novelty with atomic
+three-budget settlement before \code{AVAILABLE}, root-family delegation
+conservation, the theorems and bounded models, and the publication campaign.
+This article's five implementation-backed contributions are:
 
 \begin{enumerate}
 \item A typed FactID semantics for accounted Result, positive-output
@@ -308,13 +293,13 @@ and cumulative auditing
 \cite{denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
 which is why counting distinct predicates bounds probing capacity, not
 inference; PINQ's cumulative budget is $\epsilon$ \cite{mcsherry2009pinq},
-BDG's is a set of declared facts. BDG charges
-declared facts and successful outcomes within one signed root, withholds
-delivery unless settlement succeeds, releases exact answers, and models
-neither prior knowledge, denial leakage, nor $\epsilon$; its zero-novelty
-replay is the syntactic analogue of history-aware pricing, and
-Theorem~\ref{thm:nf-soundness} is weaker than arbitrage-freedom because it
-covers listed rewrites, not information-equivalent queries.
+BDG's a set of declared facts. BDG charges declared facts and successful
+outcomes within one signed root, withholds delivery unless settlement
+succeeds, releases exact answers, and models neither prior knowledge, denial
+leakage, nor $\epsilon$; zero-novelty replay is the syntactic analogue of
+history-aware pricing, and Theorem~\ref{thm:nf-soundness} covers listed
+rewrites, not information-equivalent queries, so it is weaker than
+arbitrage-freedom.
 Why/where/how provenance identifies witnesses, locations, and derivations
 \cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance,amsterdamer2011aggregate},
 and GProM and ProvSQL provide general rewrite/circuit mechanisms
@@ -328,14 +313,13 @@ Passant formalizes optimizer-invariant aggregate predicates over each output
 tuple's bag of provenance monomials, rewrites or terminates violating queries,
 and constrains writes through source, sink, and required-source policies;
 that per-query model covers contributor thresholds, prohibited source
-combinations, grounding, and prompt-bound flows that BDG does not subsume, and
-leaves trajectory policy to future work. BDG differs in temporal unit: after
-authorization and any flow check it persists Result, Dependency, and Outcome
-sets under one root and charges exact profile-relative novelty across queries,
-retries, pages, supported rewrites, and descendants, co-committing settlement,
-audit, receipt, and PENDING intent in one root-head transaction. DFC asks
-whether a flow is allowed; BDG asks whether another allowed flow fits the
-cumulative contract. Their composition is not evaluated here.
+combinations, grounding, and prompt-bound flows that BDG does not subsume,
+and leaves trajectory policy to future work. BDG differs in temporal unit:
+after authorization and any flow check it persists Result, Dependency, and
+Outcome sets under one root and charges exact novelty across queries,
+retries, pages, supported rewrites, and descendants in one root-head
+transaction. DFC asks whether a flow is allowed; BDG asks whether another
+allowed flow fits the cumulative contract; their composition is not evaluated.
 
 \textbf{Authorization, delegation, and agent controls.} Usage/history
 control, delegation, RLS/VPD, ABAC, and query-policy systems establish
@@ -436,7 +420,7 @@ control.
 \subsection{Publication Epochs and Task Binding}
 
 BDG's upstream boundary is a completed reporting synchronization, not a
-mutable transactional database. We model its compiled output as follows.
+mutable transactional database; we model its compiled output as follows.
 
 \begin{definition}[Publication epoch]
 A publication epoch is
@@ -457,11 +441,11 @@ $P_{e+1}$ rather than mutating $P_e$.
 \end{definition}
 
 A deployment alias such as \code{latest publication} resolves to a concrete
-Catalog digest in the authorization snapshot presented for approval, and that
-binding becomes final when approval succeeds: \emph{``latest'' is resolved at
-approval time, never at query time}, and a draft that must follow a rollover is
-reissued, not rewritten. Let $\mathsf Q(T)$ contain every query issued by an
-approved root $T$ or any delegated descendant. Then
+Catalog digest in the authorization snapshot presented for approval and
+becomes final when approval succeeds (\emph{``latest'' is resolved at
+approval time, never at query time}; a draft that must follow a rollover is
+reissued). Let $\mathsf Q(T)$ contain every query issued by an approved root
+$T$ or any delegated descendant. Then
 \begin{equation}
  \begin{aligned}
  \operatorname{publication}(T)&=P_e,\\
