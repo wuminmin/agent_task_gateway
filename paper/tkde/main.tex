@@ -1407,13 +1407,11 @@ remain non-publication mechanism evidence cited only in the supplement. One resi
 open several measurement windows (independent client sessions) and submit
 only one; the experiment protocol, not the Gateway, forbids that, and every retained sample here is the single window the
 protocol allowed.
-RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host, and
-TPC-H-derived (not official). Archived V4 used one index build and deployment rather than
-\RQFourVFourRoots{} independent deployments. Retained raw data reconstructs each
-digest gate except the omitted payload hashes above. RQ5 sums
-three sequential warm child intervals, and its router is an experiment
-controller, not a production load balancer. No result is generalized to
-cold-cache, multi-node, or production-SLO behavior.
+RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host,
+and TPC-H-derived (not official), and the archived V4 run used one index
+build and deployment; RQ5 sums three sequential warm child intervals behind
+an experiment controller, not a production load balancer. No result is
+generalized to cold-cache, multi-node, or production-SLO behavior.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
