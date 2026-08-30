@@ -1170,11 +1170,19 @@ configurations---the ledger model has one root and one child, two requests,
 two facts per dimension, limits $1/1/2$, and one replay
 (\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
 explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
-\ArtifactFormalStates{} states (bounds in the supplement); they are sanity
-checks of the specification that abstract away SQL, rows, hashes, signatures,
-networking, and ciphertext. Executable Go/PostgreSQL differential,
-concurrency, tamper, and fault-injection tests check implementation
-correspondence (the supplement maps the layers and gaps); we claim bounded
+\ArtifactFormalStates{} states (bounds in the supplement): sanity checks of
+the specification that abstract away SQL, rows, hashes, signatures, and
+ciphertext. Executable Go/PostgreSQL differential, concurrency, tamper, and
+fault-injection tests check implementation correspondence (the supplement
+maps layers and gaps); among them a randomized root-family test settles
+\VFiveFamilyPropertyQueries{} random observation sets over
+\VFiveFamilyPropertySeeds{} random delegation trees (up to
+\VFiveFamilyPropertyMaxTasks{} tasks) in sequential steps and concurrent
+bursts against the live Control store, checking after every step that the
+committed head equals an independent plain-set union in all three
+dimensions and never exceeds its limits, that each sequential charge is
+exactly the novelty, and that each of the \VFiveFamilyPropertyRefused{}
+refusals exceeds a limit even against the final union. We claim bounded
 model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}

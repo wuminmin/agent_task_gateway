@@ -104,7 +104,8 @@ V5_RAW_TEST_COMMAND = [
     "OutcomeHashSetV5SamePrefixMultiChunkBoundaries|"
     "NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|"
     "OutcomeHashSetV5ExactDifferenceUnionAndReplay|"
-    "OutcomeHashSetV5DeterministicAndTamperEvident)$",
+    "OutcomeHashSetV5DeterministicAndTamperEvident|"
+    "OrdinalRootFamilyRandomSequencesConserveExactNovelty)$",
 ]
 
 V5_EXPECTED_TESTS = {
@@ -119,7 +120,18 @@ V5_EXPECTED_TESTS = {
     "TestNormalizeV5OutcomeFactsValidatesAtomCompositeBinding",
     "TestOutcomeHashSetV5ExactDifferenceUnionAndReplay",
     "TestOutcomeHashSetV5DeterministicAndTamperEvident",
+    "TestOrdinalRootFamilyRandomSequencesConserveExactNovelty",
 }
+
+V5_FAMILY_PROPERTY_TEST = "TestOrdinalRootFamilyRandomSequencesConserveExactNovelty"
+V5_FAMILY_PROPERTY_SEEDS = 24
+V5_FAMILY_PROPERTY_LINE = re.compile(
+    r"seed (?P<seed>\d+): tasks=(?P<tasks>\d+) queries=(?P<queries>\d+) "
+    r"committed=(?P<committed>\d+) refused=(?P<refused>\d+) "
+    r"final=\{ReleaseFacts:(?P<release>\d+) InfluenceFacts:(?P<influence>\d+) OutcomeFacts:(?P<outcome>\d+)\} "
+    r"limits=\{ReleaseFacts:(?P<release_limit>\d+) InfluenceFacts:(?P<influence_limit>\d+) "
+    r"OutcomeFacts:(?P<outcome_limit>\d+)\}"
+)
 
 PERFORMANCE_SOURCE_DIRS = (
     "internal",
@@ -851,7 +863,53 @@ def validate_v5_measured_paths_frozen(submission_commit: str) -> None:
     )
 
 
-def validate_v5_raw_execution(receipt: dict) -> None:
+def v5_family_property_stats(events: list[dict]) -> dict:
+    """Per-seed summary lines the randomized root-family settlement test logs."""
+    seeds = {}
+    for event in events:
+        test = event.get("Test", "")
+        if event.get("Action") != "output" or not test.startswith(V5_FAMILY_PROPERTY_TEST + "/seed-"):
+            continue
+        match = V5_FAMILY_PROPERTY_LINE.search(event.get("Output", ""))
+        if match is None:
+            continue
+        values = {key: int(value) for key, value in match.groupdict().items()}
+        require(values["seed"] not in seeds, f"V5 family property seed {values['seed']} is logged twice")
+        require(
+            values["queries"] == values["committed"] + values["refused"]
+            and values["release"] <= values["release_limit"]
+            and values["influence"] <= values["influence_limit"]
+            and values["outcome"] <= values["outcome_limit"],
+            f"V5 family property seed {values['seed']} summary is inconsistent",
+        )
+        seeds[values["seed"]] = values
+    require(
+        set(seeds) == set(range(1, V5_FAMILY_PROPERTY_SEEDS + 1)),
+        "V5 family property test did not log every seed",
+    )
+    passed_seeds = {
+        event["Test"] for event in events
+        if event.get("Action") == "pass" and event.get("Test", "").startswith(V5_FAMILY_PROPERTY_TEST + "/seed-")
+    }
+    require(len(passed_seeds) == V5_FAMILY_PROPERTY_SEEDS, "V5 family property seeds did not all pass")
+    rows = list(seeds.values())
+    saturated = sum(
+        1 for row in rows
+        if row["release"] == row["release_limit"] or row["influence"] == row["influence_limit"]
+        or row["outcome"] == row["outcome_limit"]
+    )
+    return {
+        "seeds": len(rows),
+        "tasks": sum(row["tasks"] for row in rows),
+        "max_tasks": max(row["tasks"] for row in rows),
+        "queries": sum(row["queries"] for row in rows),
+        "committed": sum(row["committed"] for row in rows),
+        "refused": sum(row["refused"] for row in rows),
+        "saturated_seeds": saturated,
+    }
+
+
+def validate_v5_raw_execution(receipt: dict) -> dict:
     require(
         set(receipt) == {
             "raw_log", "raw_log_sha256", "command", "go_version",
@@ -910,6 +968,7 @@ def validate_v5_raw_execution(receipt: dict) -> None:
         and receipt.get("packages_passed") == len(package_passes),
         "V5 raw go-test receipt does not prove the exact required passing test set",
     )
+    return v5_family_property_stats(events)
 
 
 def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None:
@@ -1060,7 +1119,7 @@ def validate_v5_outcome_evidence(evidence_mode: str = "draft") -> dict:
         manifest.get("sha256") == v5_source_manifest_digest(files),
         "V5 implementation source-set digest is stale",
     )
-    validate_v5_raw_execution(result.get("raw_execution", {}))
+    result["family_property"] = validate_v5_raw_execution(result.get("raw_execution", {}))
     require(
         result.get("deterministic_set") == {
             "members": 10000, "permutation_deterministic": True,
@@ -1390,6 +1449,13 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\VFiveImplementationSourceHash}}{{\nolinkurl{{{v5_outcome['source_manifest']['sha256']}}}}}",
         rf"\newcommand{{\VFiveRawLogHash}}{{\nolinkurl{{{v5_outcome['raw_execution']['raw_log_sha256']}}}}}",
         rf"\newcommand{{\VFiveRawTestsPassed}}{{{v5_outcome['raw_execution']['tests_passed']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertySeeds}}{{{v5_outcome['family_property']['seeds']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyTasks}}{{{v5_outcome['family_property']['tasks']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyMaxTasks}}{{{v5_outcome['family_property']['max_tasks']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyQueries}}{{{v5_outcome['family_property']['queries']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyCommitted}}{{{v5_outcome['family_property']['committed']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyRefused}}{{{v5_outcome['family_property']['refused']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertySaturatedSeeds}}{{{v5_outcome['family_property']['saturated_seeds']}}}",
         rf"\newcommand{{\VFiveDeterministicMembers}}{{{comma(v5_outcome['deterministic_set']['members'])}}}",
         rf"\newcommand{{\VFiveRootCardinality}}{{{comma(v5_outcome['postgres_committed_graph']['root_cardinality'])}}}",
         rf"\newcommand{{\VFiveRootBlocks}}{{{v5_outcome['postgres_committed_graph']['root_block_count']}}}",

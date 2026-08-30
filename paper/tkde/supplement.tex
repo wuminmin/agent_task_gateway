@@ -617,9 +617,34 @@ Evidence snapshot commit & Schema-3 \code{submission_commit} in \code{evaluation
 Implementation source-set SHA-256 & \VFiveImplementationSourceHash \\
 Raw \code{go test -json} SHA-256 & \VFiveRawLogHash \\
 Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
+Randomized root-family sequences & \VFiveFamilyPropertySeeds{} seeds, \VFiveFamilyPropertyTasks{} tasks, \VFiveFamilyPropertyQueries{} settlements (\VFiveFamilyPropertyCommitted{} committed, \VFiveFamilyPropertyRefused{} refused; \VFiveFamilyPropertySaturatedSeeds{} seeds reach a limit) \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\textbf{Randomized root-family sequences.} The same raw log carries
+\code{TestOrdinalRootFamilyRandomSequencesConserveExactNovelty}
+(\filepath{internal/control/ordinal\_family\_property\_test.go}). For each of
+\VFiveFamilyPropertySeeds{} seeds it approves a root with random limits
+(6--41 Result, 8--63 Dependency, 3--8 Outcome facts), grows a random
+delegation tree of up to \VFiveFamilyPropertyMaxTasks{} tasks whose
+descendants share the root ledger, and settles up to twenty rounds of random
+observations (random subsets of a 24-ordinal row segment and a 24-ordinal
+cell segment, one Outcome fact from a six-payload pool) against the live
+Control store; one round in three is a concurrent burst of two to four tasks
+settling at once. The oracle is an ordinary Go map of the committed
+observations, independent of the bitmap and radix code. After every round
+the committed root head must equal the map's union in all three dimensions
+and never exceed the limits; for sequential steps the head delta must equal
+the observation's novelty against the union at that moment (zero for
+replays from any task in the family); and every refusal must still exceed a
+limit when unioned with the final committed set, since the union only grows.
+Over \VFiveFamilyPropertyQueries{} settlements
+(\VFiveFamilyPropertyCommitted{} committed, \VFiveFamilyPropertyRefused{}
+refused) no check failed. The test drives the V4 ordinal settlement engine
+that V5 Outcome sets build on, with children granted the root's limits; it
+does not exercise the SQL lowering, the companion statement, or narrowed
+child limits.
 
 \section{Number-to-Evidence Map}
 \label{sec:number-map-supp}

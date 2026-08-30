@@ -41,14 +41,14 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 	publishOrdinalTestDictionaryWithCount(t, store, ordinalsPerSegment)
 	expires := time.Now().UTC().Add(time.Hour)
 
-	const seeds = 8
+	const seeds = 24
 	for seed := int64(1); seed <= seeds; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
 			random := rand.New(rand.NewSource(seed))
 			limits := ExposureLimits{
-				ReleaseFacts:   int64(4 + random.Intn(20)),
-				InfluenceFacts: int64(4 + random.Intn(28)),
-				OutcomeFacts:   int64(2 + random.Intn(6)),
+				ReleaseFacts:   int64(6 + random.Intn(36)),
+				InfluenceFacts: int64(8 + random.Intn(56)),
+				OutcomeFacts:   int64(3 + random.Intn(6)),
 			}
 			rootID := fmt.Sprintf("task_family_prop_%d_root", seed)
 			createAwaitingApprovalTask(t, store, rootID, expires)
@@ -74,7 +74,7 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 			model := newFamilyUnionModel()
 			var refused []familyObservation
 			queryCounter := 0
-			for round := 0; round < 12; round++ {
+			for round := 0; round < 20; round++ {
 				var eligible []string
 				for _, task := range tasks {
 					if remainingQueries[task] > 0 {
