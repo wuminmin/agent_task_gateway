@@ -32,4 +32,7 @@ AGENTS.md 的八条做法每条都对应一次已发生的代价；同类根因�
 - 私有 Dataset Binding 钉住 `config/catalog.yaml` 的 SHA-256（`finalv5binding/binding.go:214`）：改该文件的任何一字节都让
   Scale/Artifact/ProvSQL 格拒绝发射，报错文字（「currently valid private Dataset Binding」）不点名根因。改 Catalog 前先想清是否
   值得一次作者重签；能放进 profile Catalog 或测试 Catalog 的改动不要进主 Catalog。
+- campaign 运行中不得动它的工作树：pilot-09 跑到部署完成后被「running Gateway image names revision e6a5f0d but the verified source is
+  bfb6a5b」判死——我为排队下一个 campaign 把 `~/wt-pilot` 快进了。要换提交就等它结束，或用另一个工作树。预检失败留下的
+  `raw/<campaign-id>` 目录会让同 id 重发报「refusing to overwrite」，先看内容再删。
 
