@@ -241,6 +241,14 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
 
     artifact_runs, baseline_samples, subphase_samples, provsql_leaf_samples = [], [], [], []
     for entry in manifest["runs"]:
+        if entry.get("superseded_by"):
+            # A retained run whose measurements a later run of the same family
+            # replaced (for example, sub-phase pilots measured before the
+            # derivation optimization). It stays in the manifest for
+            # provenance and is never pooled into the reported statistics.
+            if entry["superseded_by"] not in {other["id"] for other in manifest["runs"]}:
+                raise PilotEvidenceError(f"pilot run {entry['id']!r} is superseded by an unknown run")
+            continue
         if entry["family"] == "subphase":
             subphase_samples.extend(_load_profile_pilot(root, entry))
             continue
