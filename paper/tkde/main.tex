@@ -106,14 +106,14 @@ Data-flow control (DFC) asks whether a SQL flow is allowed
 any DFC checks, BDG asks whether the next allowed execution fits the root's
 cumulative contract.
 
-Query count ignores answer size; row count makes a one-row aggregate appear
-cheap despite millions of source rows; bytes and cells depend on encoding and
-shape. Query pricing develops anti-arbitrage objectives
-\cite{koutris2012query,deep2017qirana,peng2025aria}, while provenance explains
-where results came from \cite{green2007provenance,amsterdamer2011aggregate}.
-BDG instead asks how human authorization can create a stateful disclosure
-budget conserved across adaptive querying and delegation. It neither inspects
-an LLM nor depends on an agent-specific planner.
+Query count ignores answer size, row count makes a one-row aggregate over
+millions of source rows look cheap, and bytes depend on encoding. Query
+pricing develops anti-arbitrage objectives
+\cite{koutris2012query,deep2017qirana,peng2025aria} and provenance explains
+where results came from \cite{green2007provenance,amsterdamer2011aggregate};
+BDG asks how human authorization can create a stateful disclosure budget
+conserved across adaptive querying and delegation, without inspecting an LLM
+or depending on an agent-specific planner.
 
 Enterprise operational analytics commonly serves scheduled ETL outputs rather
 than OLTP primaries. BDG compiles each completed cut into an immutable
@@ -649,20 +649,16 @@ componentwise novelty
  \Delta_T^X(q)=\facts_X^\pi(q)\setminus\accounted_T^X,
  \qquad X\in\{R,D,O\}.
 \]
-This definition fixes the scope of the word \emph{exact}: it is
-governance/accounting exactness under the signed contract and closed
-semantics, and it asserts no property beyond the theorems that follow. FactIDs
-are governance accounting identities, not estimates of semantic information
-content. The definition does not compute total semantic
-information gain, differential-privacy loss, an agent knowledge state, or a
-complete side-channel account. BDG does not estimate total information learned
-by an agent or measure knowledge leakage; it prevents unaccounted governed
-release under a task-bound, versioned exposure profile.
+This definition fixes the scope of the word \emph{exact}: governance
+accounting exactness under the signed contract and closed semantics, asserting
+nothing beyond the results that follow. FactIDs are accounting identities, not
+estimates of information content, knowledge, or privacy loss; BDG prevents
+unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
 
-The six obligations separate assurance layers: O1--O4 are semantic/theorem
-claims, O5 combines separate bounded models with transaction tests, and O6 is a
-binding obligation. No bounded model or test alone proves the implementation.
+Six obligations separate the assurance layers (O1--O4 semantic claims, O5
+models plus transaction tests, O6 binding); none alone proves the
+implementation.
 
 \begin{enumerate}
 \item[\textbf{O1}] \textbf{Output coverage.} For successful result bag $R$ and
@@ -1068,11 +1064,9 @@ canonical object or AVAILABLE row; ambiguous connector outcomes charge
 resources but no exposure; terminal replay returns the first status, may
 resume PENDING promotion, and never repeats Business execution.
 
-Withholding the buffer does not hide the decision bit. Whether settlement
-accepts a query reveals whether its data-dependent novel Effect fits the
-remaining budgets, and a rejected Effect is not committed to any ledger
-dimension. Thus rejection can act as a threshold oracle that charges no exposure. It is
-not free: the prototype settles a rejected attempt as a failed query, which
+Withholding the buffer does not hide the decision bit: whether settlement
+accepts a query reveals whether its novel Effect fits the remaining budgets,
+so rejection is a threshold oracle that charges no exposure. It is not free: the prototype settles a rejected attempt as a failed query, which
 consumes one unit of the request budget $B_Q$ and its observed rows and
 database time and is recorded terminally.
 
