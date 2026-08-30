@@ -74,6 +74,26 @@ ATTACK_STEP_KEYS = (
 )
 ATTACK_EXHAUSTED_CODE = "EXPOSURE_BUDGET_EXHAUSTED"
 
+# The RLS profile replays one deterministic 100-query adaptive trace against
+# PostgreSQL row-level security (per-query), BDG with an unlimited ledger, and
+# BDG bounded at floor(70%) of the trace's distinct facts; the corpus package
+# carries an independent trace-union oracle.
+RLS_TRACE_CELL = "adaptive-100-v1/100-queries"
+RLS_CONTROL_CELL = "policy-denied-control/single"
+RLS_ARMS = ("rls", "unlimited", "bounded")
+RLS_ORACLE = "taskgate-final-v5-independent-trace-union-oracle-v1"
+
+# The Scale profile settles one candidate against a pre-seeded Dependency
+# history of the same size at a fixed overlap; the independent oracle states
+# the expected candidate, existing, and union cardinalities.
+SCALE_HISTORY_SIZES = ("10k", "100k", "1035000")
+SCALE_OVERLAPS = ("0", "50", "90", "100")
+SCALE_MODES = ("novel", "semantic_replay")
+SCALE_BOUNDARY = "dependency_e2e"
+
+# The campaign's RQ5 cells: one 345,000-row daily publication cycle.
+RQ5_CELLS = ("daily-publication-v5/345000/build_verify_activate", "daily-publication-v5/345000/retained_route")
+
 # The ProvSQL profile pairs three real systems on byte-identical grouped SQL.
 PROVSQL_WORKLOAD = "nonce-join-group"
 PROVSQL_SCALES = ("1k", "10k", "45k")
@@ -457,6 +477,164 @@ def _provsql_stats(samples):
     }
 
 
+def _rls_stats(samples):
+    """Adaptive 100-query trace under RLS, BDG unlimited, and BDG bounded.
+
+    Every retained sample of an arm must report the same per-step outcome; the
+    unlimited arm's final root ledger must equal the independent oracle's
+    trace union; the bounded arm must stop at the first prefix whose oracle
+    cardinality exceeds a budget, with nothing released after the refusal.
+    """
+    by_cell = {}
+    for sample in samples:
+        by_cell.setdefault(sample["cell_id"], []).append(sample)
+    expected = {f"{RLS_TRACE_CELL}/{arm}" for arm in RLS_ARMS} | {f"{RLS_CONTROL_CELL}/{arm}" for arm in RLS_ARMS}
+    if set(by_cell) != expected:
+        raise PublicationEvidenceError(f"rls publication evidence covers {sorted(by_cell)}, expected {sorted(expected)}")
+    per_cell = {len(values) for values in by_cell.values()}
+    if len(per_cell) != 1:
+        raise PublicationEvidenceError(f"rls cells retain unequal sample counts {sorted(per_cell)}")
+    arms = {}
+    oracle_final = None
+    prefixes = None
+    for arm in RLS_ARMS:
+        cell_samples = by_cell[f"{RLS_TRACE_CELL}/{arm}"]
+        signatures = set()
+        for sample in cell_samples:
+            verification = sample["rls_verification"]
+            steps = verification["steps"]
+            signatures.add((
+                verification.get("successful_queries"), verification.get("first_rejection_index"),
+                verification.get("stop_reason"), verification.get("results_after_budget"), sample["row_count"],
+                tuple((step["index"], step["accepted"], step["rejected"], step.get("observed_error_code"), step["row_count"],
+                       step["charged_release_facts"], step["charged_dependency_facts"], step["charged_outcome_facts"]) for step in steps),
+            ))
+            result = verification["oracle_result"]
+            if result.get("oracle") != RLS_ORACLE or result.get("queries") != 100 or len(verification["oracle_prefixes"]) != 100:
+                raise PublicationEvidenceError(f"rls {arm} sample does not carry the 100-query independent oracle")
+            final = tuple((result[dim]["cardinality"], result[dim]["budget"]) for dim in ("release", "dependency", "outcome"))
+            if oracle_final is None:
+                oracle_final = final
+                prefixes = [tuple(prefix[dim]["cardinality"] for dim in ("release", "dependency", "outcome")) for prefix in verification["oracle_prefixes"]]
+            elif final != oracle_final:
+                raise PublicationEvidenceError("rls arms disagree on the independent oracle's trace union")
+        if len(signatures) != 1:
+            raise PublicationEvidenceError(f"rls {arm} arm observed {len(signatures)} distinct trace outcomes across its samples")
+        verification = cell_samples[0]["rls_verification"]
+        steps = verification["steps"]
+        entry = {
+            "samples": len(cell_samples),
+            "successful_queries": verification["successful_queries"],
+            "first_rejection_index": verification.get("first_rejection_index"),
+            "stop_reason": verification["stop_reason"],
+            "results_after_budget": verification["results_after_budget"],
+            "rows_returned": sum(step["row_count"] for step in steps if step["accepted"]),
+            "steps": len(steps),
+            "families": sorted({step["family"] for step in steps}),
+        }
+        if arm != "rls":
+            root = verification["final_root"]
+            entry["ledger"] = (root["release_cardinality"], root["dependency_cardinality"], root["outcome_cardinality"])
+            entry["charged"] = tuple(sum(step[key] for step in steps) for key in ("charged_release_facts", "charged_dependency_facts", "charged_outcome_facts"))
+            if entry["charged"] != entry["ledger"]:
+                raise PublicationEvidenceError(f"rls {arm} step charges {entry['charged']} differ from the final ledger {entry['ledger']}")
+        arms[arm] = entry
+    budgets = tuple(budget for _, budget in oracle_final)
+    union = tuple(cardinality for cardinality, _ in oracle_final)
+    if arms["rls"]["successful_queries"] != 100 or arms["unlimited"]["successful_queries"] != 100:
+        raise PublicationEvidenceError("the RLS or unlimited arm did not answer all 100 trace queries")
+    if arms["unlimited"]["ledger"] != union:
+        raise PublicationEvidenceError(f"unlimited ledger {arms['unlimited']['ledger']} differs from the independent oracle union {union}")
+    first_over = next((k + 1 for k, prefix in enumerate(prefixes) if any(prefix[i] > budgets[i] for i in range(3))), None)
+    bounded = arms["bounded"]
+    if bounded["stop_reason"] != ATTACK_EXHAUSTED_CODE or bounded["first_rejection_index"] != first_over or bounded["results_after_budget"] != 0:
+        raise PublicationEvidenceError(f"bounded arm stopped at {bounded['first_rejection_index']} ({bounded['stop_reason']}), oracle first exceeds a budget at {first_over}")
+    if any(bounded["ledger"][i] > budgets[i] for i in range(3)):
+        raise PublicationEvidenceError(f"bounded ledger {bounded['ledger']} exceeds budgets {budgets}")
+    control = {}
+    for arm in RLS_ARMS:
+        cell_samples = by_cell[f"{RLS_CONTROL_CELL}/{arm}"]
+        rows = {sample["row_count"] for sample in cell_samples}
+        negative = {json.dumps(sample["rls_verification"].get("negative_control"), sort_keys=True) for sample in cell_samples}
+        if rows != {0} or len(negative) != 1:
+            raise PublicationEvidenceError(f"rls policy-denied control {arm} released rows {sorted(rows)} or varied")
+        item = json.loads(negative.pop())
+        control[arm] = {"rows": 0, "authorization_error": item.get("observed_authorization_error_code") or item.get("expected_authorization_error_code")}
+    return {
+        "samples": len(samples),
+        "samples_per_cell": per_cell.pop(),
+        "queries": 100,
+        "budgets": budgets,
+        "union": union,
+        "prefixes": prefixes,
+        "first_over_budget": first_over,
+        "arms": arms,
+        "control": control,
+    }
+
+
+def _scale_stats(samples):
+    """Settlement cost against a pre-seeded Dependency history, per cell.
+
+    Every sample's oracle-expected candidate, existing, and union cardinalities
+    must match what the Gateway observed, and the charged Dependency Facts must
+    equal union minus existing (novel arm) or zero (replay arm).
+    """
+    by_cell = {}
+    for sample in samples:
+        by_cell.setdefault(sample["cell_id"], []).append(sample)
+    expected = {f"dependency-e2e/{size}-overlap-{overlap}/{mode}" for size in SCALE_HISTORY_SIZES for overlap in SCALE_OVERLAPS for mode in SCALE_MODES}
+    if set(by_cell) != expected:
+        raise PublicationEvidenceError(f"scale publication evidence covers {len(by_cell)} cells, expected {len(expected)}")
+    result = {}
+    for cell, values in by_cell.items():
+        _, spec, mode = cell.split("/")
+        size, overlap = spec.replace("dependency-e2e/", "").split("-overlap-")
+        facts = set()
+        for sample in values:
+            verification = sample["scale_verification"]
+            if verification.get("boundary") != SCALE_BOUNDARY:
+                raise PublicationEvidenceError(f"scale cell {cell} declares boundary {verification.get('boundary')}")
+            if verification["expected_candidate_facts"] != verification["observed_candidate_facts"] or \
+                    verification["expected_outcome_member_cardinality"] != verification["observed_outcome_member_cardinality"]:
+                raise PublicationEvidenceError(f"scale cell {cell} observed cardinalities differ from the oracle")
+            expected_charge = verification["expected_union_facts"] - verification["expected_existing_facts"] if mode == "novel" else 0
+            if sample["charged_dependency_facts"] != expected_charge:
+                raise PublicationEvidenceError(f"scale cell {cell} charged {sample['charged_dependency_facts']} Dependency Facts, oracle expects {expected_charge}")
+            facts.add((verification["expected_candidate_facts"], verification["expected_existing_facts"], verification["expected_union_facts"]))
+        if len(facts) != 1:
+            raise PublicationEvidenceError(f"scale cell {cell} mixes histories {sorted(facts)}")
+        candidate, existing, union = facts.pop()
+        result[cell] = {
+            "history": size, "overlap_pct": int(overlap), "mode": mode, "samples": len(values),
+            "candidate_facts": candidate, "existing_facts": existing, "union_facts": union,
+            "charged_dependency_facts": union - existing if mode == "novel" else 0,
+            "settlement_p50_ms": _quantile([float(s["pipeline_ms"]["control_settlement"]) for s in values], 0.5),
+            "execute_p50_ms": _quantile([float(s["pipeline_ms"]["execute_and_derive"]) for s in values], 0.5),
+            "drain_p50_ms": _quantile([float(s["client_full_drain_ms"]) for s in values], 0.5),
+        }
+    return {"samples": len(samples), "cells": result}
+
+
+def _rq5_stats(samples):
+    by_cell = {}
+    for sample in samples:
+        by_cell.setdefault(sample["cell_id"], []).append(sample)
+    if set(by_cell) != set(RQ5_CELLS):
+        raise PublicationEvidenceError(f"rq5 publication evidence covers {sorted(by_cell)}, expected {sorted(RQ5_CELLS)}")
+    result = {}
+    for cell, values in by_cell.items():
+        rows = {s["rq5_verification"]["rows_per_publication"] for s in values}
+        if len(rows) != 1:
+            raise PublicationEvidenceError(f"rq5 cell {cell} mixes publication sizes {sorted(rows)}")
+        result[cell.split("/")[-1]] = {
+            "samples": len(values), "rows_per_publication": rows.pop(),
+            "drain_p50_ms": _quantile([float(s["client_full_drain_ms"]) for s in values], 0.5),
+            "drain_max_ms": max(float(s["client_full_drain_ms"]) for s in values),
+        }
+    return {"samples": len(samples), "cells": result}
+
+
 def _load_attack_corpus(root: Path):
     path = root / ATTACK_CORPUS_RELATIVE_PATH
     if not path.is_file():
@@ -597,4 +775,9 @@ def validate_final_v5_publication_evidence(root: Path) -> dict:
         stats["attack"] = _attack_stats(by_experiment["attack"], _load_attack_corpus(root))
     else:
         raise PublicationEvidenceError("publication campaign retains no attack samples")
+    for experiment, function in (("rls", _rls_stats), ("scale", _scale_stats), ("rq5", _rq5_stats)):
+        if experiment not in by_experiment:
+            raise PublicationEvidenceError(f"publication campaign retains no {experiment} samples")
+        stats[experiment] = function(by_experiment[experiment])
+    stats["independent_oracle_samples"] = stats["scale"]["samples"] + stats["rls"]["samples"]
     return stats

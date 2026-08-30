@@ -1725,6 +1725,69 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationAttackThresholdProbes}}{{{len(threshold['expected_thresholds'])}}}",
         rf"\newcommand{{\FinalVFivePublicationAttackThresholdAnswered}}{{{len(threshold['observed_threshold_results'])}}}",
     ])
+    # Adaptive 100-query trace: PostgreSQL RLS (per-query) versus BDG unlimited
+    # and BDG bounded, with the independent trace-union oracle's prefix curve.
+    rls = publication["rls"]
+    arm_rows = []
+    for arm, label in (("rls", "PostgreSQL RLS"), ("unlimited", "BDG, unlimited"), ("bounded", "BDG, bounded")):
+        item = rls["arms"][arm]
+        ledger = "/".join(str(v) for v in item["ledger"]) if "ledger" in item else "--"
+        stop = str(item["first_rejection_index"]) if item["first_rejection_index"] else "--"
+        arm_rows.append(" & ".join([label, str(item["successful_queries"]), stop, comma(item["rows_returned"]), ledger,
+                                    tex(item["stop_reason"])]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationRLSArmTableBody}{%" + "\n" + "\n".join(arm_rows) + "%\n}")
+    for index, name in ((0, "Release"), (1, "Dependency"), (2, "Outcome")):
+        coordinates = " ".join(f"({k},{prefix[index]})" for k, prefix in enumerate(rls["prefixes"], 1))
+        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSPrefix{name}}}{{{coordinates}}}")
+        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSBudget{name}}}{{{rls['budgets'][index]}}}")
+        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSUnion{name}}}{{{rls['union'][index]}}}")
+    bounded = rls["arms"]["bounded"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationRLSSamples}}{{{rls['samples']}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSPerCell}}{{{rls['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSQueries}}{{{rls['queries']}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSRowsRLS}}{{{comma(rls['arms']['rls']['rows_returned'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSRowsBounded}}{{{comma(bounded['rows_returned'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSBoundedSuccessful}}{{{bounded['successful_queries']}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSBoundedRefusalIndex}}{{{bounded['first_rejection_index']}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSBoundedLedger}}{{{'/'.join(str(v) for v in bounded['ledger'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSControlErrorRLS}}{{\texttt{{{tex(rls['control']['rls']['authorization_error'])}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSControlErrorBDG}}{{\texttt{{{tex(rls['control']['bounded']['authorization_error'])}}}}}",
+    ])
+    # Dependency-history scale: settlement against a pre-seeded ledger.
+    scale = publication["scale"]
+    scale_rows = []
+    for size in ("10k", "100k", "1035000"):
+        for overlap in ("0", "50", "90", "100"):
+            novel = scale["cells"][f"dependency-e2e/{size}-overlap-{overlap}/novel"]
+            replay = scale["cells"][f"dependency-e2e/{size}-overlap-{overlap}/semantic_replay"]
+            scale_rows.append(" & ".join([
+                comma(novel["existing_facts"]), overlap + r"\%", comma(novel["charged_dependency_facts"]),
+                decimal(novel["execute_p50_ms"], 1), decimal(novel["settlement_p50_ms"], 1), decimal(novel["drain_p50_ms"], 1),
+                decimal(replay["drain_p50_ms"], 1),
+            ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationScaleTableBody}{%" + "\n" + "\n".join(scale_rows) + "%\n}")
+    small = scale["cells"]["dependency-e2e/10k-overlap-0/novel"]
+    large = scale["cells"]["dependency-e2e/1035000-overlap-0/novel"]
+    large_full = scale["cells"]["dependency-e2e/1035000-overlap-100/novel"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationScaleSamples}}{{{comma(scale['samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleCells}}{{{len(scale['cells'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleSettleTenKMS}}{{{decimal(small['settlement_p50_ms'], 0)}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleSettleMillionMS}}{{{decimal(large['settlement_p50_ms'], 0)}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleSettleMillionFullOverlapMS}}{{{decimal(large_full['settlement_p50_ms'], 0)}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleMillionHistory}}{{{comma(large['existing_facts'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleMillionDrainMS}}{{{comma(int(round(large['drain_p50_ms'])))}}}",
+    ])
+    rq5 = publication["rq5"]["cells"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationRQFiveBuildS}}{{{decimal(rq5['build_verify_activate']['drain_p50_ms'] / 1000, 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationRQFiveBuildMaxS}}{{{decimal(rq5['build_verify_activate']['drain_max_ms'] / 1000, 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationRQFiveRouteS}}{{{decimal(rq5['retained_route']['drain_p50_ms'] / 1000, 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationRQFiveRows}}{{{comma(rq5['build_verify_activate']['rows_per_publication'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationRQFiveSamplesPerCell}}{{{rq5['build_verify_activate']['samples']}}}",
+        rf"\newcommand{{\FinalVFivePublicationIndependentOracleSamples}}{{{comma(publication['independent_oracle_samples'])}}}",
+    ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",

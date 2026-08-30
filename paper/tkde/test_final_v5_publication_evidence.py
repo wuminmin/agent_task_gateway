@@ -22,7 +22,16 @@ from final_v5_publication_evidence import (
     PROVSQL_SCALES,
     PROVSQL_SYSTEMS,
     PROVSQL_WORKLOAD,
+    RLS_ARMS,
+    RLS_CONTROL_CELL,
+    RLS_ORACLE,
+    RLS_TRACE_CELL,
+    RQ5_CELLS,
     SAMPLE_RECORD,
+    SCALE_BOUNDARY,
+    SCALE_HISTORY_SIZES,
+    SCALE_MODES,
+    SCALE_OVERLAPS,
     PublicationEvidenceError,
     validate_final_v5_publication_evidence,
 )
@@ -196,6 +205,91 @@ def _provsql_sample(scale: str, system: str, drain_ms: float) -> dict:
     return {"campaign_class": "publication", "record": SAMPLE_RECORD, "sample": sample}
 
 
+# Synthetic 100-query adaptive trace: distinct facts grow for the first 10
+# queries, stay flat, and jump again at query 37 (mirrors the frozen corpus shape).
+def _rls_prefixes():
+    prefixes = []
+    for k in range(1, 101):
+        if k <= 10:
+            card = (min(k, 6), min(2 * k, 12), min(2 * k, 15))
+        elif k < 37:
+            card = (6, 12, 15)
+        elif k < 100:
+            card = (6, 18, 17 + (k - 37) // 20)
+        else:
+            card = (10, 18, 27)
+        prefixes.append({"oracle": RLS_ORACLE, "queries": k,
+                         "release": {"cardinality": card[0], "budget": 7},
+                         "dependency": {"cardinality": card[1], "budget": 12},
+                         "outcome": {"cardinality": card[2], "budget": 18}})
+    return prefixes
+
+
+def _rls_sample(cell: str, drain_ms: float) -> dict:
+    arm = cell.rsplit("/", 1)[1]
+    prefixes = _rls_prefixes()
+    if cell.startswith(RLS_CONTROL_CELL):
+        verification = {"successful_queries": 1, "first_rejection_index": 2, "stop_reason": "AUTHORIZATION_DENIED",
+                        "results_after_budget": 0, "steps": [], "oracle_result": prefixes[1], "oracle_prefixes": prefixes[:2],
+                        "negative_control": {"expected_authorization_error_code": "42501" if arm == "rls" else "COLUMN_NOT_APPROVED",
+                                             "observed_authorization_error_code": "42501" if arm == "rls" else "COLUMN_NOT_APPROVED"}}
+        row_count = 0
+    else:
+        steps = []
+        prev = (0, 0, 0)
+        stop = 100 if arm != "bounded" else 37
+        for k in range(1, stop + 1):
+            card = tuple(prefixes[k - 1][d]["cardinality"] for d in ("release", "dependency", "outcome"))
+            delta = tuple(card[i] - prev[i] for i in range(3))
+            rejected = arm == "bounded" and k == 37
+            charge = (0, 0, 0) if arm == "rls" or rejected else delta
+            steps.append({"index": k, "step_id": f"q-{k}", "family": "pagination" if 10 < k < 37 else "equality",
+                          "variant": "canonical", "accepted": not rejected, "rejected": rejected,
+                          "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED" if rejected else None,
+                          "row_count": 0 if rejected else 2,
+                          "charged_release_facts": charge[0], "charged_dependency_facts": charge[1], "charged_outcome_facts": charge[2],
+                          "actual_release_facts": delta[0], "actual_dependency_facts": delta[1], "actual_outcome_facts": delta[2]})
+            if not rejected:
+                prev = card
+        verification = {"successful_queries": stop if arm != "bounded" else 36,
+                        "first_rejection_index": 37 if arm == "bounded" else None,
+                        "stop_reason": "EXPOSURE_BUDGET_EXHAUSTED" if arm == "bounded" else "TRACE_COMPLETED",
+                        "results_after_budget": 0, "steps": steps,
+                        "oracle_result": prefixes[99], "oracle_prefixes": prefixes}
+        if arm != "rls":
+            ledger = prev if arm == "unlimited" else (6, 12, 15)
+            verification["final_root"] = {"release_cardinality": ledger[0], "dependency_cardinality": ledger[1], "outcome_cardinality": ledger[2]}
+        row_count = sum(step["row_count"] for step in steps)
+    return {"campaign_class": "publication", "record": SAMPLE_RECORD,
+            "sample": {"campaign_id": CAMPAIGN_ID, "experiment_id": "rls", "cell_id": cell, "mode": arm,
+                       "warmup": False, "status": "pass", "publication_eligible": True,
+                       "client_full_drain_ms": drain_ms, "row_count": row_count, "rls_verification": verification}}
+
+
+def _scale_sample(size: str, overlap: str, mode: str, drain_ms: float) -> dict:
+    facts = {"10k": 10000, "100k": 100000, "1035000": 1035000}[size]
+    union = facts + facts * (100 - int(overlap)) // 100
+    charged = union - facts if mode == "novel" else 0
+    return {"campaign_class": "publication", "record": SAMPLE_RECORD,
+            "sample": {"campaign_id": CAMPAIGN_ID, "experiment_id": "scale",
+                       "cell_id": f"dependency-e2e/{size}-overlap-{overlap}/{mode}", "mode": mode,
+                       "warmup": False, "status": "pass", "publication_eligible": True,
+                       "client_full_drain_ms": drain_ms, "row_count": 1,
+                       "charged_dependency_facts": charged, "actual_dependency_facts": facts,
+                       "pipeline_ms": {"control_settlement": drain_ms / 5, "execute_and_derive": drain_ms / 2, "server_total": drain_ms},
+                       "scale_verification": {"boundary": SCALE_BOUNDARY, "expected_candidate_facts": facts, "observed_candidate_facts": facts,
+                                              "expected_existing_facts": facts, "expected_union_facts": union,
+                                              "expected_outcome_member_cardinality": 5, "observed_outcome_member_cardinality": 5}}}
+
+
+def _rq5_sample(cell: str, drain_ms: float) -> dict:
+    return {"campaign_class": "publication", "record": SAMPLE_RECORD,
+            "sample": {"campaign_id": CAMPAIGN_ID, "experiment_id": "rq5", "cell_id": cell, "mode": cell.split("/")[-1],
+                       "warmup": False, "status": "pass", "publication_eligible": True,
+                       "client_full_drain_ms": drain_ms, "row_count": 5,
+                       "rq5_verification": {"rows_per_publication": 345000}}}
+
+
 def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) -> dict:
     campaign_root = root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID
     corpus_path = root / ATTACK_CORPUS_RELATIVE_PATH
@@ -235,6 +329,22 @@ def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) 
                         provsql_lines.append(json.dumps(_provsql_sample(scale, system, base + i + repetition)))
             provsql_raw = dep / "raw" / "provsql.jsonl"
             provsql_raw.write_text("\n".join(provsql_lines) + "\n")
+            extra_lines = []
+            for cell_base in (RLS_TRACE_CELL, RLS_CONTROL_CELL):
+                for arm in RLS_ARMS:
+                    for i in range(3):
+                        extra_lines.append(json.dumps(_rls_sample(f"{cell_base}/{arm}", 50.0 + i + repetition)))
+            for size in SCALE_HISTORY_SIZES:
+                for overlap in SCALE_OVERLAPS:
+                    for mode in SCALE_MODES:
+                        base = {"10k": 120.0, "100k": 280.0, "1035000": 1500.0}[size] if mode == "novel" else 60.0
+                        for i in range(3):
+                            extra_lines.append(json.dumps(_scale_sample(size, overlap, mode, base + i + repetition)))
+            for cell in RQ5_CELLS:
+                for i in range(3):
+                    extra_lines.append(json.dumps(_rq5_sample(cell, 70000.0 + i + repetition)))
+            extra_raw = dep / "raw" / "extra.jsonl"
+            extra_raw.write_text("\n".join(extra_lines) + "\n")
             record = {
                 "schema_version": 1, "campaign_class": "publication", "publication_eligible": True,
                 "formal_campaign": True, "campaign_id": CAMPAIGN_ID, "submission_commit": COMMIT,
@@ -251,7 +361,10 @@ def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) 
                            "sha256": _sha(attack_raw), "bytes": attack_raw.stat().st_size},
                           {"kind": "raw_jsonl", "experiment": "provsql",
                            "path": f"deployments/{alias}/{repetition:03d}/raw/provsql.jsonl",
-                           "sha256": _sha(provsql_raw), "bytes": provsql_raw.stat().st_size}],
+                           "sha256": _sha(provsql_raw), "bytes": provsql_raw.stat().st_size},
+                          {"kind": "raw_jsonl", "experiment": "extra",
+                           "path": f"deployments/{alias}/{repetition:03d}/raw/extra.jsonl",
+                           "sha256": _sha(extra_raw), "bytes": extra_raw.stat().st_size}],
             }
             path = dep / "deployment-record.json"
             path.write_text(json.dumps(record))
@@ -304,8 +417,9 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(stats["profile_cells"], 2 * len(CELLS))
         self.assertEqual(stats["total_cells"], 2 * len(CELLS) + 3)
         self.assertEqual(stats["fresh_executions"], 3)
+        extra = 6 * 3 + 24 * 3 + 2 * 3
         self.assertEqual(stats["measured_samples"],
-                         6 * len(CELLS) * 4 * 3 + 6 * len(CONCURRENCY_CELLS) * 3 + 6 * len(ATTACK_CELLS) * 3 + 6 * 9 * 3)
+                         6 * len(CELLS) * 4 * 3 + 6 * len(CONCURRENCY_CELLS) * 3 + 6 * len(ATTACK_CELLS) * 3 + 6 * 9 * 3 + 6 * extra)
         baseline = stats["baseline"]
         self.assertEqual(baseline["replay_zero_sql_samples"], 6 * len(CELLS) * 2 * 3)
         self.assertGreater(baseline["overhead_min"], 1)
@@ -357,6 +471,44 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(ladder["rejection_code"], "EXPOSURE_BUDGET_EXHAUSTED")
         self.assertEqual(ladder["outcome_ceiling"], 5)
         self.assertEqual(attack["sequences"]["E-threshold/preregistered-v1"]["steps"][0]["task_route"], "delegated_child")
+        rls = stats["rls"]
+        self.assertEqual(rls["budgets"], (7, 12, 18))
+        self.assertEqual(rls["union"], (10, 18, 27))
+        self.assertEqual(rls["first_over_budget"], 37)
+        self.assertEqual(rls["arms"]["rls"]["successful_queries"], 100)
+        self.assertEqual(rls["arms"]["unlimited"]["ledger"], (10, 18, 27))
+        self.assertEqual(rls["arms"]["bounded"]["first_rejection_index"], 37)
+        self.assertEqual(rls["arms"]["bounded"]["ledger"], (6, 12, 15))
+        self.assertEqual(rls["control"]["rls"]["authorization_error"], "42501")
+        scale = stats["scale"]
+        self.assertEqual(len(scale["cells"]), 24)
+        cell = scale["cells"]["dependency-e2e/1035000-overlap-50/novel"]
+        self.assertEqual(cell["charged_dependency_facts"], 517500)
+        self.assertGreater(cell["settlement_p50_ms"], scale["cells"]["dependency-e2e/10k-overlap-50/novel"]["settlement_p50_ms"])
+        self.assertEqual(scale["cells"]["dependency-e2e/10k-overlap-0/semantic_replay"]["charged_dependency_facts"], 0)
+        self.assertEqual(stats["rq5"]["cells"]["build_verify_activate"]["rows_per_publication"], 345000)
+        self.assertEqual(stats["independent_oracle_samples"], 6 * 24 * 3 + 6 * 6 * 3)
+
+    def test_bounded_arm_that_releases_after_refusal_is_rejected(self):
+        for dep in (self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments").glob("*/[0-9][0-9][0-9]"):
+            def leak(sample):
+                if sample["cell_id"] == RLS_TRACE_CELL + "/bounded":
+                    sample["rls_verification"]["results_after_budget"] = 1
+            self._rewrite_raw(dep / "raw" / "extra.jsonl", 4, leak)
+        self._reseal()
+        with self.assertRaisesRegex(PublicationEvidenceError, "bounded arm stopped"):
+            validate_final_v5_publication_evidence(self.root)
+
+    def test_scale_charge_that_disagrees_with_the_oracle_is_rejected(self):
+        raw = self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments/analytics-orders/001/raw/extra.jsonl"
+
+        def drift(sample):
+            if sample["cell_id"] == "dependency-e2e/10k-overlap-0/novel":
+                sample["charged_dependency_facts"] += 1
+        self._rewrite_raw(raw, 4, drift)
+        self._reseal()
+        with self.assertRaisesRegex(PublicationEvidenceError, "oracle expects"):
+            validate_final_v5_publication_evidence(self.root)
 
     def _rewrite_raw(self, raw: Path, index: int, transform) -> None:
         lines = [json.loads(line) for line in raw.read_text().splitlines()]
