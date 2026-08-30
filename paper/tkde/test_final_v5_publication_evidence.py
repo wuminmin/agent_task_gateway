@@ -232,7 +232,8 @@ def _rls_sample(cell: str, drain_ms: float) -> dict:
         verification = {"successful_queries": 1, "first_rejection_index": 2, "stop_reason": "AUTHORIZATION_DENIED",
                         "results_after_budget": 0, "steps": [], "oracle_result": prefixes[1], "oracle_prefixes": prefixes[:2],
                         "negative_control": {"expected_authorization_error_code": "42501" if arm == "rls" else "COLUMN_NOT_APPROVED",
-                                             "observed_authorization_error_code": "42501" if arm == "rls" else "COLUMN_NOT_APPROVED"}}
+                                             "observed_authorization_error_code": "42501" if arm == "rls" else "COLUMN_NOT_APPROVED",
+                                             "policy_filtered": True, "expected_row_count": 0, "observed_row_count": 0}}
         row_count = 0
     else:
         steps = []
