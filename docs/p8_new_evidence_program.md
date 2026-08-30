@@ -61,4 +61,8 @@
 5. **adapter**：`evaluation/cmd/final-v5-adapter/`（新 workload 分支 + capability.go 的 publicationRequirements 矩阵）。
 6. **校验器**：`evaluation/internal/experiment/`（frozen primary matrix 扩展 + 预注册步数/预期计费 + schema 若有新字段则 v1/v3 同步）。
 7. **发链前**：`go vet -tags taskgate_integration ./...`；DB 套件；生成器 13 单测；再 v5 链。
+- 2026-08-31 05:20 CST：契约 v1.12 闭环——阶梯 Product 对+预算 profile 落地（P8-C2-V112），激活固定点达成（P8-C2-FIXEDPOINT，
+  live pE-v112-fixedpoint-10 全绿 + 离线固定点提交 c126487），全量 evaluation 套件与 vet -tags 全绿。十次发射的失败谱系
+  （分支落后/旧版钉死/磁盘满）与流程补丁（预检内置 pull、df 纪律）见台账。
+  下一步：DB 套件+链 #8 复核 v1.12 树，然后 (c2) 阶梯的 adapter/校验器休眠切片（slice b），最后 workload 声明激活（slice c）。
 
