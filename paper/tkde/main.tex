@@ -899,15 +899,14 @@ mean arbitrary SQL.
 \subsection{Canonical Join and Semantic-View Lowering}
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
-builder, which emits the multi-way join operator (\code{JoinMany}) and the
-deterministic binary SQL/effect fold; unsupported joins, set trees, and
-pagination fail closed, and callers cannot supply roles, SQL fragments,
-FactIDs, or provenance. For semantic Views, one catalog snapshot checks exact
-definitions, interfaces, and dependency edges, expands safe acyclic Views to
-Catalog-mapped materialized leaves, and emits the same core; four digests
-(root definition, dependency closure, canonical plan, public interface) bind
-into the Grant and query, recompilation plus a same-snapshot connector check
-detects drift and requires a new approval, and execution resolves
+builder, which emits the multi-way join operator and the deterministic binary
+SQL/effect fold; unsupported joins, set trees, and pagination fail closed,
+and callers cannot supply roles, SQL fragments, FactIDs, or provenance. For
+semantic Views, one catalog snapshot checks definitions, interfaces, and
+dependency edges, expands safe acyclic Views to materialized leaves, and
+emits the same core; four digests (root definition, dependency closure,
+canonical plan, public interface) bind into the Grant and query, drift
+detected at recompilation requires a new approval, and execution resolves
 least-privilege terminal scopes before reservation.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
@@ -1111,9 +1110,8 @@ acceptable when fully used, and unit weights enable exact set union, not harm
 or DP accounting.
 
 \textbf{Worked policy.} The campaign's bounded trace profile
-(Section~\ref{sec:attack-provsql}) is a policy in which every exposure
-dimension binds before any counter: for the purpose ``review this
-department's receipts'' it grants
+(Section~\ref{sec:attack-provsql}) binds every exposure dimension before
+any counter: for ``review this department's receipts'' it grants
 $B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$
 next to a request budget of 110 and a row budget of 1,000, so on the
 \FinalVFivePublicationRLSQueries{}-query trace the counters admit
@@ -1122,10 +1120,10 @@ everything (\FinalVFivePublicationRLSRowsRLS{} rows in
 refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}, the first
 equivalent predicate that reads new base facts; a row counter tight enough to
 stop there (\FinalVFivePublicationRLSRowsBounded{} rows) would also stop
-distinct look-ups that read nothing new, and a query counter charges pages and
-replays that the set ledger settles at zero. The attack corpus shows $B_O$
-binding (\FinalVFivePublicationAttackThresholdCeiling{} atoms and composites
-refuse the third count probe), and $B_R$ binds in the sweep case: under the
+look-ups that read nothing new, and a query counter charges pages and
+replays the ledger settles at zero. The ladder shows $B_O$ binding
+(\FinalVFivePublicationAttackThresholdCeiling{} atoms and composites refuse
+the third count probe), and $B_R$ binds in the sweep case: under the
 campaign's default low route ($B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$,
 $B_O=B_Q=128$ on $10^5$-row Products) paging the whole $10^5\times16$
 Product in 100 pages of 1,000 rows releases $1.6\times10^6$ Facts and 100
@@ -1232,9 +1230,9 @@ and RQ5 are regenerated at the submission commit; the campaign is sealed at
 \FinalVFivePublicationCommit{}. RQ2
 (\RQTwoExposureCases{} cases, \RQTwoExposureMismatches{} mismatches)
 requires equal Result/Dependency sets and zero bidirectional charge; RQ3
-(\RQThreeCases{} cases, each deterministic and as a PostgreSQL race test)
-covers split, page, retry, snapshot identity, joins/unions, delegation, and
-races; RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
+(\RQThreeCases{} cases, deterministic and as PostgreSQL race tests) covers
+split, page, retry, snapshot identity, joins/unions, delegation, and races;
+RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
 \FinalVFivePublicationRQFiveBuildS{}~s p50); Outcome regressions cover empty
@@ -1287,10 +1285,9 @@ not interactive ones.
 
 \begin{table}[t]
 \centering
-\caption{Core workloads, per cell: rows, Release and Dependency Facts, and
-medians (ms) of direct PostgreSQL, novel governed, semantic replay, and
-idempotent replay over \FinalVFivePublicationBaselinePerCell{} samples;
-overhead is novel over direct.}
+\caption{Core workloads per cell: rows, Release/Dependency Facts, medians
+(ms) of direct, novel, semantic and idempotent replay over
+\FinalVFivePublicationBaselinePerCell{} samples; overhead is novel/direct.}
 \label{tab:baseline-main}
 \scriptsize
 \setlength{\tabcolsep}{1.4pt}
@@ -1449,9 +1446,9 @@ novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
 \FinalVFivePublicationConcurrencySpreadMaxPct\%); the retained pilot
 (\FinalVFivePilotArtifactCommit{}) is cited only in the supplement. One
-residual freedom lies outside the mechanism: an Adapter may open several measurement windows and submit only
-one; the protocol forbids that, and every retained sample is the single
-window it allowed. RQ1--RQ3 use small fixtures;
+residual freedom lies outside the mechanism: an Adapter could open several
+measurement windows and submit one; the protocol forbids that. RQ1--RQ3 use
+small fixtures;
 ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
 official); the archived V4 run used one index build; RQ5 sums three
 sequential warm child intervals behind an experiment controller. No result
@@ -1492,14 +1489,12 @@ requests per second from width 10 to 50, and multi-root throughput is
 unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted:
-BDG validates structural and version bindings for administrator-attested
-identities, supported semantics, and settlement, not policy appropriateness.
-Its single database path and demo approval adapter provide no production
-integration study, integration-cost measurement, or practitioner study of
-budget calibration of the kind marketplace-integrated agents report
+BDG validates bindings, supported semantics, and settlement, not policy
+appropriateness. Its single database path and demo approval adapter provide
+no production integration or practitioner study of budget calibration of the
+kind marketplace-integrated agents report
 \cite{tonnarelli2026dataproductmcp}; multi-engine connectors and Policy
-Studio remain future work. Archived V4 used \RQFourVFourBuildRuns{} build,
-and the radix results establish touched-branch I/O shape only.
+Studio remain future work.
 
 \section{Conclusion}
 
