@@ -1398,7 +1398,12 @@ so those payloads cannot be re-hashed from it.
 Every performance number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
-and no state carried between them. The earlier retained pilot runs
+and no state carried between them. Across those three executions the
+per-execution novel medians of a Baseline cell differ by at most
+\FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
+\FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
+\FinalVFivePublicationConcurrencySpreadMaxPct\%); the supplement lists every
+cell's per-execution medians. The earlier retained pilot runs
 (\FinalVFivePilotArtifactSamples{} artifact samples over
 \FinalVFivePilotArtifactCells{} result-heavy cells across
 \FinalVFivePilotArtifactDeployments{} deployments of commit

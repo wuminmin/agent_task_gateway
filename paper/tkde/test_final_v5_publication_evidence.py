@@ -186,6 +186,16 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertGreater(fifty["drain_p50_ms"], concurrency["serial-control/1/serial"]["drain_p50_ms"])
         self.assertLessEqual(fifty["drain_p50_ms"], fifty["drain_p95_ms"])
         self.assertAlmostEqual(fifty["requests_per_second_at_p50"], 50 * 1000.0 / fifty["drain_p50_ms"])
+        spread = stats["novel_spread"]
+        self.assertEqual(set(spread), set(CELLS))
+        for cell in CELLS:
+            self.assertEqual(len(spread[cell]["execution_medians"]), 3)
+            # the fixture adds the repetition number to every latency, so the medians rise by 1 per execution
+            self.assertAlmostEqual(spread[cell]["execution_medians"][2] - spread[cell]["execution_medians"][0], 2.0)
+            self.assertGreater(spread[cell]["spread"], 0)
+        self.assertEqual(set(stats["direct_spread"]), set(CELLS))
+        self.assertEqual(set(stats["concurrency_spread"]), set(CONCURRENCY_CELLS))
+        self.assertEqual(stats["concurrency_spread"]["serial-control/1/serial"]["spread"], 0.0)
 
     def test_missing_pipeline_phase_is_rejected(self):
         raw = self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments/analytics-orders/001/raw/baseline.jsonl"

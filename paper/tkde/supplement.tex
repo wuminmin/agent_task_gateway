@@ -1060,6 +1060,49 @@ One qualification belongs with these numbers: the per-Task row budget is a
 cumulative ledger and is charged on replay, so replay is free of Fact charges
 but not of row budget.
 
+\section{Publication Campaign: Between-Execution Dispersion}
+\label{sec:dispersion-publication-supp}
+
+Each profile was deployed three times from scratch and every Baseline cell
+was measured in each deployment. Table~\ref{tab:spread-publication} reports,
+per cell, the median of the novel and direct arms within each execution and
+the spread of those three medians relative to the pooled median; the
+concurrency rounds are reported the same way in
+Table~\ref{tab:concurrency-spread-publication}. The executions ran
+sequentially on the same host without cache resets, so the spread bounds
+run-to-run variation on one warm host, not cross-host variation.
+
+\begin{table}[t]
+\centering
+\caption{Per-execution medians (ms) of the novel and direct arms for every
+Baseline cell, with the relative spread of the three medians.}
+\label{tab:spread-publication}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & \multicolumn{4}{c}{Novel} & \multicolumn{4}{c}{Direct} \\
+Cell & Exec.~1 & Exec.~2 & Exec.~3 & Spread & Exec.~1 & Exec.~2 & Exec.~3 & Spread \\
+\midrule
+\FinalVFivePublicationSpreadTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Per-execution median round drain (ms) of every concurrency cell,
+with the relative spread of the three medians.}
+\label{tab:concurrency-spread-publication}
+\small
+\begin{tabular}{rlrrrr}
+\toprule
+Width & Mode & Exec.~1 & Exec.~2 & Exec.~3 & Spread \\
+\midrule
+\FinalVFivePublicationConcurrencySpreadTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Publication Campaign: Same-Root Concurrency}
 \label{sec:concurrency-publication-supp}
 

@@ -1581,6 +1581,33 @@ def main(argv: list[str] | None = None) -> None:
         ]) + r" \\")
     lines.append(r"\newcommand{\FinalVFivePublicationConcurrencyTableBody}{%" + "\n" +
                  "\n".join(concurrency_rows) + "%\n}")
+    # Between-execution dispersion: per-execution medians of the novel and
+    # direct arms per Baseline cell, and of the round drain per concurrency cell.
+    spread_rows = []
+    for cell in sorted(publication["novel_spread"]):
+        novel = publication["novel_spread"][cell]
+        direct = publication["direct_spread"][cell]
+        spread_rows.append(" & ".join([
+            cell.replace("_", r"\_"),
+            *(decimal(v, 2) for v in novel["execution_medians"]), decimal(100 * novel["spread"], 1) + r"\%",
+            *(decimal(v, 2) for v in direct["execution_medians"]), decimal(100 * direct["spread"], 1) + r"\%",
+        ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationSpreadTableBody}{%" + "\n" + "\n".join(spread_rows) + "%\n}")
+    concurrency_spread_rows = []
+    for cell in ("serial-control/1/serial", "shared-root/10/forced_queue_safety",
+                 "shared-root/10/natural_contention", "shared-root/50/forced_queue_safety",
+                 "shared-root/50/natural_contention"):
+        item = publication["concurrency_spread"][cell]
+        concurrency_spread_rows.append(" & ".join([
+            cell.split("/")[1], cell.split("/")[2].replace("_", r"\_"),
+            *(decimal(v, 1) for v in item["execution_medians"]), decimal(100 * item["spread"], 1) + r"\%",
+        ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationConcurrencySpreadTableBody}{%" + "\n" + "\n".join(concurrency_spread_rows) + "%\n}")
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationNovelSpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['novel_spread'].values()), 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationDirectSpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['direct_spread'].values()), 1)}}}",
+        rf"\newcommand{{\FinalVFivePublicationConcurrencySpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['concurrency_spread'].values()), 1)}}}",
+    ])
     serial = publication["concurrency"]["serial-control/1/serial"]
     fifty = publication["concurrency"]["shared-root/50/natural_contention"]
     lines.extend([

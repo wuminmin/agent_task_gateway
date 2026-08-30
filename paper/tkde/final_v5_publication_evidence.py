@@ -231,6 +231,33 @@ def _concurrency_stats(samples):
     return result
 
 
+def _execution_spread(samples, key=lambda sample: "/".join(sample["cell_id"].split("/")[:2]),
+                      value=lambda sample: float(sample["client_full_drain_ms"]),
+                      select=lambda sample: sample["mode"] == "novel"):
+    """Per-execution medians and their relative spread for every selected cell.
+
+    Spread is (max - min) / pooled median over the FRESH_EXECUTIONS medians;
+    every cell must be present in every execution.
+    """
+    by_cell = {}
+    for sample in samples:
+        if not select(sample):
+            continue
+        by_cell.setdefault(key(sample), {}).setdefault(sample["_repetition"], []).append(value(sample))
+    result = {}
+    for cell, by_repetition in sorted(by_cell.items()):
+        if set(by_repetition) != set(range(1, FRESH_EXECUTIONS + 1)):
+            raise PublicationEvidenceError(f"cell {cell} is not present in every fresh execution")
+        medians = [_median(by_repetition[rep]) for rep in range(1, FRESH_EXECUTIONS + 1)]
+        pooled = _median([v for values in by_repetition.values() for v in values])
+        result[cell] = {
+            "execution_medians": medians,
+            "pooled_median": pooled,
+            "spread": (max(medians) - min(medians)) / pooled if pooled > 0 else 0.0,
+        }
+    return result
+
+
 def _baseline_stats(samples):
     by_cell = {}
     exposure = {}
@@ -303,6 +330,9 @@ def validate_final_v5_publication_evidence(root: Path) -> dict:
         records.append(record)
         record_digests.append(record_digest)
         for sample in samples:
+            # Tag the fresh execution the sample came from so dispersion between
+            # the three independent executions can be reported.
+            sample["_repetition"] = record["repetition"]
             by_experiment.setdefault(sample["experiment_id"], []).append(sample)
     expected_records = campaign["deployments"]
     if len(records) != expected_records:
@@ -343,10 +373,14 @@ def validate_final_v5_publication_evidence(root: Path) -> dict:
     if "baseline" in by_experiment:
         stats["baseline"] = _baseline_stats(by_experiment["baseline"])
         stats["phases"] = _phase_stats(by_experiment["baseline"])
+        stats["novel_spread"] = _execution_spread(by_experiment["baseline"])
+        stats["direct_spread"] = _execution_spread(by_experiment["baseline"], select=lambda s: s["mode"] == "direct")
     else:
         raise PublicationEvidenceError("publication campaign retains no baseline samples")
     if "concurrency" in by_experiment:
         stats["concurrency"] = _concurrency_stats(by_experiment["concurrency"])
+        stats["concurrency_spread"] = _execution_spread(
+            by_experiment["concurrency"], key=lambda s: s["cell_id"], select=lambda s: True)
     else:
         raise PublicationEvidenceError("publication campaign retains no concurrency samples")
     return stats
