@@ -331,45 +331,42 @@ inference safety.
 
 \begin{table*}[t]
 \centering
-\caption{Representative control boundaries from the cited artifacts. Entries
-describe modeled or paper-reported scopes, not a feature score or latency
-ranking; each system's non-goals relative to BDG are stated in the text.}
+\caption{Representative control boundaries from the cited artifacts (modeled
+or paper-reported scopes, not a feature score); each system's SQL/tool
+boundary and non-goals relative to BDG are stated in the text.}
 \label{tab:system-comparison}
 \scriptsize
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.0}
-\begin{tabular}{L{0.12\textwidth}L{0.22\textwidth}L{0.2\textwidth}L{0.21\textwidth}L{0.19\textwidth}}
+\begin{tabular}{L{0.14\textwidth}L{0.28\textwidth}L{0.26\textwidth}L{0.26\textwidth}}
 \toprule
-System/family & Controlled object and decision & Horizon and persistent subject & Enforcement/release coupling & Reported SQL or tool boundary \\
+System/family & Controlled object and decision & Horizon and persistent subject & Enforcement/release coupling \\
 \midrule
 \system & Declared Result, Dependency, and Outcome FactID set novelty:
 does the next release fit the budget? & One signed, publication-bound root
 family; descendants share its persistent ledger & One three-dimensional
 root-head CAS co-commits ledger, audit, receipt, and PENDING intent; availability
-is recoverable & Closed read-only reporting fragment: SPJG, multi-way
-equijoin, bounded Union/View DAGs \\
+is recoverable \\
 DFC/Passant \cite{summers2026dataflow,summers2026passant} & Aggregate policy
 predicate over a bag of provenance monomials: is this flow compliant? & One
 SQL execution; relational context may include identity, delegation, or system
 state; trajectory policy is future work & REMOVE/transform/KILL; source,
-required-source, and sink write policies & Monotonic SQL-92; five engines \\
+required-source, and sink write policies \\
 GAAP \cite{stanley2026gaap} & Permission-consistent disclosure of IFC-labeled
 private data & Persistent state across execution steps and tasks separated in
-time & Deterministic disclosure confinement at agent/tool sinks & Agent
-execution environment with cross-service flows \\
+time & Deterministic disclosure confinement at agent/tool sinks \\
 GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} & General query provenance representation, rewriting, and circuits & Query-result
 derivations; no root-family budget & Capture and evaluate provenance; no
-cumulative release decision & Broader SQL/provenance scope than BDG \\
+cumulative release decision \\
 Data Product MCP \cite{tonnarelli2026dataproductmcp} & Purpose-versus-contract
 compliance and pre-execution contract guards: may this query run for this
 purpose? & Per query; an audit chain links question, purpose, policy, SQL, and
 result & Reject or run before execution; no settlement or availability
-protocol & MCP tools over marketplace data products; LLM-based governance
-check \\
+protocol \\
 SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
 from schema, constraints, and interaction history & Multi-turn history
 supplied to the model; no persisted ledger & Reject or generate SQL at the
-model/NLIDB layer & LLM-based natural-language database interface \\
+model/NLIDB layer \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -1289,7 +1286,7 @@ idempotent replay over \FinalVFivePublicationBaselinePerCell{} samples;
 overhead is novel over direct.}
 \label{tab:baseline-main}
 \scriptsize
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.4pt}
 \begin{tabular}{lrrrrrrrr}
 \toprule
 Cell & Rows & Rel. & Dep. & Direct & Novel & Sem. & Idem. & Over. \\
@@ -1393,7 +1390,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.23\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.21\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
