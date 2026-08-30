@@ -80,9 +80,7 @@ ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
 represent cumulative effects. Paper theorems, bounded model checking, and
 executable PostgreSQL differential and fault-injection tests validate the
 scoped semantics and protocol. BDG targets periodic governed reporting
-products; it neither measures an agent's complete knowledge nor provides
-differential privacy, and it excludes mutable transactional databases and
-cross-publication knowledge accounting.
+products and measures neither an agent's knowledge nor differential privacy.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -1088,12 +1086,10 @@ $\mathsf{Observed}\subseteq\mathsf{Available}\subseteq\mathsf{Accounted}$ and
 $\mathsf{Available}\Rightarrow\mathsf{Settled}$, but not conversely.
 
 Unlike request idempotence, semantic replay binds task/grant, typed normal
-form/parameters, Catalog/schema/publication/dictionaries, and all profile and
-encoding versions. A hit skips Business/provenance SQL but reauthorizes,
-charges resources, audits, receipts, and re-encrypts; any mismatch or failed
-verification takes the novel path. Because $P_{e+1}$ changes publication
-bindings, new tasks cannot hit $P_e$ entries, which remain only for retained
-$P_e$ roots.
+form/parameters, Catalog/schema/publication/dictionaries, and every profile
+and encoding version; a hit skips Business/provenance SQL but still
+reauthorizes, charges resources, audits, receipts, and re-encrypts, any
+mismatch takes the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
 
 \subsection{Receipts and Failure Semantics}
 
