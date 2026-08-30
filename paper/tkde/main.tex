@@ -172,7 +172,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.90\textwidth}{!}{%
+\resizebox{0.86\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -559,13 +559,11 @@ $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
  \end{aligned}
  \label{eq:outcome-fact}
 \end{equation}
-Thus repeated literals and supported rewrites reuse atom identities, while the
-composite commits to the complete normalized query, exact result observation,
-and the complete atom set. The Merkle-radix set stores $M_O(q)$; Control
-PostgreSQL stores each canonical Fact payload and fails closed on a same-hash,
-different-payload collision. Empty results and scalar zero remain explicit.
-The signed grant bounds raw literal occurrences, unique atoms, one atom
-payload, and total atom payload before settlement.
+Repeated literals and supported rewrites thus reuse atom identities, while
+the composite commits to the normalized query, exact result observation, and
+complete atom set; the Merkle-radix set stores $M_O(q)$, empty results and
+scalar zero remain explicit, and the signed grant bounds literal occurrences,
+unique atoms, and atom payloads before settlement.
 
 \begin{proposition}[Fact identity well-definedness]
 \label{thm:fact-identity}
@@ -867,25 +865,18 @@ output rows.
 
 \subsection{Conservation Properties}
 
-The following properties apply only to the operators and rewrites stated here.
-They are not claims about all semantically equivalent SQL.
-
-The supplement proves deterministic/idempotent Fact-set normalization and the
-restricted selection--projection invariance used by the rewrite tests.
+The properties below cover only the stated operators and rewrites, not
+arbitrary equivalent SQL; the supplement proves Fact-set normalization and the
+restricted selection--projection invariance the rewrite tests use.
 
 \begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
 \label{def:nf}
 $NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
-normal-form profile fixed by the task contract. Multi-source SQL
-replaces aliases by Catalog stable roles, canonicalizes the accepted join
-graph, and recursively orders all commutative components by typed stable
-identity. Equality is syntactic; the complete ordering, scalar domains, and
-rejected constructs are supplemental. The task contract binds exactly one
-normal-form profile; no alternative is selected at query time.
-The complete typed digest is the query-semantic component of replay/outcome
-identity; authorization and settlement additionally bind grant, policy, and
-effect context. Query normalization is distinct from final-ledger Fact-set
-$\operatorname{normalize}$.
+one normal-form profile the task contract binds: aliases become Catalog
+stable roles, the accepted join graph is canonicalized, and commutative
+components are ordered by typed stable identity; equality is syntactic. Its
+typed digest is the query-semantic component of replay/outcome identity,
+distinct from final-ledger Fact-set $\operatorname{normalize}$.
 \end{definition}
 
 \begin{theorem}[Typed normal-form soundness]
@@ -932,12 +923,6 @@ predicate atoms are reused exactly when their canonical footprint components
 agree, so a family of page or threshold questions does not collapse wholesale.
 \end{theorem}
 \emph{Proof in the supplement.}
-
-Besides the rewrites above, the profile binds namespace, snapshot, lineage digest,
-canonical SQL types, collation
-names/versions, PostgreSQL three-valued bag semantics, UTC, and exact numeric
-mode. It deliberately performs no outer-join, arithmetic, window, subquery, or
-general SQL equivalence reasoning.
 
 \section{Online Accounting}
 \label{sec:online}
