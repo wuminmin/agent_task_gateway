@@ -76,18 +76,6 @@ const (
 // it by skipping.
 var composeGateAllowedSkips = []AllowedSkip{
 	{
-		Package: activationSupportPackage,
-		Test:    "TestRegistryClaimsNoSupportWithoutAManifest", Category: SkipPremiseExcludedByState,
-		ReasonSubstring: "this contract release has an activation support manifest",
-		Why: "between release freezes the tree carries its live activation-support manifest, so the " +
-			"no-manifest premise is false; a state-independent fixture covers the invariant, and the " +
-			"repository-state gate runs at each release-freeze bootstrap, where the manifest is absent " +
-			"by design (last at 900fc96, the v1.11 freeze)",
-		Scope: composeGateScope, DeferredUntil: DeferredNextReleaseFreeze,
-		RequiredExternalGate: "the release-freeze bootstrap, which removes activation-support-v1.json " +
-			"before regenerating; run ./evaluation/cmd/final-v5-activation-support then",
-	},
-	{
 		Package: adapterPackage,
 		Test:    "TestAttackAdapterLivePreflight", Category: SkipSeparateDeployment,
 		ReasonSubstring: "TASKGATE_FINAL_V5_ATTACK_LIVE=1 is required",
