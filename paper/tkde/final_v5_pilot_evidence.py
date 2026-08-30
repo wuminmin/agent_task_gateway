@@ -101,6 +101,89 @@ def _load_run(root: Path, entry: dict) -> list[dict]:
     return samples
 
 
+# Gateway component timings retained by the sub-phase pilot (profile-campaign
+# pilot with the adapter keeping the Gateway's component_ms map).
+SUBPHASE_CELLS = ("S1/SF1", "S2/SF10", "S6/100k-x16")
+SUBPHASE_COMPONENTS = (
+    "business_postgresql", "provenance_postgresql", "ordinal_visible_preparation", "ordinal_stream",
+    "ordinal_stream_consumer", "ordinal_finish", "bitmap_derivation", "exposure_derivation",
+    "result_encoding", "encryption", "settle_persist", "exposure_fact_store", "receipt_signing",
+)
+
+
+def _load_profile_pilot(root: Path, entry: dict) -> list[dict]:
+    """Load a profile-campaign pilot run (deployments/<alias>/NNN/raw/*.jsonl)."""
+    run_dir = root / entry["path"]
+    evidence_path = run_dir / "campaign-evidence.json"
+    if not evidence_path.is_file():
+        raise PilotEvidenceError(f"pilot campaign {entry['id']} has no campaign-evidence.json")
+    observed = _digest(evidence_path)
+    if observed != entry["campaign_evidence_sha256"]:
+        raise PilotEvidenceError(f"pilot campaign {entry['id']} evidence digest {observed[:12]} differs from the manifest's")
+    evidence = json.loads(evidence_path.read_text())
+    if evidence.get("campaign_class") != "pilot" or evidence.get("publication_eligible") is not False:
+        raise PilotEvidenceError(f"pilot campaign {entry['id']} is not a publication-ineligible pilot")
+    if evidence.get("submission_commit") != entry["submission_commit"]:
+        raise PilotEvidenceError(f"pilot campaign {entry['id']} was not run from the manifest's commit")
+    samples = []
+    for record_path in sorted(run_dir.glob("deployments/*/[0-9][0-9][0-9]/deployment-record.json")):
+        record = json.loads(record_path.read_text())
+        if record.get("campaign_class") != "pilot" or record.get("publication_eligible") is not False:
+            raise PilotEvidenceError(f"pilot campaign {entry['id']} deployment record is not pilot class")
+        for file in record.get("files", []):
+            if file.get("kind") != "raw_jsonl":
+                continue
+            path = run_dir / file["path"]
+            if not path.is_file() or path.is_symlink() or _digest(path) != file["sha256"]:
+                raise PilotEvidenceError(f"pilot campaign {entry['id']} sample file {file['path']} is absent or changed")
+            for line in _read_samples(path):
+                sample = line.get("sample", {})
+                if sample.get("warmup"):
+                    continue
+                if line.get("campaign_class") != "pilot" or sample.get("publication_eligible") is not False:
+                    raise PilotEvidenceError(f"pilot campaign {entry['id']} carries a non-pilot sample")
+                if sample.get("status") != "pass":
+                    raise PilotEvidenceError(f"pilot campaign {entry['id']} retains a non-passing sample")
+                samples.append(sample)
+    if len(samples) != entry["measured_samples"]:
+        raise PilotEvidenceError(f"pilot campaign {entry['id']} has {len(samples)} measured samples, manifest declares {entry['measured_samples']}")
+    return samples
+
+
+def _subphase_stats(samples: list[dict]) -> dict:
+    """Per-component medians of the novel arm for the cells the paper discusses."""
+    by_cell: dict[str, list[dict]] = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "baseline" or sample.get("mode") != "novel":
+            continue
+        cell = "/".join(sample["cell_id"].split("/")[:2])
+        by_cell.setdefault(cell, []).append(sample)
+    missing = [cell for cell in SUBPHASE_CELLS if cell not in by_cell]
+    if missing:
+        raise PilotEvidenceError(f"sub-phase pilot is missing novel cells {missing}")
+    result = {}
+    for cell in SUBPHASE_CELLS:
+        values = by_cell[cell]
+        components: dict[str, list[float]] = {}
+        for sample in values:
+            component = sample.get("component_ms")
+            if not component:
+                raise PilotEvidenceError(f"sub-phase pilot sample in {cell} retains no component_ms")
+            for name, value in component.items():
+                components.setdefault(name, []).append(float(value))
+        execute = _median([float(s["pipeline_ms"]["execute_and_derive"]) for s in values])
+        medians = {name: _median(vals) for name, vals in components.items()}
+        result[cell] = {
+            "samples": len(values),
+            "execute_and_derive_p50_ms": execute,
+            "server_total_p50_ms": _median([float(s["pipeline_ms"]["server_total"]) for s in values]),
+            "components_p50_ms": medians,
+            "dependency_facts": values[0]["actual_dependency_facts"],
+            "release_facts": values[0]["actual_release_facts"],
+        }
+    return result
+
+
 def validate_final_v5_pilot_evidence(root: Path) -> dict:
     """Return the statistics the manuscript cites from retained pilot runs."""
     manifest_path = root / MANIFEST_RELATIVE_PATH
@@ -110,8 +193,11 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     if manifest.get("publication_eligible") is not False:
         raise PilotEvidenceError("pilot evidence manifest must declare itself publication-ineligible")
 
-    artifact_runs, baseline_samples = [], []
+    artifact_runs, baseline_samples, subphase_samples = [], [], []
     for entry in manifest["runs"]:
+        if entry["family"] == "subphase":
+            subphase_samples.extend(_load_profile_pilot(root, entry))
+            continue
         samples = _load_run(root, entry)
         if entry["family"] == "artifact":
             artifact_runs.append((entry, samples))
@@ -210,4 +296,5 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         "cell_medians": ratios,
         "exposure": exposure,
     }
-    return {"artifact": artifact_stats, "baseline": baseline_stats}
+    subphase = _subphase_stats(subphase_samples) if subphase_samples else None
+    return {"subphase": subphase, "artifact": artifact_stats, "baseline": baseline_stats}
