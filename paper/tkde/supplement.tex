@@ -668,6 +668,7 @@ RQ5 publication and routing & repository head & \filepath{evaluation/daily-publi
 V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
+Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/subphase-pilot-06} & pilot; not publication evidence \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
 TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & repository head & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
 TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
@@ -1151,6 +1152,46 @@ the median total.}
 Cell & Prepare & Exec.+derive & Stage & Settle & Publish & Finalize & Total \\
 \midrule
 \FinalVFivePublicationPhaseTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Sub-Phase Pilot: Inside Execute-and-Derive}
+\label{sec:subphase-pilot-supp}
+
+The Gateway reports finer component timers than the six pipeline phases
+(\code{component_ms}), but the publication campaign's adapter did not retain
+them. A pilot-class amendment at the submission commit re-ran the
+\code{analytics-orders}, \code{analytics-orders-lineitem}, and
+\code{result-heavy} profiles once each (one measured sample per cell, the
+adapter retaining the component map; \code{campaign_class} \code{pilot},
+\code{publication_eligible} \code{false}; run \code{subphase-pilot-06}).
+Table~\ref{tab:subphase-supp} lists the atomic components of the novel arm
+for the three cells the main text discusses. Two Gateway timers are
+composites and are not tabulated: \code{ordinal_stream} equals the companion
+SQL plus the stream consumer, and \code{bitmap_derivation} equals visible
+preparation plus consumer plus finish (\code{internal/gateway/query.go}).
+Settlement persist belongs to the Control settlement phase and is listed for
+scale. The split shows that exactness is paid in Go-side ordinal consumption
+and witness merging, not in PostgreSQL: the companion statement is
+\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}~ms of a
+\FinalVFiveSubphaseExecuteMSSTwoSFTen{}~ms phase at S2/SF10 and
+\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms of
+\FinalVFiveSubphaseExecuteMSSSixHundredKByteSixteen{}~ms at S6/100k-x16.
+These are single-sample pilot measurements and are cited only for the
+breakdown, not for latency.
+
+\begin{table}[t]
+\centering
+\caption{Sub-phase pilot: Gateway component timings (ms, one sample per
+cell, novel arm) for S1/SF1, S2/SF10, and S6/100k-x16.}
+\label{tab:subphase-supp}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Component & S1/SF1 & S2/SF10 & S6/100k-x16 \\
+\midrule
+\FinalVFiveSubphaseTableBody
 \bottomrule
 \end{tabular}
 \end{table}

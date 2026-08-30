@@ -1276,8 +1276,21 @@ over legacy per-Fact hashing, and at \RQFourVFourOracleFacts{} Facts its
 phases were streaming \RQFourVFourOrdinalStreamMedianMS{}~ms, bitmap
 derivation \RQFourVFourBitmapDeriveMedianMS{}~ms, settlement
 \RQFourVFourSettleMedianMS{}~ms: derivation, not settlement, is the cost of
-exactness, and multi-second governed latency suits batch reporting agents,
-not interactive ones.
+exactness. A sub-phase pilot at the submission commit (one deployment per
+profile, one sample per cell, the adapter retaining the Gateway's component
+timers; not publication-class) splits execute-and-derive itself: the
+companion SQL takes \FinalVFiveSubphaseSQLSideMSSOneSFOne{},
+\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}, and
+\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms at S1/SF1, S2/SF10,
+and S6/100k-x16, while Go-side ordinal consumption and witness merging take
+\FinalVFiveSubphaseGoSidePctSOneSFOne{}, \FinalVFiveSubphaseGoSidePctSTwoSFTen{},
+and \FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\% of the phase
+(\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}~$\mu$s per Fact at S2/SF10,
+\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{} at S6, where the
+witness merge of \FinalVFiveSubphaseDominantMSSSixHundredKByteSixteen{}~ms
+dominates); the exactness cost is single-threaded Go encoding, not
+PostgreSQL, and multi-second governed latency suits batch reporting agents,
+not interactive ones (supplement table).
 
 \begin{table}[t]
 \centering

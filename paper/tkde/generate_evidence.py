@@ -1482,7 +1482,6 @@ def main(argv: list[str] | None = None) -> None:
             ("ordinal_visible_preparation", "visible preparation"),
             ("ordinal_stream_consumer", "ordinal stream consumer (Go)"),
             ("ordinal_finish", "witness merge and finish (Go)"),
-            ("exposure_derivation", "exposure derivation"),
             ("result_encoding", "result encoding (Parquet)"),
             ("encryption", "encryption (AES-GCM)"),
             ("settle_persist", "settlement persist"),
