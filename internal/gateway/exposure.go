@@ -379,9 +379,13 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 		function := strings.ToLower(aggregate.Function)
 		outputType := aggregateSQLType(function, types[aggregate.Column])
 		specs = append(specs, exposure.AggregateSpecV2{Function: function, Field: aggregate.Column,
-			OutputID: aggregate.Alias, OutputType: outputType})
+			OutputID: aggregate.Alias, OutputType: outputType, Distinct: aggregate.Distinct})
 	}
 	aggregated, err := exposure.AggregateFromResultsV2(relation, context.plan.GroupBy, specs, outputs)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	aggregated, err = applyHavingV2(aggregated, context.plan)
 	if err != nil {
 		return exposure.Observation{}, err
 	}
@@ -466,6 +470,11 @@ func aggregateSQLType(function, input string) string {
 	switch function {
 	case "count":
 		return "bigint"
+	case "avg":
+		switch strings.ToLower(strings.TrimSpace(input)) {
+		case "smallint", "integer", "bigint", "numeric":
+			return "numeric"
+		}
 	case "sum":
 		switch strings.ToLower(strings.TrimSpace(input)) {
 		case "smallint", "integer":
@@ -659,4 +668,20 @@ func sortedStringSet(values map[string]struct{}) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+// applyHavingV2 models HAVING as a Select over the group's aggregate outputs.
+// PostgreSQL has already filtered the groups (the visible result restricts the
+// relation to returned groups), so the predicate is TRUE here; the Select adds
+// the read aggregate cells to the surviving rows' support, which is the
+// Dependency rule HAVING shares with Select over base columns.
+func applyHavingV2(aggregated exposure.RelationV2, plan queryplan.QueryPlan) (exposure.RelationV2, error) {
+	if len(plan.Having) == 0 {
+		return aggregated, nil
+	}
+	fields := make([]string, 0, len(plan.Having))
+	for _, filter := range plan.Having {
+		fields = append(fields, filter.Column)
+	}
+	return exposure.SelectV2(aggregated, uniqueStrings(fields), func(exposure.AnnotatedRowV2) exposure.SQLTruth { return exposure.SQLTrue })
 }

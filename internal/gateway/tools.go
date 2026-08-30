@@ -126,8 +126,10 @@ func queryPlanSchema() map[string]any {
 		"columns": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
 		"aggregates": map[string]any{"type": "array", "items": objectSchema(map[string]any{
 			"function": map[string]any{"type": "string"}, "column": map[string]any{"type": "string"}, "alias": map[string]any{"type": "string"},
+			"distinct": map[string]any{"type": "boolean"},
 		}, "function", "column", "alias")},
 		"filters":  map[string]any{"type": "array", "items": filter},
+		"having":   map[string]any{"type": "array", "items": filter},
 		"group_by": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
 		"order_by": map[string]any{"type": "array", "items": objectSchema(map[string]any{
 			"column": map[string]any{"type": "string"}, "direction": map[string]any{"type": "string", "enum": []string{"", "asc", "desc"}},

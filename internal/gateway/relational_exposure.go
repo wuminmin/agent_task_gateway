@@ -156,14 +156,36 @@ func relationalAlgebraPlan(plan queryplan.QueryPlan, compilation queryplan.Relat
 			if err != nil {
 				return node, err
 			}
-			aggregates = append(aggregates, queryplan.AlgebraAggregateV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputType: outputType})
+			aggregates = append(aggregates, queryplan.AlgebraAggregateV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputType: outputType, Distinct: aggregate.Distinct})
 		}
 		input := node
 		node = queryplan.AlgebraPlanV2{Op: "group", Input: &input, GroupBy: append([]string(nil), plan.GroupBy...), Aggregates: aggregates}
+		if len(plan.Having) > 0 {
+			predicates := make([]queryplan.NormalizedFilter, 0, len(plan.Having))
+			for _, filter := range plan.Having {
+				var expression, outputType string
+				for index, aggregate := range plan.Aggregates {
+					if aggregate.Alias == filter.Column {
+						expression = aggregateExpressionID(aggregate)
+						outputType = aggregates[index].OutputType
+					}
+				}
+				if expression == "" {
+					return node, fmt.Errorf("having column %q is not an aggregate alias", filter.Column)
+				}
+				value, err := json.Marshal(filter.Value)
+				if err != nil {
+					return node, err
+				}
+				predicates = append(predicates, queryplan.NormalizedFilter{Column: expression, SQLType: outputType, Op: filter.Op, Value: value})
+			}
+			input := node
+			node = queryplan.AlgebraPlanV2{Op: "select", Input: &input, Predicates: predicates}
+		}
 	}
 	fields := append([]string(nil), plan.Columns...)
 	for _, aggregate := range plan.Aggregates {
-		fields = append(fields, strings.ToLower(strings.TrimSpace(aggregate.Function))+"("+aggregate.Column+")")
+		fields = append(fields, aggregateExpressionID(aggregate))
 	}
 	if len(fields) > 0 {
 		input := node
@@ -393,13 +415,26 @@ func (context *planExposureContext) deriveRelationalObservationV2(visible, prove
 	types := relationFieldTypes(relation)
 	specs := make([]exposure.AggregateSpecV2, 0, len(context.plan.Aggregates))
 	for _, aggregate := range context.plan.Aggregates {
-		specs = append(specs, exposure.AggregateSpecV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputID: aggregate.Alias, OutputType: aggregateSQLType(strings.ToLower(aggregate.Function), types[aggregate.Column])})
+		specs = append(specs, exposure.AggregateSpecV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputID: aggregate.Alias, OutputType: aggregateSQLType(strings.ToLower(aggregate.Function), types[aggregate.Column]), Distinct: aggregate.Distinct})
 	}
 	aggregated, err := exposure.AggregateFromResultsV2(relation, context.plan.GroupBy, specs, outputs)
 	if err != nil {
 		return exposure.Observation{}, err
 	}
+	aggregated, err = applyHavingV2(aggregated, context.plan)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
 	return exposure.ObserveV2(aggregated, context.visibleFields...)
+}
+
+// aggregateExpressionID mirrors queryplan's canonical aggregate spelling.
+func aggregateExpressionID(aggregate queryplan.Aggregate) string {
+	function := strings.ToLower(strings.TrimSpace(aggregate.Function))
+	if aggregate.Distinct {
+		return function + "(distinct " + aggregate.Column + ")"
+	}
+	return function + "(" + aggregate.Column + ")"
 }
 
 func (context *relationalExposureContext) canonicalVisibleResult(result dataconnector.Result) (dataconnector.Result, error) {

@@ -139,6 +139,17 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 			return queryplan.QueryPlan{}, castErr
 		}
 		if columnRef := value.GetColumnRef(); columnRef != nil {
+			if expanded, isStar, starErr := l.expandStar(columnRef, resultCast, target); isStar {
+				if starErr != nil {
+					return queryplan.QueryPlan{}, starErr
+				}
+				for _, column := range expanded {
+					l.projectionOrder = append(l.projectionOrder, projectionSlot{Index: len(plan.Columns)})
+					plan.Columns = append(plan.Columns, l.planColumn(column))
+					l.displayColumns = append(l.displayColumns, column.Column)
+				}
+				continue
+			}
 			column, resolveErr := l.resolveColumn(columnRef, "SELECT")
 			if resolveErr != nil {
 				return queryplan.QueryPlan{}, resolveErr
@@ -194,6 +205,11 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 		return queryplan.QueryPlan{}, whereErr
 	}
 	plan.Filters = where
+	having, havingErr := l.lowerHaving(statement.GetHavingClause(), plan.Aggregates)
+	if havingErr != nil {
+		return queryplan.QueryPlan{}, havingErr
+	}
+	plan.Having = having
 	for _, groupNode := range statement.GetGroupClause() {
 		columnRef := groupNode.GetColumnRef()
 		if columnRef == nil {
@@ -242,8 +258,8 @@ func validateSelectShape(statement *pg_query.SelectStmt) *Error {
 		return reject(CodeNotLowerable, "DISTINCT_UNSUPPORTED", "SELECT DISTINCT is outside this SQL profile.", "SELECT", -1, "", "Use an approved aggregate or reporting product with the required grain.")
 	case statement.GetIntoClause() != nil:
 		return reject(CodeNotLowerable, "SELECT_INTO_UNSUPPORTED", "SELECT INTO is not a reporting operation.", "INTO", -1, "", "Remove INTO and request a read-only result.")
-	case statement.GetHavingClause() != nil:
-		return reject(CodeNotLowerable, "HAVING_UNSUPPORTED", "HAVING predicates are outside this SQL profile.", "HAVING", nodeLocation(statement.GetHavingClause()), "", "Move an eligible base-column predicate to WHERE or query an approved aggregate product.")
+	case statement.GetHavingClause() != nil && len(statement.GetGroupClause()) == 0 && !selectHasAggregate(statement):
+		return reject(CodeNotLowerable, "HAVING_UNSUPPORTED", "HAVING requires a grouped or aggregated query.", "HAVING", nodeLocation(statement.GetHavingClause()), "", "Add GROUP BY or an approved aggregate, or move the predicate to WHERE.")
 	case statement.GetGroupDistinct():
 		return reject(CodeNotLowerable, "GROUP_DISTINCT_UNSUPPORTED", "GROUP BY DISTINCT is outside this SQL profile.", "GROUP BY", -1, "", "Use a direct GROUP BY over approved columns.")
 	case len(statement.GetWindowClause()) != 0:
@@ -427,11 +443,15 @@ func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.R
 	// the returned spelling here so a quoted lookalike such as "SUM" cannot be
 	// reinterpreted as PostgreSQL's built-in sum aggregate.
 	name := operatorName(function.GetFuncname())
-	if name != "count" && name != "sum" && name != "min" && name != "max" {
-		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_UNSUPPORTED", fmt.Sprintf("Aggregate %q is outside the reporting SQL profile.", name), "SELECT", function.GetLocation(), "", "Use COUNT, SUM, MIN, or MAX when approved by the Catalog.")
+	if name != "count" && name != "sum" && name != "min" && name != "max" && name != "avg" {
+		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_UNSUPPORTED", fmt.Sprintf("Aggregate %q is outside the reporting SQL profile.", name), "SELECT", function.GetLocation(), "", "Use COUNT, SUM, MIN, MAX, or AVG when approved by the Catalog.")
 	}
-	if function.GetAggDistinct() || function.GetAggFilter() != nil || len(function.GetAggOrder()) != 0 || function.GetOver() != nil || function.GetAggWithinGroup() || function.GetFuncVariadic() {
-		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_MODIFIER_UNSUPPORTED", "DISTINCT, FILTER, ORDER BY, window, and variadic aggregate modifiers are outside this profile.", "SELECT", function.GetLocation(), "", "Use a plain approved aggregate over one column.")
+	if function.GetAggFilter() != nil || len(function.GetAggOrder()) != 0 || function.GetOver() != nil || function.GetAggWithinGroup() || function.GetFuncVariadic() {
+		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_MODIFIER_UNSUPPORTED", "FILTER, ORDER BY, window, and variadic aggregate modifiers are outside this profile.", "SELECT", function.GetLocation(), "", "Use a plain approved aggregate over one column.")
+	}
+	distinct := function.GetAggDistinct()
+	if distinct && (name != "count" || function.GetAggStar()) {
+		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_MODIFIER_UNSUPPORTED", "DISTINCT is admitted for COUNT over one column only.", "SELECT", function.GetLocation(), "", "Use COUNT(DISTINCT column).")
 	}
 	alias := target.GetName()
 	if alias == "" {
@@ -466,14 +486,14 @@ func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.R
 	if typeErr != nil || !exactAggregateTypeSupported(name, inputType) {
 		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_TYPE_UNSUPPORTED", fmt.Sprintf("Aggregate %q over Catalog type %q is outside the exact accounting profile.", name, l.sources[column.Source].Product.ColumnTypes[column.Column]), "SELECT", function.GetLocation(), l.sources[column.Source].Product.Name, "Use an aggregate and column type advertised by get_sql_capabilities and describe_data_product.")
 	}
-	return queryplan.Aggregate{Function: name, Column: l.planColumn(column), Alias: alias}, nil
+	return queryplan.Aggregate{Function: name, Column: l.planColumn(column), Alias: alias, Distinct: distinct}, nil
 }
 
 func exactAggregateTypeSupported(function, inputType string) bool {
 	switch function {
 	case "count":
 		return true
-	case "sum":
+	case "sum", "avg":
 		return inputType == "smallint" || inputType == "integer" || inputType == "bigint" || inputType == "numeric"
 	case "min", "max":
 		switch inputType {
@@ -971,4 +991,118 @@ func reverseComparison(operator string) string {
 	default:
 		return operator
 	}
+}
+
+// selectHasAggregate reports whether any SELECT target is a function call
+// (the only function calls the profile admits are aggregates).
+func selectHasAggregate(statement *pg_query.SelectStmt) bool {
+	for _, targetNode := range statement.GetTargetList() {
+		target := targetNode.GetResTarget()
+		if target != nil && target.GetVal().GetFuncCall() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// expandStar lowers SELECT * and relation.* to the approved columns of the
+// referenced source(s) in sorted column order. The plan carries the expanded
+// list, so the query is accounted exactly as its explicit spelling would be.
+func (l *lowerer) expandStar(reference *pg_query.ColumnRef, resultCast string, target *pg_query.ResTarget) ([]resolvedColumn, bool, *Error) {
+	fields := reference.GetFields()
+	if len(fields) == 0 || fields[len(fields)-1].GetAStar() == nil {
+		return nil, false, nil
+	}
+	if resultCast != "" || target.GetName() != "" {
+		return nil, true, reject(CodeNotLowerable, "STAR_PROJECTION_UNSUPPORTED", "SELECT * cannot carry a cast or an alias.", "SELECT", target.GetLocation(), "", "List the columns explicitly.")
+	}
+	sources := make([]int, 0, len(l.sources))
+	switch len(fields) {
+	case 1:
+		for index := range l.sources {
+			sources = append(sources, index)
+		}
+	case 2:
+		alias, ok := stringNode(fields[0])
+		if !ok {
+			return nil, true, reject(CodeNotLowerable, "STAR_PROJECTION_UNSUPPORTED", "relation.* must name a FROM alias.", "SELECT", target.GetLocation(), "", "List the columns explicitly.")
+		}
+		index, present := l.sourceByAlias[alias]
+		if !present {
+			return nil, true, reject(CodeColumnNotApproved, "RELATION_ALIAS_UNKNOWN", fmt.Sprintf("Relation alias %q is not present in FROM.", alias), "SELECT", target.GetLocation(), "", "Use an alias declared in FROM.")
+		}
+		sources = append(sources, index)
+	default:
+		return nil, true, reject(CodeNotLowerable, "STAR_PROJECTION_UNSUPPORTED", "Only * and relation.* are supported.", "SELECT", target.GetLocation(), "", "List the columns explicitly.")
+	}
+	var result []resolvedColumn
+	for _, index := range sources {
+		names := make([]string, 0, len(l.sources[index].Product.Columns))
+		for name := range l.sources[index].Product.Columns {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			result = append(result, resolvedColumn{Source: index, Column: name})
+		}
+	}
+	return result, true, nil
+}
+
+// lowerHaving lowers a conjunction of aggregate-to-literal comparisons whose
+// aggregate is one of the selected aggregates; each term names that
+// aggregate's alias in the plan.
+func (l *lowerer) lowerHaving(node *pg_query.Node, aggregates []queryplan.Aggregate) ([]queryplan.Filter, *Error) {
+	if node == nil {
+		return nil, nil
+	}
+	terms, err := conjunctionTerms(node, "HAVING")
+	if err != nil {
+		return nil, err
+	}
+	result := make([]queryplan.Filter, 0, len(terms))
+	for _, term := range terms {
+		expression := term.GetAExpr()
+		if expression == nil || expression.GetKind() != pg_query.A_Expr_Kind_AEXPR_OP {
+			return nil, reject(CodeNotLowerable, "HAVING_PREDICATE_UNSUPPORTED", "HAVING accepts conjunctions of aggregate-to-literal comparisons only.", "HAVING", nodeLocation(term), "", "Compare a selected aggregate with a literal.")
+		}
+		op := operatorName(expression.GetName())
+		if op != "=" && op != "<>" && op != "!=" && op != "<" && op != "<=" && op != ">" && op != ">=" {
+			return nil, reject(CodeNotLowerable, "HAVING_OPERATOR_UNSUPPORTED", fmt.Sprintf("HAVING operator %q is outside this profile.", op), "HAVING", expression.GetLocation(), "", "Use =, <>, <, <=, >, or >=.")
+		}
+		function, literalNode, reversed := expression.GetLexpr().GetFuncCall(), expression.GetRexpr(), false
+		if function == nil {
+			function, literalNode, reversed = expression.GetRexpr().GetFuncCall(), expression.GetLexpr(), true
+		}
+		if function == nil {
+			return nil, reject(CodeNotLowerable, "HAVING_PREDICATE_UNSUPPORTED", "HAVING comparisons require one selected aggregate and one scalar literal.", "HAVING", expression.GetLocation(), "", "Compare a selected aggregate with a literal.")
+		}
+		value, literalErr := literalValue(literalNode)
+		if literalErr != nil {
+			return nil, reject(CodeNotLowerable, "HAVING_LITERAL_UNSUPPORTED", literalErr.Error(), "HAVING", expression.GetLocation(), "", "Use a string, boolean, or numeric literal.")
+		}
+		aggregate, aggregateErr := l.lowerAggregate(function, &pg_query.ResTarget{})
+		if aggregateErr != nil {
+			return nil, aggregateErr
+		}
+		alias := ""
+		for _, selected := range aggregates {
+			if selected.Function == aggregate.Function && selected.Column == aggregate.Column && selected.Distinct == aggregate.Distinct {
+				alias = selected.Alias
+				break
+			}
+		}
+		if alias == "" {
+			return nil, reject(CodeNotLowerable, "HAVING_AGGREGATE_NOT_SELECTED", "A HAVING aggregate must also be selected.", "HAVING", expression.GetLocation(), "", "Select the aggregate you filter on.")
+		}
+		if reversed {
+			op = reverseComparison(op)
+		}
+		if op == "!=" {
+			op = "<>"
+		}
+		result = append(result, queryplan.Filter{Column: alias, Op: op, Value: value})
+	}
+	sortFilters(result)
+	return result, nil
 }

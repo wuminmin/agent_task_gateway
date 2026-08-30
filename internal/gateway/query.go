@@ -182,13 +182,17 @@ func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
 	}
 	occurrences := make(map[string]int, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
-		expression := strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + aggregate.Column + ")"
+		expression := aggregateExpressionID(aggregate)
 		if aggregate.ResultEncoding != "" {
 			expression += "@" + aggregate.ResultEncoding
 		}
 		occurrence := occurrences[expression]
 		occurrences[expression] = occurrence + 1
 		columns = append(columns, "aggregate:"+expression+"#"+strconv.Itoa(occurrence))
+	}
+	for _, filter := range plan.Having {
+		value, _ := json.Marshal(filter.Value)
+		columns = append(columns, "having:"+filter.Column+" "+strings.ToUpper(strings.TrimSpace(filter.Op))+" "+string(value))
 	}
 	return columns
 }
