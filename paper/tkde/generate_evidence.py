@@ -1466,6 +1466,43 @@ def main(argv: list[str] | None = None) -> None:
     # publication_eligible=false, so the manuscript names their class wherever
     # it uses them and never calls them a completed publication campaign.
     pilot_artifact = pilot["artifact"]
+    # Sub-phase pilot (profile-campaign pilot with Gateway component_ms retained):
+    # per-component medians of execute_and_derive for the three discussed cells.
+    subphase = pilot.get("subphase")
+    if subphase:
+        subphase_rows = []
+        labels = {
+            "business_postgresql": "visible SQL (PostgreSQL)", "provenance_postgresql": "companion SQL (PostgreSQL)",
+            "ordinal_visible_preparation": "visible preparation", "ordinal_stream": "ordinal stream",
+            "ordinal_stream_consumer": "stream consumer", "ordinal_finish": "ordinal finish",
+            "bitmap_derivation": "bitmap derivation", "exposure_derivation": "exposure derivation",
+            "result_encoding": "result encoding (Parquet)", "encryption": "encryption (AES-GCM)",
+            "settle_persist": "settlement persist", "exposure_fact_store": "fact store", "receipt_signing": "receipt signing",
+        }
+        names = [n for n in labels if any(n in subphase[c]["components_p50_ms"] for c in subphase)]
+        for name in names:
+            cells = []
+            for cell in ("S1/SF1", "S2/SF10", "S6/100k-x16"):
+                value = subphase[cell]["components_p50_ms"].get(name)
+                cells.append(decimal(value, 1) if value is not None else "--")
+            subphase_rows.append(" & ".join([labels[name]] + cells) + r" \\")
+        subphase_rows.append(" & ".join(["\\midrule execute-and-derive (pipeline)"] + [decimal(subphase[c]["execute_and_derive_p50_ms"], 1) for c in ("S1/SF1", "S2/SF10", "S6/100k-x16")]) + r" \\")
+        lines.append(r"\newcommand{\FinalVFiveSubphaseTableBody}{%" + "\n" + "\n".join(subphase_rows) + "%\n}")
+        def dominant(cell):
+            comps = {k: v for k, v in subphase[cell]["components_p50_ms"].items() if k in labels}
+            name = max(comps, key=comps.get)
+            return name, comps[name]
+        for cell, suffix in (("S1/SF1", "SOneSFOne"), ("S2/SF10", "STwoSFTen"), ("S6/100k-x16", "SSixHundredKByteSixteen")):
+            name, value = dominant(cell)
+            item = subphase[cell]
+            lines.extend([
+                rf"\newcommand{{\FinalVFiveSubphaseDominant{suffix}}}{{{labels[name]}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseDominantMS{suffix}}}{{{decimal(value, 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseDominantSharePct{suffix}}}{{{decimal(100 * value / item['execute_and_derive_p50_ms'], 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseExecuteMS{suffix}}}{{{decimal(item['execute_and_derive_p50_ms'], 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseSamples{suffix}}}{{{item['samples']}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseMicrosPerFact{suffix}}}{{{decimal(1000 * item['execute_and_derive_p50_ms'] / max(1, item['dependency_facts'] + item['release_facts']), 1)}}}",
+            ])
     pilot_baseline = pilot["baseline"]
     pilot_s_one = pilot_baseline["cell_medians"]["S1/SF10"]
     pilot_s_two = pilot_baseline["cell_medians"]["S2/SF10"]
