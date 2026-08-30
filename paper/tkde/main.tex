@@ -381,15 +381,13 @@ BDG's upstream boundary is a completed reporting synchronization, not a
 mutable transactional database; we model its compiled output as follows.
 
 \begin{definition}[Publication epoch]
-A publication epoch is
-$P_e=\langle datasource,\allowbreak schema,\allowbreak snapshot\_bundle,\allowbreak catalog,\allowbreak dictionary\rangle$,
-where \emph{snapshot\_bundle} maps every stable role to its immutable reporting
-publication, \emph{catalog} binds the bundle's schema, policy, and lineage,
-and \emph{dictionary} is the set of ordinal dictionaries. We write $h_e$
-for the digest of a canonical descriptor of these five components; the
-signed Catalog SHA transitively commits them, the upstream synchronization
-cutoff is a trusted ETL premise, and a new synchronization creates a new
-$P_{e+1}$ rather than mutating $P_e$.
+A publication epoch $P_e$ binds a datasource, its schema, the snapshot
+bundle mapping every stable role to its immutable reporting publication,
+the Catalog, and the ordinal dictionaries (the five-component descriptor
+and its digest $h_e$ are in the supplement); the signed Catalog SHA
+transitively commits them, the upstream synchronization cutoff is a
+trusted ETL premise, and a new synchronization creates a new $P_{e+1}$
+rather than mutating $P_e$.
 \end{definition}
 
 A deployment alias such as \code{latest publication} resolves to a concrete
@@ -928,23 +926,18 @@ inserted candidate affects only its own partitions; comparison is over all
 
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
-For one successful query, the enforcement layer performs the following steps
-(Fig.~\ref{fig:architecture-settlement}b):
-
-\begin{enumerate}\setlength{\itemsep}{0pt}
-\item Reauthorize and reserve resources; semantic replay lookup follows signed
-grant/publication binding.
-\item On a miss, execute visible and ordinal statements in one Business-PG
-snapshot, derive all three effects, and stage encrypted Parquet. A hit loads an
-already committed observation/materialization. Staging is never AVAILABLE.
-\item In one Control-PG transaction, compute exact bitmap/full-hash novelty
-against the root head, reject any $B_X$ excess, and CAS all three manifests;
-conflicts reread and recompute every dimension.
-\item The same transaction settles resources, observation/effects, PENDING
-intent, terminal/registration audit, and the signed receipt.
-\item Verify promotion to the canonical object, then co-commit AVAILABLE and
-\code{QUERY_RESULT_CONSUMED} in a second transaction before returning the ID.
-\end{enumerate}
+For one successful query (Fig.~\ref{fig:architecture-settlement}b) the
+enforcement layer reauthorizes and reserves resources and looks up semantic
+replay under the signed grant/publication binding; on a miss it executes the
+visible and ordinal statements in one Business-PG snapshot, derives all
+three effects, and stages encrypted Parquet (a hit loads a committed
+observation; staging is never AVAILABLE); one Control-PG transaction then
+computes exact bitmap/full-hash novelty against the root head, rejects any
+$B_X$ excess, CASes all three manifests (conflicts reread and recompute
+every dimension), and settles resources, observation, PENDING intent, audit,
+and the signed receipt; a second transaction co-commits AVAILABLE and
+\code{QUERY_RESULT_CONSUMED} after verifying promotion to the canonical
+object, and only then returns the ID.
 
 Only root heads are mutable: pre-settlement failure rolls back heads,
 observations, intent, audits, cache, and receipt, while post-settlement

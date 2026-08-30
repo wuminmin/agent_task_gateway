@@ -654,6 +654,16 @@ refused) no check failed. The test drives the V4 ordinal settlement engine
 that V5 Outcome sets build on; it does not exercise the SQL lowering or the
 companion statement.
 
+\section{Publication Epoch Descriptor}
+\label{sec:epoch-supp}
+
+A publication epoch is
+$P_e=\langle datasource, schema, snapshot\_bundle, catalog, dictionary\rangle$,
+where \emph{snapshot\_bundle} maps every stable role to its immutable
+reporting publication, \emph{catalog} binds the bundle's schema, policy, and
+lineage, and \emph{dictionary} is the set of ordinal dictionaries; $h_e$ is
+the digest of a canonical descriptor of these five components.
+
 \section{Measurement Host}
 \label{sec:host-supp}
 
