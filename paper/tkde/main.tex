@@ -1115,24 +1115,21 @@ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}, the first
 equivalent predicate that reads new base facts (Section~\ref{sec:attack-provsql}
 compares counters). The ladder shows $B_O$ binding
 (\FinalVFivePublicationAttackThresholdCeiling{} atoms and composites refuse
-the third count probe), and $B_R$ binds in the sweep case: under the
-campaign's default low route ($B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$,
-$B_O=B_Q=128$ on $10^5$-row Products) paging the whole $10^5\times16$
-Product in 100 pages of 1,000 rows releases $1.6\times10^6$ Facts and 100
-composites, each page legal under any row limit, and a second sweep of
-another Product is refused at $B_R$; because every page settles one
-composite, $B_O$ caps pages as well as probes, and $B_D$ sized to row count
-times the fields a purpose may aggregate bounds the \emph{distinct} base
-facts any sequence of aggregates touches, not how many aggregates run (the
-second sweep's refusal follows from the budget arithmetic; it is not a
-measured cell). $B_O$ bounds how many distinct predicates a task may
-\emph{settle} (a ladder \code{amount > t} is charged one atom and one
-composite per answered step), not what an answer reveals, and not rejected
-probes, which $B_Q$ bounds: a binary search on one hidden value fits within
-$B_O=128$ answered steps or $B_Q$ refusals. Ranking a hidden field is not admitted: the lowerer rejects an
-\code{ORDER BY} column that is not selected
-(\code{ORDER_FIELD_NOT_SELECTED}), so \code{SELECT id ... ORDER BY salary}
-must release \code{salary}.
+the third count probe); $B_R$ binds in the sweep case: under the campaign's
+default low route ($B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$, $B_O=B_Q=128$
+on $10^5$-row Products) paging a $10^5\times16$ Product in 100 pages
+releases $1.6\times10^6$ Facts and 100 composites, each page legal under
+any row limit, and a second sweep is refused at $B_R$ (budget arithmetic,
+not a measured cell). Since every page settles one composite, $B_O$ caps
+pages as well as probes; $B_D$ sized to rows times aggregable fields bounds
+the \emph{distinct} base facts any aggregate sequence touches, not how many
+run. $B_O$ bounds how many distinct predicates a task may \emph{settle}
+(one atom and composite per answered ladder step), not what an answer
+reveals, and not rejected probes, which $B_Q$ bounds: a binary search on
+one hidden value fits within $B_O=128$ answered steps or $B_Q$ refusals.
+Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
+not selected is rejected (\code{ORDER_FIELD_NOT_SELECTED}), so
+\code{SELECT id ... ORDER BY salary} must release \code{salary}.
 
 \section{System Realization}
 \label{sec:system}
@@ -1447,22 +1444,19 @@ Intel Core i9-13900HX (16 cores, 29~GiB visible), Docker 29.7.2, PostgreSQL
 cited commits, the evidence pack, and the retained raw samples (48 JSONL
 files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
 re-verify every digest chain and recompute every macro but cannot re-hash
-the omitted HOT/COLD/sidecar payloads.
-Every campaign number above is publication-class: one submission commit
-(\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
-isolated deployments on one host, three independent executions per profile;
-the supplement's evidence table maps each number group to its commit and raw
-file. Across the three executions the per-execution
-novel medians of a Baseline cell differ by at most
-\FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
-\FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
-\FinalVFivePublicationConcurrencySpreadMaxPct\%); the retained pilot
-(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement.
-RQ1--RQ3 use small fixtures;
-ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
-official); the archived V4 run used one index build; RQ5 sums three
-sequential warm child intervals behind an experiment controller. No result
-is generalized to cold-cache, multi-node, or production-SLO behavior.
+the omitted HOT/COLD/sidecar payloads. Every campaign number above is
+publication-class: one submission commit (\FinalVFivePublicationCommit{}),
+\FinalVFivePublicationDeployments{} fresh isolated deployments on one host,
+three executions per profile whose per-execution novel medians differ by at
+most \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct
+\FinalVFivePublicationDirectSpreadMaxPct\%, concurrency
+\FinalVFivePublicationConcurrencySpreadMaxPct\%); the supplement's evidence
+table maps each number to its commit and raw file, and the retained pilot
+(\FinalVFivePilotArtifactCommit{}) is cited only there. RQ1--RQ3 use small
+fixtures; ordinal/bitmap evidence is warm, single-host, and TPC-H-derived
+(not official); RQ5 sums three sequential warm child intervals behind an
+experiment controller. No result is generalized to cold-cache, multi-node,
+or production-SLO behavior.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1486,9 +1480,9 @@ execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
-(RQ5 Day~0) and derivation microseconds per Fact; a $10^9$-Fact Product
-would need hundreds of gigabytes and hours per build and per global
-aggregate, so the evaluated envelope is $10^5$--$10^6$-row Products.
+(RQ5 Day~0) plus derivation microseconds per Fact; a $10^9$-Fact Product
+would need hundreds of gigabytes and hours per build and global aggregate,
+so the evaluated envelope is $10^5$--$10^6$-row Products.
 
 \textbf{Throughput scope.} Every settlement of a root family serializes on
 its head; same-root throughput falls from
@@ -1508,12 +1502,11 @@ Studio remain future work.
 \section{Conclusion}
 
 \system provides profile-relative exact accounting of modeled Result,
-Dependency, and Outcome sets within one publication-bound root family;
-theorems, bounded models, and executable tests support the scoped safety
-claim that no governed artifact becomes \code{AVAILABLE} before atomic
-root-family settlement. It is a task-to-data release layer for existing
-data estates that makes an approved policy enforceable as autonomous
-querying unfolds, without deciding what that policy should be.
+Dependency, and Outcome sets within one publication-bound root family, with
+theorems, bounded models, and executable tests behind the scoped claim that
+no governed artifact becomes \code{AVAILABLE} before atomic root-family
+settlement: a release layer that makes an approved policy enforceable as
+autonomous querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
