@@ -255,7 +255,7 @@ def validate_complete_evaluation(document: dict) -> None:
     curves = rq4.get("curves")
     requirements = {
         "schema_version=7": document.get("schema_version") == 7,
-        "RQ1=21/21": rq1.get("cases") == 21 and rq1.get("passed") == 21,
+        "RQ1=24/24": rq1.get("cases") == 24 and rq1.get("passed") == 24,
         "RQ2 PostgreSQL=1024/1024": (
             rewrite.get("generated_attempts") == 1024
             and rewrite.get("unique_normalized_pairs") == 1024

@@ -56,7 +56,7 @@ func newExposureScriptFixture(t *testing.T) exposureScriptFixture {
 	report := filepath.Join(root, "exposure-report.json")
 	reportDocument := `{
   "schema_version": 7,
-  "rq1_ground_truth": {"cases":21,"passed":21},
+  "rq1_ground_truth": {"cases":24,"passed":24},
   "rq2_rewrite_invariance": {
     "generated_attempts":1024,
     "unique_normalized_pairs":1024,
@@ -192,7 +192,7 @@ case "$command" in
         ;;
       *"taskgate-exposure-evaluation:local"*)
         case "${FAKE_EXPOSURE_MODE:-}" in
-          record_incomplete_report) sed 's/"passed":21/"passed":20/' "$FAKE_EXPOSURE_REPORT" ;;
+          record_incomplete_report) sed 's/"passed":24/"passed":20/' "$FAKE_EXPOSURE_REPORT" ;;
           record_*) cat "$FAKE_EXPOSURE_REPORT" ;;
           *) exit 73 ;;
         esac
@@ -504,7 +504,7 @@ func TestRunExposurePublishesOnlyCompleteIntegrationEvidence(t *testing.T) {
 		{name: "missing package pass", mode: "record_missing_package", reason: "canonical evidence was not changed"},
 		{name: "skipped named test", mode: "record_skipped_test", reason: "canonical evidence was not changed"},
 		{name: "extra package pass", mode: "record_extra_package", reason: "canonical evidence was not changed"},
-		{name: "incomplete evaluation report", mode: "record_incomplete_report", reason: "staged exposure report is incomplete: RQ1=21/21"},
+		{name: "incomplete evaluation report", mode: "record_incomplete_report", reason: "staged exposure report is incomplete: RQ1=24/24"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newExposureScriptFixture(t)
