@@ -105,6 +105,7 @@ type ordinalDeriver struct {
 	influence *ordinal.Builder
 	derived   exposure.FactSet
 	observed  *exposure.ReleaseObservation
+	builders  map[string]map[string]*exposure.BaseCellFactBuilder
 	finished  bool
 	effect    ordinalEffect
 }
@@ -124,6 +125,7 @@ type ordinalCellState struct {
 	witness   ordinalWitness
 	baseRef   ordinal.FactRef
 	hasBase   bool
+	builder   *exposure.BaseCellFactBuilder
 }
 
 type ordinalMember struct {
@@ -340,8 +342,19 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 		visibleRows: make(map[string]ordinalVisibleRow), groupKeys: make(map[string]string),
 		seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
 	}
+	// One base-cell fact builder per evidence column. A column whose constants
+	// fail validation gets no builder; its cells fall back to the per-cell
+	// constructor, which reports that failure where it always did.
+	result.builders = make(map[string]map[string]*exposure.BaseCellFactBuilder, len(program.Sources))
 	for _, source := range program.Sources {
 		result.leafFields[source.SourceAlias] = uniqueOrdinalPredicateFields(source.LeafPredicates)
+		columns := make(map[string]*exposure.BaseCellFactBuilder, len(source.EvidenceFields))
+		for _, binding := range source.EvidenceFields {
+			if builder, err := exposure.NewBaseCellFactBuilder(source.SourceNamespace, source.Snapshot, binding.FieldID, binding.SQLType); err == nil {
+				columns[binding.FieldID] = builder
+			}
+		}
+		result.builders[source.SourceAlias] = columns
 	}
 	if err := result.prepareVisibleRows(); err != nil {
 		return nil, err
@@ -616,7 +629,8 @@ func (d *ordinalDeriver) buildSourceMember(source queryplan.OrdinalSource, value
 		}
 		state.cells[binding.FieldID] = ordinalCellState{ref: ref, value: values[fieldPosition], binding: binding,
 			entityKey: row.EntityKey, namespace: source.SourceNamespace, snapshot: source.Snapshot,
-			witness: directOrdinalWitness(ref), baseRef: ref, hasBase: true}
+			witness: directOrdinalWitness(ref), baseRef: ref, hasBase: true,
+			builder: d.builders[source.SourceAlias][binding.FieldID]}
 	}
 	for _, fieldID := range d.leafFields[source.SourceAlias] {
 		cell, found := state.cells[fieldID]
@@ -846,11 +860,7 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 			return err
 		}
 		if cell.hasBase {
-			fact, err := cell.baseFact()
-			if err != nil {
-				return err
-			}
-			payload, hash, err := fact.CanonicalPayloadHash()
+			fact, payload, hash, err := cell.baseFactPayload()
 			if err != nil {
 				return err
 			}
@@ -1144,6 +1154,24 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 
 func (c ordinalCellState) baseFact() (exposure.FactID, error) {
 	return exposure.NewBaseCellFactV2(c.namespace, c.snapshot, c.entityKey, c.binding.FieldID, c.binding.SQLType, c.value)
+}
+
+// baseFactPayload returns the cell's base fact with its canonical payload and
+// hash, through the column builder when the cell carries one and through the
+// per-cell constructor otherwise; both yield identical bytes.
+func (c ordinalCellState) baseFactPayload() (exposure.FactID, []byte, [32]byte, error) {
+	if c.builder != nil {
+		return c.builder.Fact(c.entityKey, c.value)
+	}
+	fact, err := c.baseFact()
+	if err != nil {
+		return exposure.FactID{}, nil, [32]byte{}, err
+	}
+	payload, hash, err := fact.CanonicalPayloadHash()
+	if err != nil {
+		return exposure.FactID{}, nil, [32]byte{}, err
+	}
+	return fact, payload, hash, nil
 }
 
 // verifyBaseFact checks the canonical base fact hash against the snapshot

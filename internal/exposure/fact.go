@@ -602,6 +602,12 @@ func CanonicalSQLValue(sqlType string, value any) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return canonicalSQLValueOfType(typeName, value)
+}
+
+// canonicalSQLValueOfType is CanonicalSQLValue for an already-canonical type
+// name.
+func canonicalSQLValueOfType(typeName string, value any) (string, error) {
 	if value == nil {
 		return "null", nil
 	}
@@ -818,6 +824,16 @@ func ValidateCanonicalSQLValueEncoding(sqlType, encoded string) error {
 }
 
 func normalizeSQLType(value string) string {
+	// Exact canonical spellings map to themselves; skipping the lower/fields/join
+	// allocations is the hot path for every base cell of an already-canonical
+	// column. Anything else takes the full normalization below.
+	switch value {
+	case "smallint", "integer", "bigint", "numeric", "real", "double precision",
+		"boolean", "bytea", "date", "time without time zone", "time with time zone",
+		"timestamp with time zone", "timestamp without time zone", "jsonb",
+		"uuid", "text", "character", "character varying":
+		return value
+	}
 	normalized := strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
 	switch normalized {
 	case "int2":
@@ -2080,4 +2096,74 @@ func MergeObservations(profile string, observations ...Observation) (Observation
 		return Observation{}, err
 	}
 	return Observation{ProfileVersion: profile, Release: releaseValues, Influence: influenceValues, Outcome: outcomeValues}, nil
+}
+
+// BaseCellFactBuilder constructs the base-cell facts of one column: a fixed
+// (namespace, snapshot, field, canonical type). The column constants pass
+// through NewBaseCellFactV2's validator once, at construction; each cell then
+// receives exactly the FactID, canonical payload, and hash that
+// NewBaseCellFactV2 followed by CanonicalPayloadHash would produce, without
+// repeating type normalization or validation per cell. The per-cell checks are
+// the ones the validator applies to the varying fields: the entity key is a
+// trimmed non-empty token and the canonical value is non-empty. A differential
+// test pins the builder to the constructor path.
+type BaseCellFactBuilder struct {
+	sourceNamespace string
+	snapshot        string
+	field           string
+	typeName        string
+	prefix          []byte
+}
+
+// NewBaseCellFactBuilder validates the column constants through the same
+// path as NewBaseCellFactV2 and captures the constant payload prefix.
+func NewBaseCellFactBuilder(sourceNamespace, snapshot, fieldID, sqlType string) (*BaseCellFactBuilder, error) {
+	probe, err := NewBaseCellFactV2(sourceNamespace, snapshot, "probe", fieldID, sqlType, nil)
+	if err != nil {
+		return nil, err
+	}
+	var prefix bytes.Buffer
+	writeCanonicalString(&prefix, string(FactBaseCell))
+	writeCanonicalString(&prefix, ProfileV2)
+	writeCanonicalString(&prefix, probe.SourceNamespace)
+	writeCanonicalString(&prefix, probe.Snapshot)
+	return &BaseCellFactBuilder{
+		sourceNamespace: probe.SourceNamespace, snapshot: probe.Snapshot,
+		field: probe.Field, typeName: probe.SQLType, prefix: prefix.Bytes(),
+	}, nil
+}
+
+// Fact returns the cell's FactID, canonical payload, and hash.
+func (b *BaseCellFactBuilder) Fact(entityKey string, value any) (FactID, []byte, [32]byte, error) {
+	if b == nil {
+		return FactID{}, nil, [32]byte{}, fmt.Errorf("%w: nil base cell fact builder", ErrInvalid)
+	}
+	canonical, err := canonicalSQLValueOfType(b.typeName, value)
+	if err != nil {
+		return FactID{}, nil, [32]byte{}, err
+	}
+	if invalidToken(entityKey) || canonical == "" {
+		return FactID{}, nil, [32]byte{}, fmt.Errorf("%w: base cell payload is incomplete", ErrInvalid)
+	}
+	fact := FactID{Profile: ProfileV2, Kind: FactBaseCell, SourceNamespace: b.sourceNamespace, Snapshot: b.snapshot,
+		EntityKey: entityKey, Field: b.field, SQLType: b.typeName, CanonicalValue: canonical}
+	payload := make([]byte, 0, len(b.prefix)+4*8+len(entityKey)+len(b.field)+len(b.typeName)+len(canonical))
+	payload = append(payload, b.prefix...)
+	payload = appendCanonicalString(payload, entityKey)
+	payload = appendCanonicalString(payload, b.field)
+	payload = appendCanonicalString(payload, b.typeName)
+	payload = appendCanonicalString(payload, canonical)
+	digest := sha256.New()
+	digest.Write([]byte(factDomainV2))
+	digest.Write(payload)
+	var hash [32]byte
+	copy(hash[:], digest.Sum(nil))
+	return fact, payload, hash, nil
+}
+
+func appendCanonicalString(buffer []byte, value string) []byte {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], uint64(len(value)))
+	buffer = append(buffer, encoded[:]...)
+	return append(buffer, value...)
 }
