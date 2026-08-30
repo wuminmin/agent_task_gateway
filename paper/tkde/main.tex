@@ -128,11 +128,10 @@ Catalogs, identity directories, and approval workflows, but none turns one
 approved purpose into an enforceable contract across an agent's queries,
 retries, pages, and delegated subtasks. Marketplace-integrated agents
 close the discovery-and-request half of this gap: Data Product MCP lets an
-agent find, request, and query governed data products over MCP and validates
-the declared purpose against natural-language contracts with an LLM-based
-check before each query \cite{tonnarelli2026dataproductmcp}, building on
-an assistant over open-standard contracts
-\cite{dietz2025automating,bitol2025odcs}. Once a purpose
+agent find, request, and query governed data products over MCP and checks
+the declared purpose against natural-language contracts before each query
+\cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}. Once
+a purpose
 is approved, per-query checks still do not state how much governed data the
 task has cumulatively released across retries, pages, rewrites, and delegated
 subtasks, and that system's own expert panel names letting a language model
@@ -288,19 +287,16 @@ protects denial
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
 reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
-Statistical-database inference control studied trackers, query-set size and
-overlap, and cumulative auditing
-\cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
-and BDG's Dependency ledger is an exact, provenance-derived, delegation- and
-publication-bound engineering of that query-set-overlap lineage, bounding
-how many settled predicates a task gets, not inference; PINQ's cumulative
-budget is $\epsilon$ \cite{mcsherry2009pinq}, BDG's a set of declared
-facts. BDG charges declared facts and successful outcomes within one signed
-root, withholds delivery unless settlement succeeds, releases exact
-answers, and models neither prior knowledge, denial leakage, nor
-$\epsilon$; zero-novelty replay is the syntactic analogue of history-aware
-pricing, and Theorem~\ref{thm:nf-soundness} covers listed rewrites only,
-weaker than arbitrage-freedom. Why/where/how provenance
+Statistical-database inference control studied trackers, query-set overlap,
+and cumulative auditing
+\cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness};
+BDG's Dependency ledger is an exact, provenance-derived, delegation- and
+publication-bound engineering of that lineage that bounds settled
+predicates, not inference, and its budget is a set of declared facts where
+PINQ's is $\epsilon$ \cite{mcsherry2009pinq}. Zero-novelty replay is the
+syntactic analogue of history-aware pricing, and
+Theorem~\ref{thm:nf-soundness} covers rules R1--R6 only, weaker than
+arbitrage-freedom. Why/where/how provenance
 \cite{buneman2001why,green2007provenance,cheney2009provenance,amsterdamer2011aggregate}
 and the GProM/ProvSQL capture mechanisms
 \cite{arab2018gprom,senellart2018provsql,sen2026provsql} explain derivations;
@@ -309,15 +305,13 @@ effects before release.
 
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
-Passant formalizes optimizer-invariant aggregate predicates over each output
-tuple's bag of provenance monomials and rewrites or terminates violating
-queries, covering contributor thresholds, source combinations, grounding, and
-prompt-bound flows that BDG does not subsume; trajectory policy is its future
-work. BDG differs in temporal unit: after authorization and any flow check
-it persists the three sets under one root and charges exact novelty across
-queries, retries, pages, rewrites, and descendants in one root-head
-transaction; DFC asks whether a flow is allowed, BDG whether another allowed
-flow fits the cumulative contract (composition not evaluated).
+Passant enforces optimizer-invariant aggregate predicates over each output
+tuple's provenance monomials (contributor thresholds, source combinations,
+grounding, prompt-bound flows BDG does not subsume); trajectory policy is
+its future work. BDG differs in temporal unit: DFC asks whether a flow is
+allowed, BDG whether another allowed flow fits the cumulative contract
+across queries, retries, pages, rewrites, and descendants (composition not
+evaluated).
 
 \textbf{Authorization, delegation, and agent controls.} Task-based and
 purpose-based authorization scope rights to an activity or a declared purpose
@@ -1114,33 +1108,24 @@ the same pages is a zero-novelty replay), and the rule that
 \section{System Realization}
 \label{sec:system}
 
-The Go prototype uses separate Control and Business PostgreSQL 16 databases.
-Its Catalog declares reporting Views, mandatory scopes, immutable
-publications, entity keys, operations, approval routes, and profiles;
-Products bind source, schema, snapshot, ordinal artifacts, and digests, and
-startup and per-query attestation verify these bindings. Each service
-instance is Catalog-bound, so rollover routes old roots to retained $P_e$
-instances and new approvals to $P_{e+1}$. MCP tools cover Product discovery, task
-approval/execution/delegation, View rebind, budgets, results, and receipts,
-an external adapter signs Grants, and direct SQL is lowered to the same
-canonical plan or fails closed, so no path executes agent-authored text;
-Control PostgreSQL persists set metadata, the root head, observations, and
-View bindings, results use AES-GCM, and audits form a hash chain; retention
-and reclamation are specified in the supplement.
-
-\textbf{Integration and threat boundary.} BDG sits on the path
-lake/warehouse $\rightarrow$ curated data products $\rightarrow$ immutable
-Reporting Publications $\rightarrow$ BDG $\rightarrow$ agent, fronting the
-governed serving tier and replacing none of the lake, Catalog, IAM/HR,
-OA/BPM, object store, RLS/DFC, audit, or agent platform (supplement
-interface table; not a completed production deployment); OA/BPM may impose principal- or tenant-level issuance policies
-across roots, while the ledger stays scoped to one root family. The trusted
-parties are those of Section~\ref{sec:model}: crashes, concurrency, stale
+The Go prototype uses separate Control and Business PostgreSQL 16 databases;
+the Catalog declares Views, scopes, immutable publications, entity keys,
+operations, approval routes, and profiles, and startup and per-query
+attestation verify every binding. Each service instance is Catalog-bound,
+so rollover routes old roots to retained $P_e$ instances and new approvals
+to $P_{e+1}$. MCP tools cover discovery, task approval/execution/delegation,
+View rebind, budgets, results, and receipts; direct SQL is lowered to the
+same canonical plan or fails closed, so no path executes agent-authored
+text; results use AES-GCM and audits form a hash chain. BDG fronts the
+governed serving tier (lake $\rightarrow$ curated products $\rightarrow$
+immutable publications $\rightarrow$ BDG $\rightarrow$ agent) and replaces
+none of the lake, Catalog, IAM, OA/BPM, object store, RLS/DFC, or audit
+systems (supplement interface table; not a production deployment); OA/BPM
+may impose principal- or tenant-level issuance policies across roots while
+the ledger stays scoped to one root family. Crashes, concurrency, stale
 bindings, replay, and promotion failure are in scope; compromised trusted
 authorities, direct bypass, colluding independent roots, and external-tool
-leakage are not. BDG enforces an approved policy without judging its
-appropriateness.
-
+leakage are not.
 
 \section{Three-Layer Assurance}
 \label{sec:formal}
@@ -1350,10 +1335,11 @@ execute-and-derive (per-cell table in the supplement).
 p50 (ms) when one candidate settles against a pre-seeded Dependency history
 of the same size.}
 \label{tab:scale-main}
-\small
+\scriptsize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lrrr}
 \toprule
-History (Facts) & Settle, 0\% overlap & Settle, 100\% overlap & Response \\
+History (Facts) & Settle, 0\% ovl. & Settle, 100\% ovl. & Response \\
 \midrule
 $10^4$ & \FinalVFivePublicationScaleSettleTenKMS{} & -- & -- \\
 \FinalVFivePublicationScaleMillionHistory{} & \FinalVFivePublicationScaleSettleMillionMS{} & \FinalVFivePublicationScaleSettleMillionFullOverlapMS{} & \FinalVFivePublicationScaleMillionDrainMS{} \\
