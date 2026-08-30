@@ -123,7 +123,7 @@ products:
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
-    allowed_aggregates: [sum, count, min, max, avg]
+    allowed_aggregates: [sum, count, min, max]
     fields:
       - name: month
         type: text
@@ -160,7 +160,7 @@ products:
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
-    allowed_aggregates: [sum, count, min, max, avg]
+    allowed_aggregates: [sum, count, min, max]
     fields:
       - name: receipt_no
         type: text
@@ -357,7 +357,7 @@ products:
     scopes: [partition_key]
     allowed_functions: []
     allowed_operators: ["=", "<="]
-    allowed_aggregates: [sum, count, avg]
+    allowed_aggregates: [sum, count]
     fields:
       - name: orderkey
         type: bigint
@@ -382,7 +382,7 @@ products:
     scopes: [partition_key]
     allowed_functions: []
     allowed_operators: ["=", "<="]
-    allowed_aggregates: [sum, count, avg]
+    allowed_aggregates: [sum, count]
     fields:
       - name: orderkey
         type: bigint

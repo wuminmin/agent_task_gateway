@@ -501,3 +501,35 @@ func TestCatalogRejectsEmbeddedPassword(t *testing.T) {
 		t.Fatalf("error leaked embedded password: %v", err)
 	}
 }
+
+// The validator admits exact AVG on V2 products; the shipped Catalog keeps its
+// aggregate lists unchanged because the private Dataset Binding pins the file's
+// digest, so admitting AVG there is a re-binding decision, not a code change.
+func TestV2ProductMayApproveAvgWhileUnknownAggregatesFailClosed(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("read repository catalog: %v", err)
+	}
+	original := "allowed_aggregates: [sum, count, min, max]"
+	if !bytes.Contains(data, []byte(original)) {
+		t.Fatalf("repository catalog no longer carries %q", original)
+	}
+	withAvg := bytes.Replace(data, []byte(original), []byte("allowed_aggregates: [sum, count, min, max, avg]"), 1)
+	parsed, err := Parse(withAvg)
+	if err != nil {
+		t.Fatalf("Parse with avg returned error: %v", err)
+	}
+	approved := false
+	for _, product := range parsed.Products {
+		for _, aggregate := range product.AllowedAggregates {
+			approved = approved || aggregate == "avg"
+		}
+	}
+	if !approved {
+		t.Fatal("parsed catalog does not expose the approved avg aggregate")
+	}
+	withMedian := bytes.Replace(data, []byte(original), []byte("allowed_aggregates: [sum, count, median]"), 1)
+	if _, err := Parse(withMedian); !errors.Is(err, ErrInvalidCatalog) || !strings.Contains(err.Error(), "V2 supports only") {
+		t.Fatalf("unknown aggregate error = %v", err)
+	}
+}
