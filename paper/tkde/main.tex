@@ -130,6 +130,17 @@ that contract per agent--Product pair fragments the control surface. Models and
 runtimes may change; the database data-egress boundary should not live in each
 prompt or application.
 
+Marketplace-integrated agents now close the discovery-and-request half of
+this gap: Data Product MCP lets an agent find, request, and query governed
+data products over MCP and validates the declared purpose against
+natural-language contracts with an LLM-based governance check before each
+query \cite{tonnarelli2026dataproductmcp}. The other half remains open. Once a
+purpose is approved, per-query checks do not state how much governed data the
+task has cumulatively released across retries, pages, rewrites, and delegated
+subtasks, and that system's own expert panel names not letting a language
+model make security decisions as an adoption barrier. BDG starts at that
+boundary.
+
 BDG is instead a brownfield-compatible data-egress layer at a governed serving
 tier materialized from a lake or warehouse. The reporting pipeline supplies
 immutable publications; the Catalog supplies Products, metadata, and candidate
@@ -363,6 +374,18 @@ flows. SafeNLIDB uses interaction history for model-side inference-risk
 assessment and SQL generation \cite{liu2026safenlidb}; it is not a deterministic
 database-side FactID ledger, while BDG claims no inference safety.
 
+\textbf{Governed data products over MCP.} Data Product MCP
+\cite{tonnarelli2026dataproductmcp} and the access-request assistant it builds
+on \cite{dietz2025automating} automate discovery, purpose review, and
+pre-execution contract guards at a data-product marketplace whose contracts
+follow open standards \cite{bitol2025odcs}; enforcement is per query and the
+purpose check is probabilistic. BDG is complementary and downstream: it assumes
+a marketplace or Catalog has already bound Product, contract, and approved
+purpose, and adds a deterministic, task-scoped ledger with atomic settlement
+before availability. The two could compose---marketplace discovery and purpose
+review upstream, BDG settlement at the serving tier---but the prototype does
+not evaluate that composition.
+
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
 controls. BDG adds three-set FactID novelty and shared-root settlement after
 authorization and any DFC checks; it is narrower than DFC's policy/SQL/write
@@ -410,6 +433,13 @@ derivations rather than an approved root-family budget & Capture and evaluate
 provenance; no cumulative release decision & Database-level mechanisms with
 broader SQL/provenance scope than BDG & No task approval binding or
 cumulative exposure settlement \\
+Data Product MCP \cite{tonnarelli2026dataproductmcp} & Purpose-versus-contract
+compliance of a request and pre-execution contract guards: may this query run
+for this purpose? & Per query; an audit chain links question, purpose, policy,
+SQL, and result & Reject or run before execution; no settlement or
+availability protocol & MCP tools over marketplace data products on
+Snowflake/Databricks/GCP; LLM-based governance check & No cumulative task
+ledger, set-valued budgets, or formal safety claim \\
 SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
 from schema, constraints, and interaction history & Multi-turn history supplied
 to the model, not a persisted exact FactID ledger & Reject or generate SQL at
@@ -1270,7 +1300,7 @@ agent--data-domain pairs.
 Existing system & Supplies to BDG & BDG adds \\
 \midrule
 Lake / warehouse & Curated governed serving Product & Immutable publication binding \\
-Data Catalog & Schema, owner, lineage, classification, candidate business keys & Structural/version binding of attested stable identities and Product/Exposure-Profile contract \\
+Data Catalog or marketplace & Schema, owner, lineage, classification, candidate business keys; open data contracts (e.g., ODCS \cite{bitol2025odcs}) & Structural/version binding of attested stable identities and Product/Exposure-Profile contract \\
 IAM/HR + OA/BPM & Subject, org/role, purpose, approver/chain, decision/expiry & Subject/scope and Signed Grant binding \\
 Object store + Audit/SIEM & Staging, storage, and audit endpoints & PENDING/AVAILABLE and settlement evidence \\
 Agent platform & Plans and tool calls & Untrusted-client boundary \\
@@ -1472,8 +1502,10 @@ discovery.
 validates structural and version bindings for administrator-attested identities,
 plus supported semantics and settlement; it does not decide policy
 appropriateness. Its single primary database path and demo approval adapter
-provide no production Data Lake/IAM/workflow/SIEM study or integration-cost
-measurement; multi-engine connectors and Policy Studio remain future work.
+provide no production Data Lake/IAM/workflow/SIEM study, integration-cost
+measurement, or practitioner study of budget calibration of the kind
+marketplace-integrated agents have reported \cite{tonnarelli2026dataproductmcp};
+multi-engine connectors and Policy Studio remain future work.
 Archived V4 used \RQFourVFourBuildRuns{} build; every run reported here is
 single-host. The radix results establish touched-branch I/O shape, not million-scale latency,
 sustained contention, distributed behavior, or live-agent performance.
