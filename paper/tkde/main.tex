@@ -117,9 +117,9 @@ fail closed, so BDG bounds the governed release of declared facts within one rep
 not freshness over a changing database.
 
 Large enterprises already operate lakes or warehouses, reporting marts, Data
-Catalogs, identity directories, and approval workflows, but none of them turns
-one approved purpose into a machine-enforceable contract across an agent's
-queries, retries, pages, and delegated subtasks. Marketplace-integrated agents
+Catalogs, identity directories, and approval workflows, but none turns one
+approved purpose into an enforceable contract across an agent's queries,
+retries, pages, and delegated subtasks. Marketplace-integrated agents
 close the discovery-and-request half of this gap: Data Product MCP lets an
 agent find, request, and query governed data products over MCP and validates
 the declared purpose against natural-language contracts with an LLM-based
@@ -409,9 +409,9 @@ reveals one threshold bit. The agent also sees its own ledger: a settled
 response returns the per-dimension charge and the root ledger's used and
 limit counters (\code{exposure}, \code{exposure_budget}), so each successful
 query additionally reveals $|\Delta_X|$---for an aggregate, how many hidden
-base facts it newly touched. That count is deliberate, since an agent must
-plan against its budget, and at most $B_O$ novel queries can obtain one; it
-is part of the model, not a channel outside it. The model assumes
+base facts it newly touched. That count is deliberate (an agent must plan
+against its budget) and at most $B_O$ novel queries can obtain one. The model
+assumes
 trusted identity, organizational-attribute, and approval assertions; Catalog
 and Exposure-Profile authors and the immutable publication pipeline;
 PostgreSQL execution and snapshot semantics; enforcement and Control services;
@@ -1185,9 +1185,8 @@ approval/execution/delegation, View rebind, budgets, results, and receipts,
 an external adapter signs Grants, and direct SQL is lowered to the same
 canonical plan or fails closed, so no path executes agent-authored text;
 Control PostgreSQL persists set metadata, the root head, observations, and
-View bindings, results use AES-GCM, and audits form a hash chain.
-Reference-safe retention and reclamation are specified in the supplement;
-stored ledger identities are never silently reinterpreted.
+View bindings, results use AES-GCM, and audits form a hash chain; retention
+and reclamation are specified in the supplement.
 
 \textbf{Integration and threat boundary.} BDG sits on the path
 lake/warehouse $\rightarrow$ curated data products $\rightarrow$ immutable
