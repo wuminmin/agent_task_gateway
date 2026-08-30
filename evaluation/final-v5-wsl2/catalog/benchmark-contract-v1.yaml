@@ -446,6 +446,78 @@ products:
         type: integer
         description: Mandatory frozen partition key
 
+  - name: final_v5_footprint_unlimited_result_heavy
+    source: travel_demo
+    reporting_view: reporting.final_v5_footprint_unlimited_result_heavy
+    description: Final-V5 refused-footprint ladder unlimited arm over the deterministic result relation
+    sensitivity: low
+    snapshot: final-v5-result-heavy-2026-v1
+    snapshot_publication: final-v5-result-heavy-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.result_heavy
+    stable_relation_role: final_v5_result_heavy
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["<=", "in"]
+    allowed_aggregates: [sum]
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+
+  - name: final_v5_footprint_bounded_result_heavy
+    source: travel_demo
+    reporting_view: reporting.final_v5_footprint_bounded_result_heavy
+    description: Final-V5 refused-footprint ladder bounded arm over the deterministic result relation
+    sensitivity: low
+    snapshot: final-v5-result-heavy-2026-v1
+    snapshot_publication: final-v5-result-heavy-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.result_heavy
+    stable_relation_role: final_v5_result_heavy
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["<=", "in"]
+    allowed_aggregates: [sum]
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+
   - name: final_v5_result_heavy
     source: travel_demo
     reporting_view: reporting.final_v5_result_heavy

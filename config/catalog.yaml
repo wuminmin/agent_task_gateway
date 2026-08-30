@@ -422,6 +422,78 @@ products:
   # Final-V5 result-heavy Product, copied verbatim from the reviewed Catalog
   # candidate evaluation/final-v5-wsl2/catalog/benchmark-contract-v1.yaml so a
   # live/candidate identity comparison in the Contract-to-Runtime Bridge holds.
+  - name: final_v5_footprint_unlimited_result_heavy
+    source: travel_demo
+    reporting_view: reporting.final_v5_footprint_unlimited_result_heavy
+    description: Final-V5 refused-footprint ladder unlimited arm over the deterministic result relation
+    sensitivity: low
+    snapshot: final-v5-result-heavy-2026-v1
+    snapshot_publication: final-v5-result-heavy-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.result_heavy
+    stable_relation_role: final_v5_result_heavy
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["<=", "in"]
+    allowed_aggregates: [sum]
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+
+  - name: final_v5_footprint_bounded_result_heavy
+    source: travel_demo
+    reporting_view: reporting.final_v5_footprint_bounded_result_heavy
+    description: Final-V5 refused-footprint ladder bounded arm over the deterministic result relation
+    sensitivity: low
+    snapshot: final-v5-result-heavy-2026-v1
+    snapshot_publication: final-v5-result-heavy-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.result_heavy
+    stable_relation_role: final_v5_result_heavy
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["<=", "in"]
+    allowed_aggregates: [sum]
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+
   - name: final_v5_result_heavy
     source: travel_demo
     reporting_view: reporting.final_v5_result_heavy
@@ -624,6 +696,16 @@ approval_routes:
     approver: bob
     budget_profile: final-v5-benchmark-low-v1
   - sensitivity: low
+    products: [final_v5_footprint_unlimited_result_heavy]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-footprint-unlimited-v1
+  - sensitivity: low
+    products: [final_v5_footprint_bounded_result_heavy]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-footprint-bounded-v1
+  - sensitivity: low
     products: [final_v5_exposure_scale]
     mode: manual
     approver: bob
@@ -703,6 +785,43 @@ budget_profiles:
     max_release_facts: 1000
     max_influence_facts: 1000
     max_outcome_facts: 1000
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 8
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 32768
+  - name: final-v5-footprint-unlimited-v1
+    max_queries: 64
+    max_rows: 64
+    max_db_time: 10m
+    query_timeout: 5m
+    task_ttl: 2h
+    max_release_facts: 1000
+    max_influence_facts: 1000000
+    max_outcome_facts: 1000
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 8
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 32768
+  # The bounded ladder arm: the Dependency ceiling is the smallest rung's
+  # footprint derived a priori from the declared rule (100 rows * (row fact +
+  # row_id cell + category cell + one argument cell)); see
+  # evaluation/finalv5footprint. Every larger rung must refuse on this single
+  # dimension under a fresh root per rung.
+  - name: final-v5-footprint-bounded-v1
+    max_queries: 64
+    max_rows: 64
+    max_db_time: 10m
+    query_timeout: 5m
+    task_ttl: 2h
+    max_release_facts: 16
+    max_influence_facts: 400
+    max_outcome_facts: 16
     exposure_profile_version: taskgate-exposure-v5
     predicate_footprint:
       version: taskgate-predicate-footprint-v1
