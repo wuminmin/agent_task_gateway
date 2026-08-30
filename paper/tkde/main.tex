@@ -585,11 +585,11 @@ $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
 query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
 
-For a successful $q$, settlement commits the complete candidate Result set,
-whereas publication is later and recoverable:
+For a successful $q$, settlement commits the complete candidate Result set
+before the later, recoverable publication, so
 $F_R^{\mathrm{available}}(q)\subseteq F_R^{\mathrm{accounted}}(q)
-=F_R^{\mathrm{candidate}}(q)$. Download is untracked, so accounting only
-upper-bounds availability and actual observation; it asserts neither occurred.
+=F_R^{\mathrm{candidate}}(q)$; download is untracked, so accounting only
+upper-bounds observation.
 
 \begin{definition}[Task-scoped cumulative exposure]
 \label{def:task-exposure}
@@ -1030,13 +1030,12 @@ intent, terminal/registration audit, and the signed receipt.
 \code{QUERY_RESULT_CONSUMED} in a second transaction before returning the ID.
 \end{enumerate}
 
-Only root heads are mutable. Pre-settlement failure rolls back heads,
-observations, PENDING intent, audits, cache, and receipt; any leftover staging
-object stays unavailable. After settlement, promotion failure neither refunds
-nor re-executes: recovery verifies the canonical digest and resumes the
-charged/PENDING artifact idempotently. Within its bound context,
-$(\code{root_task_id},\code{observation_sha256})$ then identifies zero-novelty
-replay without rescanning effects.
+Only root heads are mutable: pre-settlement failure rolls back heads,
+observations, intent, audits, cache, and receipt, while post-settlement
+promotion failure neither refunds nor re-executes but resumes the charged
+PENDING artifact idempotently after verifying the canonical digest;
+$(\code{root_task_id},\code{observation_sha256})$ then identifies
+zero-novelty replay without rescanning effects.
 
 The boundaries remain distinct: \emph{accounted} means settlement committed,
 \emph{available} means canonical promotion plus consumption audit, and
