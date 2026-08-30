@@ -371,56 +371,45 @@ language, root family, and publication, never as a DP or knowledge measure.
 \begin{table*}[t]
 \centering
 \caption{Representative control boundaries from the cited artifacts. Entries
-describe modeled or paper-reported scopes; they are neither a feature score nor
-a latency ranking.}
+describe modeled or paper-reported scopes, not a feature score or latency
+ranking; each system's non-goals relative to BDG are stated in the text.}
 \label{tab:system-comparison}
 \scriptsize
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.04}
-\begin{tabular}{L{0.107\textwidth}L{0.17\textwidth}L{0.17\textwidth}L{0.18\textwidth}L{0.155\textwidth}L{0.153\textwidth}}
+\begin{tabular}{L{0.12\textwidth}L{0.22\textwidth}L{0.2\textwidth}L{0.21\textwidth}L{0.19\textwidth}}
 \toprule
-System/family & Controlled object and decision & Horizon and persistent subject &
-Enforcement/release coupling & Reported SQL or tool boundary &
-Explicit non-goal in this comparison \\
+System/family & Controlled object and decision & Horizon and persistent subject & Enforcement/release coupling & Reported SQL or tool boundary \\
 \midrule
 \system & Declared Result, Dependency, and Outcome FactID set novelty:
 does the next release fit the budget? & One signed, publication-bound root
 family; descendants share its persistent ledger & One three-dimensional
 root-head CAS co-commits ledger, audit, receipt, and PENDING intent; availability
 is recoverable & Closed read-only reporting fragment: SPJG, multi-way
-equijoin, bounded Union/View DAGs & No per-query DFC resolution, writes, prompt/cross-tool IFC,
-DP, or inference control \\
+equijoin, bounded Union/View DAGs \\
 DFC/Passant \cite{summers2026dataflow,summers2026passant} & Aggregate policy
-predicate over a bag of provenance monomials: is this flow compliant? &
-Passant paper: one SQL execution; relational context may include identity,
+predicate over a bag of provenance monomials: is this flow compliant? & Passant paper: one SQL execution; relational context may include identity,
 delegation, or system state; trajectory policy is future work & Paper describes
 REMOVE/transform/KILL and \code{INSERT}/\code{UPDATE} source, required-source,
-and sink policies & Paper states monotonic SQL-92 and evaluates five engines &
-No signed task-root novelty ledger or cumulative-budget CAS; general-tool DFC
-is future work \\
+and sink policies & Paper states monotonic SQL-92 and evaluates five engines \\
 GAAP \cite{stanley2026gaap} & Permission-consistent disclosure of IFC-labeled
 private data & Persistent state across execution steps and tasks separated in
 time & Deterministic disclosure confinement at agent/tool sinks & Agent
-execution environment with cross-service flows & Not SQL FactID novelty or
-database/artifact settlement \\
-GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} &
-General query provenance representation, rewriting, and circuits & Query-result
+execution environment with cross-service flows \\
+GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} & General query provenance representation, rewriting, and circuits & Query-result
 derivations rather than an approved root-family budget & Capture and evaluate
 provenance; no cumulative release decision & Database-level mechanisms with
-broader SQL/provenance scope than BDG & No task approval binding or
-cumulative exposure settlement \\
+broader SQL/provenance scope than BDG \\
 Data Product MCP \cite{tonnarelli2026dataproductmcp} & Purpose-versus-contract
 compliance of a request and pre-execution contract guards: may this query run
 for this purpose? & Per query; an audit chain links question, purpose, policy,
 SQL, and result & Reject or run before execution; no settlement or
 availability protocol & MCP tools over marketplace data products on
-Snowflake/Databricks/GCP; LLM-based governance check & No cumulative task
-ledger, set-valued budgets, or formal safety claim \\
+Snowflake/Databricks/GCP; LLM-based governance check \\
 SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
 from schema, constraints, and interaction history & Multi-turn history supplied
 to the model, not a persisted exact FactID ledger & Reject or generate SQL at
-the model/NLIDB layer & LLM-based natural-language database interface & No
-deterministic DB-side effects, atomic settlement, or formal DP guarantee \\
+the model/NLIDB layer & LLM-based natural-language database interface \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -813,21 +802,13 @@ collision checks are supplemental.
 
 \subsection{Operator Evaluation and Effect Extraction}
 
-Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$; ``partial''
-means that a failed premise yields no relation, effect, settlement, or release.
-For compactness, $\alpha_r(t)=(S_r,W_r)$,
-$\alpha_a(t)=(S_a,W_a)$, $\operatorname{aug}_F(t)$ replaces
-$\alpha_r(t)$ by $\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$, and cell
-maps are otherwise copied.  In the derived rules a cell is written as the
-5-tuple $c_a=\langle v_a,\tau_a,\alpha_a,x_a,\rho_a\rangle$: value, type, the
-annotation pair $\alpha_a=(S_a,W_a)$ that expands to support and witness, the
-normalized lineage expression, and the optional materialized release fact.
-E-Scan alone displays the fully expanded base-cell 6-tuple; every other rule
-constructs each output cell explicitly, so representation closure does not rely
-on prose. The supplement's operator table summarizes each rule's output
-construction and positive-output dependency-footprint choice; the complete
-inference rules, auxiliary functions, NULL/empty-input cases, and page bounds
-are there as well.
+Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$: a failed
+premise yields no relation, effect, settlement, or release. A cell is the
+5-tuple $c_a=\langle v_a,\tau_a,\alpha_a,x_a,\rho_a\rangle$ (value, type,
+annotation pair $\alpha_a=(S_a,W_a)$, normalized lineage expression, optional
+materialized release fact), and every rule constructs each output cell
+explicitly; the complete rules, auxiliary functions, NULL/empty-input cases,
+and page bounds are in the supplement.
 
 
 Union is bag-aware and idempotent only when its typed tuples are proven
@@ -928,26 +909,17 @@ $C$ and define the canonical replay descriptor
      \operatorname{params}_\Pi(q),\operatorname{encver}\rangle,
  \label{eq:replay-descriptor}
 \end{equation}
-where every component uses the typed, length-delimited encoding already bound
-by the Grant and Catalog. The implementation indexes a digest of this
-descriptor but verifies the bound metadata before accepting a hit.
-
-Descriptor equality fixes the approved policy, publication, effect/View
-contracts, typed parameters, and normal form; hence it fixes all three effect
-sets and exact replay has zero novelty. The converse is not claimed outside the
-stated normalization rules.
-
-Let $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$ denote successful compilation
-of a semantic-View root $v$ into a closed core term $e$, with $\mu$ mapping its
-ordered public fields to stable terminal FieldIDs. The binding $\beta_v$
-commits the root Product/public-field identity, resolved expressions, signed
-View contract, and predicate context. Compilation defines the View query
-normal form from $e$ while retaining $\beta_v$ in $C$.
-
-For successful $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$, induction over the
-accepted acyclic View DAG preserves the typed visible bag and all three effect
-sets when the internal query retains $\beta_v$. Exact guards and the proof are
-supplemental; a direct terminal query can carry different Outcome FactIDs.
+where every component uses the typed, length-delimited encoding bound by the
+Grant and Catalog; the implementation indexes a digest of this descriptor but
+verifies the bound metadata before accepting a hit. Descriptor equality fixes
+policy, publication, effect/View contracts, typed parameters, and normal form,
+hence all three effect sets, so exact replay has zero novelty; the converse is
+not claimed outside the stated rules. A semantic-View root $v$ compiles to a
+closed core term with a binding $\beta_v$ over root identity, resolved
+expressions, View contract, and predicate context; expansion over the
+accepted acyclic DAG preserves the visible bag and all three effect sets when
+the internal query retains $\beta_v$ (proof in the supplement), while a direct
+terminal query can carry different Outcome FactIDs.
 
 \begin{theorem}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
