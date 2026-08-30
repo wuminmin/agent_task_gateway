@@ -1091,6 +1091,46 @@ One qualification belongs with these numbers: the per-Task row budget is a
 cumulative ledger and is charged on replay, so replay is free of Fact charges
 but not of row budget.
 
+\section{Publication Campaign: Gateway Phase Breakdown}
+\label{sec:phase-publication-supp}
+
+The Gateway reports six non-overlapping server phases per governed response
+(prepare, execute-and-derive, artifact stage, Control settlement, artifact
+publication, response finalize), and each sample's phases sum to its server
+total. Table~\ref{tab:phase-breakdown} gives per-phase medians of the novel
+arm for the cells the main text discusses, over
+\FinalVFivePublicationBaselinePerCell{} samples each; per-phase medians need
+not add up to the median total. The dominant phase of S1/SF1 is
+\texttt{\FinalVFivePublicationPhaseDominantSOneSFOne{}}
+(\FinalVFivePublicationPhaseDominantSharePctSOneSFOne\% of its server total),
+of S2/SF10 \texttt{\FinalVFivePublicationPhaseDominantSTwoSFTen{}}
+(\FinalVFivePublicationPhaseDominantSharePctSTwoSFTen\%), and of S6/100k-x16
+\texttt{\FinalVFivePublicationPhaseDominantSSixHundredKByteSixteen{}}
+(\FinalVFivePublicationPhaseDominantSharePctSSixHundredKByteSixteen\%); the
+Control settlement transaction takes
+\FinalVFivePublicationPhaseSettlementMSSOneSFOne{},
+\FinalVFivePublicationPhaseSettlementMSSTwoSFTen{}, and
+\FinalVFivePublicationPhaseSettlementMSSSixHundredKByteSixteen{}~ms in those
+cells.
+
+\begin{table}[t]
+\centering
+\caption{Gateway phase medians of the novel governed query (ms) from the
+publication campaign. Each sample's six phases are non-overlapping and sum to
+its server total; the columns are per-phase medians over
+\FinalVFivePublicationBaselinePerCell{} samples, so they need not add up to
+the median total.}
+\label{tab:phase-breakdown}
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+Cell & Prepare & Exec.+derive & Stage & Settle & Publish & Finalize & Total \\
+\midrule
+\FinalVFivePublicationPhaseTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Publication Campaign: Between-Execution Dispersion}
 \label{sec:dispersion-publication-supp}
 

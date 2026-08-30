@@ -1202,37 +1202,28 @@ terminal Products bind source, schema, snapshot, ordinal artifacts, and
 digests, semantic-View Products carry the four-digest contract, and startup
 and per-query attestation verify these bindings. Each service instance is
 Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
-new approvals to $P_{e+1}$.
-
-MCP tools cover Product discovery, task approval/execution/delegation, View
-rebind, budgets, results, and receipts, an external adapter signs Grants, and
-direct SQL is lowered to the same canonical plan or fails closed, so no path
-executes agent-authored text; Control PostgreSQL persists set metadata, the
-root head, observations, and View bindings, results use AES-GCM, and audits
-form a hash chain.
-
+new approvals to $P_{e+1}$. MCP tools cover Product discovery, task
+approval/execution/delegation, View rebind, budgets, results, and receipts,
+an external adapter signs Grants, and direct SQL is lowered to the same
+canonical plan or fails closed, so no path executes agent-authored text;
+Control PostgreSQL persists set metadata, the root head, observations, and
+View bindings, results use AES-GCM, and audits form a hash chain.
 Reference-safe retention and reclamation are specified in the supplement;
 stored ledger identities are never silently reinterpreted.
 
-\textbf{Enterprise integration boundary.} BDG sits on the path
+\textbf{Integration and threat boundary.} BDG sits on the path
 lake/warehouse $\rightarrow$ curated data products $\rightarrow$ immutable
 Reporting Publications $\rightarrow$ BDG $\rightarrow$ agent, fronting the
-governed serving tier rather than the raw lake and replacing none of the
-lake, Catalog, IAM/HR, OA/BPM, object store, RLS/DFC, audit, or agent
-platform; the supplement's interface table defines the brownfield-compatible
-path, which is not a completed production deployment.
-
-
-OA/BPM or another tenant-governance layer may impose principal- or tenant-level
-issuance policies across roots; the current BDG ledger remains intentionally
-scoped to one root family.
-
-\textbf{Threat and governance boundary.} The trusted parties are those of
-Section~\ref{sec:model}. Crashes, concurrency, stale bindings, replay, and
-promotion failure are in scope; compromised trusted authorities, direct bypass,
-colluding independent roots, and external-tool leakage are not. BDG enforces an
-approved organizational policy; it does not judge whether that policy is
-appropriate.
+governed serving tier and replacing none of the lake, Catalog, IAM/HR,
+OA/BPM, object store, RLS/DFC, audit, or agent platform (the supplement's
+interface table defines the brownfield path, not a completed production
+deployment); OA/BPM may impose principal- or tenant-level issuance policies
+across roots, while the ledger stays scoped to one root family. The trusted
+parties are those of Section~\ref{sec:model}: crashes, concurrency, stale
+bindings, replay, and promotion failure are in scope; compromised trusted
+authorities, direct bypass, colluding independent roots, and external-tool
+leakage are not. BDG enforces an approved policy without judging its
+appropriateness.
 
 
 \section{Three-Layer Assurance}
@@ -1241,23 +1232,23 @@ appropriate.
 Paper theorems establish representation-independent Fact identity,
 deterministic effects, and exact novelty for the closed algebra, and
 Property~\ref{thm:root-family-safety} states root-family conservation over an
-abstract settlement system; none proves the parser or implementation. Four separate
-bounded TLC models \cite{lamport2002specifying} check abstract root settlement,
-FactSet/bitmap correspondence, exact Outcome-set settlement with collision
-fail-closed safety, and PENDING/AVAILABLE recovery. Their configurations are
-small: the ledger model checks one root and one child, two requests, two
-facts per dimension, limits $1/1/2$, and one replay
-(\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the bitmap,
-Outcome-set, and artifact models explore \BitmapFormalStates{},
-\OutcomeFormalStates{}, and \ArtifactFormalStates{} states. They are sanity checks of the abstract transition systems, not assurance of
-deep interleavings; the supplement lists every bound. They start after compilation
-and abstract away SQL syntax, PostgreSQL rows, concrete hashes/signatures,
-networking, and ciphertext.
-Executable Go/PostgreSQL differential, concurrency, tamper, and fault-injection
-tests check implementation correspondence, including radix partitioning and
-object reuse. The supplement maps these layers and their gaps. We claim bounded
-model checking plus implementation evidence, neither a combined mechanized
-refinement nor a formally verified system.
+abstract settlement system; none proves the parser or implementation. Four
+bounded TLC models \cite{lamport2002specifying} check abstract root
+settlement, FactSet/bitmap correspondence, exact Outcome-set settlement with
+collision fail-closed safety, and PENDING/AVAILABLE recovery at small
+configurations---the ledger model has one root and one child, two requests,
+two facts per dimension, limits $1/1/2$, and one replay
+(\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
+explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
+\ArtifactFormalStates{} states (bounds in the supplement). They are sanity
+checks of the abstract transition systems that start after compilation and
+abstract away SQL, rows, hashes, signatures, networking, and ciphertext, not
+assurance of deep interleavings. Executable Go/PostgreSQL differential,
+concurrency, tamper, and fault-injection tests check implementation
+correspondence, including radix partitioning and object reuse; the
+supplement maps the layers and their gaps. We claim bounded model checking
+plus implementation evidence, not a mechanized refinement or a verified
+system.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1345,9 +1336,9 @@ replay is not a latency win at these scales: semantic replay exceeds direct re-e
 idempotent replay at S2/SF10 undercuts it; the supplement tabulates every
 cell.
 
-Table~\ref{tab:phase-breakdown} shows where that time goes. The Gateway
-reports six non-overlapping server phases per governed response. The largest
-phase of S1/SF1 is \texttt{\FinalVFivePublicationPhaseDominantSOneSFOne{}}
+The supplement's phase table shows where that time goes: the Gateway
+reports six non-overlapping server phases per governed response, and the
+largest phase of S1/SF1 is \texttt{\FinalVFivePublicationPhaseDominantSOneSFOne{}}
 (\FinalVFivePublicationPhaseDominantSharePctSOneSFOne\% of its server total) and
 of S6/100k-x16 is \texttt{\FinalVFivePublicationPhaseDominantSSixHundredKByteSixteen{}}
 (\FinalVFivePublicationPhaseDominantSharePctSSixHundredKByteSixteen\%);
@@ -1355,39 +1346,20 @@ the Control settlement transaction that computes exact novelty and advances
 the root head takes \FinalVFivePublicationPhaseSettlementMSSOneSFOne{}~ms at
 S1/SF1 and \FinalVFivePublicationPhaseSettlementMSSSixHundredKByteSixteen{}~ms
 at S6/100k-x16.
-Same-root contention is measured separately: the concurrency profile launches
-rounds of 10 and 50 concurrent requests against one root family at its budget
-boundary. A single request drains in
-\FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial control); a
-round of 50 under natural contention drains in
+Same-root contention is measured separately: rounds of 10 and 50 concurrent
+requests against one root family at its budget boundary. A single request
+drains in \FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial
+control); a round of 50 under natural contention drains in
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS{}~ms p50 and
-\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95, i.e.,
-\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
-requests per second through one root head, of which one per round settles
-novel work; every generated round met the natural-contention condition and is
-counted (30 per cell and deployment, none discarded), and the supplement tabulates every width and
-mode. Because every
-descendant settles on one root head, a task tree's settlement throughput is
-bounded by that head; per-dimension or batched settlement could relax the
-bound, and throughput across independent roots is not measured.
-
-\begin{table}[t]
-\centering
-\caption{Gateway phase medians of the novel governed query (ms) from the
-publication campaign. Each sample's six phases are non-overlapping and sum to
-its server total; the columns are per-phase medians over 90 samples, so they
-need not add up to the median total.}
-\label{tab:phase-breakdown}
-\scriptsize
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{lrrrrrrr}
-\toprule
-Cell & Prepare & Exec.+derive & Stage & Settle & Publish & Finalize & Total \\
-\midrule
-\FinalVFivePublicationPhaseTableBody
-\bottomrule
-\end{tabular}
-\end{table}
+\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95,
+i.e., \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{}
+contending requests per second through one root head, one of which settles
+novel work per round; every generated round met the contention condition (30
+per cell and deployment, none discarded), and the supplement tabulates every
+width and mode. Because every descendant settles on one root head, a task
+tree's settlement throughput is bounded by that head; per-dimension or
+batched settlement could relax the bound, and multi-root throughput is not
+measured.
 
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
@@ -1477,23 +1449,22 @@ the raw samples but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
-and no state carried between them; Table~\ref{tab:current-evidence} labels
-the source state of every other line, and the supplement maps each number
-group to its commit and raw file. Across those three executions the
-per-execution novel medians of a Baseline cell differ by at most
+no state carried between them; Table~\ref{tab:current-evidence} labels the
+source state of every other line, and the supplement maps each number group
+to its commit and raw file. Across the three executions the per-execution
+novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
-\FinalVFivePublicationConcurrencySpreadMaxPct\%); the supplement lists every
-cell's per-execution medians. The earlier retained pilot runs (commit \FinalVFivePilotArtifactCommit{})
-remain non-publication mechanism evidence cited only in the supplement. One residual freedom lies outside the mechanism: an Adapter may
-open several measurement windows (independent client sessions) and submit
-only one; the experiment protocol, not the Gateway, forbids that, and every retained sample here is the single window the
-protocol allowed.
-RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host,
-and TPC-H-derived (not official), and the archived V4 run used one index
-build and deployment; RQ5 sums three sequential warm child intervals behind
-an experiment controller, not a production load balancer. No result is
-generalized to cold-cache, multi-node, or production-SLO behavior.
+\FinalVFivePublicationConcurrencySpreadMaxPct\%). The retained pilot runs
+(commit \FinalVFivePilotArtifactCommit{}) are non-publication mechanism
+evidence cited only in the supplement. One residual freedom lies outside the
+mechanism: an Adapter may open several measurement windows and submit only
+one; the protocol, not the Gateway, forbids that, and every retained sample
+is the single window the protocol allowed. RQ1--RQ3 use small fixtures;
+ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
+official); the archived V4 run used one index build; RQ5 sums three
+sequential warm child intervals behind an experiment controller. No result
+is generalized to cold-cache, multi-node, or production-SLO behavior.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1515,7 +1486,7 @@ checked at request, approval, and execution.
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
 (RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per Fact
-(Table~\ref{tab:phase-breakdown}); a $10^9$-Fact Product would need hundreds
+(supplement phase table); a $10^9$-Fact Product would need hundreds
 of gigabytes and hours per build and per global aggregate, so the evaluated
 envelope is $10^5$--$10^6$-row reporting Products.
 
