@@ -77,6 +77,7 @@ type queryResponse struct {
 	ColumnCount      int                             `json:"column_count"`
 	PipelineMS       map[string]float64              `json:"pipeline_ms"`
 	DiagnosticMS     map[string]float64              `json:"diagnostic_ms"`
+	ComponentMS      map[string]float64              `json:"component_ms"`
 	PlanDigest       string                          `json:"plan_digest"`
 	SemanticReplay   bool                            `json:"semantic_replay"`
 	IdempotentReplay bool                            `json:"idempotent_replay"`
@@ -658,6 +659,7 @@ func (adapter *realAdapter) completeTaskgateSampleWithParquet(ctx context.Contex
 	sample.ClientAvailableMS, sample.ClientFullDrainMS = availableMS, durationMS(time.Since(started))
 	sample.PipelineMS = response.PipelineMS
 	sample.DiagnosticMS = response.DiagnosticMS
+	sample.ComponentMS = response.ComponentMS
 	sample.RowCount, sample.ColumnCount, sample.ResultSHA256 = intent.RowCount, int(intent.ColumnCount), resultDigest
 	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256 = sha(sqlText), sha(sqlText)
 	sample.QueryPlanSHA256 = response.PlanDigest

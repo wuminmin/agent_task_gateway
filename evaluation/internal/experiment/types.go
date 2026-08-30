@@ -471,6 +471,11 @@ type Sample struct {
 	FullTaskGateMS         float64            `json:"full_taskgate_ms,omitempty"`
 	PipelineMS             map[string]float64 `json:"pipeline_ms"`
 	DiagnosticMS           map[string]float64 `json:"diagnostic_ms"`
+	// ComponentMS retains the Gateway's finer-grained component timings
+	// (business/companion SQL, ordinal streaming, bitmap derivation, result
+	// encoding, encryption, settlement persistence) when the response carries
+	// them; it is informational and never enters an acceptance predicate.
+	ComponentMS            map[string]float64 `json:"component_ms,omitempty"`
 	Counters               map[string]int64   `json:"counters,omitempty"`
 	RowCount               int64              `json:"row_count"`
 	ColumnCount            int                `json:"column_count"`
