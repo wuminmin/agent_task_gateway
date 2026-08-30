@@ -593,6 +593,23 @@ type AggregateSpecV2 struct {
 	Field      string
 	OutputID   string
 	OutputType string
+	// Distinct marks COUNT(DISTINCT field). The Dependency footprint is the
+	// same as COUNT(field): every positive group row's argument cell.
+	Distinct bool
+}
+
+// aggregateFunctionAdmittedV2 lists the aggregates the V2 algebra annotates.
+// AVG is admitted over the exact numeric fragment only (PostgreSQL computes it
+// as an exact NUMERIC division, so the value is order-independent); DISTINCT is
+// admitted for COUNT only.
+func aggregateFunctionAdmittedV2(function string, distinct bool) bool {
+	switch function {
+	case "count":
+		return true
+	case "sum", "min", "max", "avg":
+		return !distinct
+	}
+	return false
 }
 
 // AggregateFromResultsV2 annotates PostgreSQL-computed aggregate rows. This
@@ -617,8 +634,11 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 	}
 	for _, spec := range specs {
 		function := strings.ToLower(strings.TrimSpace(spec.Function))
-		if function != "count" && function != "sum" && function != "min" && function != "max" {
+		if !aggregateFunctionAdmittedV2(function, spec.Distinct) {
 			return RelationV2{}, fmt.Errorf("%w: unsupported V2 aggregate %q", ErrInvalid, spec.Function)
+		}
+		if spec.Distinct && spec.Field == "*" {
+			return RelationV2{}, fmt.Errorf("%w: COUNT(DISTINCT *) is not SQL", ErrInvalid)
 		}
 		if spec.Field != "*" {
 			if err := requireFieldsV2(input, []string{spec.Field}); err != nil {
@@ -789,6 +809,15 @@ func expectedAggregateOutputTypeV2(function, input string) string {
 		case "bigint":
 			return "numeric"
 		case "numeric":
+			return "numeric"
+		}
+	}
+	if function == "avg" {
+		// AVG over the exact fragment is an exact NUMERIC division in PostgreSQL
+		// (16-digit scale for integer inputs, full scale for NUMERIC), hence
+		// order-independent; float AVG is excluded for the same reason as SUM.
+		switch input {
+		case "smallint", "integer", "bigint", "numeric":
 			return "numeric"
 		}
 	}
@@ -1192,6 +1221,9 @@ func inputExpressionV2(relation RelationV2, field string) string {
 
 func aggregateExpressionV2(relation RelationV2, spec AggregateSpecV2) string {
 	expression := strings.ToLower(strings.TrimSpace(spec.Function)) + "("
+	if spec.Distinct {
+		expression += "distinct "
+	}
 	if spec.Field == "*" {
 		expression += "*"
 	} else {

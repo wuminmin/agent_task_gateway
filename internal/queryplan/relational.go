@@ -697,6 +697,7 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 		selects = append(selects, fieldSQL(field)+" AS "+quoteIdentifier(alias))
 		internal = append(internal, id)
 	}
+	aggregateSQL := make(map[string]string, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
 		fn := strings.ToLower(strings.TrimSpace(aggregate.Function))
 		if !safeIdentifier(aggregate.Alias) || strings.HasPrefix(aggregate.Alias, "tg_") {
@@ -735,7 +736,12 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 		if encodingErr != nil {
 			return "", nil, nil, nil, encodingErr
 		}
+		argument, argumentErr := aggregateSQLArgument(aggregate, argument)
+		if argumentErr != nil {
+			return "", nil, nil, nil, argumentErr
+		}
 		expression := fn + "(" + argument + ")"
+		aggregateSQL[aggregate.Alias] = expression
 		if resultEncoding != "" {
 			expression = "CAST(" + expression + " AS text)"
 		}
@@ -785,6 +791,24 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 		} else if len(plan.Columns) > 0 {
 			return "", nil, nil, nil, errors.New("selected columns require group_by")
 		}
+		if len(plan.Having) > 0 {
+			havings := make([]string, 0, len(plan.Having))
+			for _, filter := range plan.Having {
+				expression, present := aggregateSQL[filter.Column]
+				if !present {
+					return "", nil, nil, nil, fmt.Errorf("having column %q is not a selected aggregate alias", filter.Column)
+				}
+				compiled, err := compileFilterExpression(expression, filter)
+				if err != nil {
+					return "", nil, nil, nil, err
+				}
+				havings = append(havings, compiled)
+			}
+			b.WriteString(" HAVING ")
+			b.WriteString(strings.Join(havings, " AND "))
+		}
+	} else if len(plan.Having) > 0 {
+		return "", nil, nil, nil, errors.New("having requires aggregates")
 	}
 	return b.String(), internal, visible, aliases, nil
 }

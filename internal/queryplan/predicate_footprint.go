@@ -176,6 +176,10 @@ type footprintFilter struct {
 	filter         Filter
 	product        PredicateProductKey
 	productIsBound bool
+	// having names the aggregate a HAVING filter reads; its atom binds the
+	// aggregate expression over the argument column's product.
+	having    bool
+	aggregate Aggregate
 }
 
 // BuildPredicateFootprint atomizes only caller-controlled literal filters,
@@ -363,6 +367,23 @@ func callerPredicateFilters(plan QueryPlan, bindings PredicateBindings) ([]footp
 		}
 		result = append(result, item)
 	}
+	for _, filter := range plan.Having {
+		var aggregate Aggregate
+		found := false
+		for _, candidate := range plan.Aggregates {
+			if candidate.Alias == filter.Column {
+				aggregate, found = candidate, true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("having column %q is not an aggregate alias", filter.Column)
+		}
+		item := footprintFilter{field: "having:" + filter.Column, filter: filter, having: true, aggregate: aggregate}
+		if plan.From == nil {
+			item.product, item.productIsBound = defaultProduct, true
+		}
+		result = append(result, item)
+	}
 	appendScan := func(scan Scan) {
 		for _, filter := range scan.Filters {
 			result = append(result, footprintFilter{
@@ -391,6 +412,9 @@ func callerPredicateFilters(plan QueryPlan, bindings PredicateBindings) ([]footp
 }
 
 func resolvePredicateField(plan QueryPlan, bindings PredicateBindings, item footprintFilter) (PredicateFieldBinding, error) {
+	if item.having {
+		return resolveHavingPredicateField(plan, bindings, item)
+	}
 	fieldID := item.field
 	if binding, present := bindings.Fields[fieldID]; present {
 		return canonicalPredicateField(binding)
@@ -676,4 +700,96 @@ func predicateEdges(input []JoinPredicate) []predicateEdge {
 // hashes. Hash collisions with different canonical payloads fail closed.
 func PredicateSetDigestV1(atoms []exposure.FactID) (string, error) {
 	return exposure.PredicateSetHashV1(atoms)
+}
+
+// resolveHavingPredicateField binds a HAVING atom to the aggregate it reads:
+// the public field is the aggregate expression, its type the aggregate's
+// output type, and its product the argument column's (or, for count(*), the
+// plan's first bound product). Collation is empty because aggregate outputs
+// of the exact fragment are never collatable text.
+func resolveHavingPredicateField(plan QueryPlan, bindings PredicateBindings, item footprintFilter) (PredicateFieldBinding, error) {
+	function := strings.ToLower(strings.TrimSpace(item.aggregate.Function))
+	var product Product
+	var role, column string
+	if item.aggregate.Column == "*" {
+		key := item.product
+		if !item.productIsBound {
+			keys := predicateProductKeys(plan)
+			if len(keys) == 0 {
+				return PredicateFieldBinding{}, errors.New("having count(*) has no bound product")
+			}
+			key = keys[0]
+		}
+		bound, err := boundPredicateProduct(bindings.Products, key)
+		if err != nil {
+			return PredicateFieldBinding{}, err
+		}
+		product, role, column = bound, key.Role, "*"
+	} else {
+		fieldID := item.aggregate.Column
+		var keys []PredicateProductKey
+		if item.productIsBound {
+			keys, column, role = []PredicateProductKey{item.product}, fieldID, item.product.Role
+		} else {
+			var ok bool
+			role, column, ok = splitFieldID(fieldID)
+			if !ok {
+				return PredicateFieldBinding{}, fmt.Errorf("having aggregate field %q has no stable role", fieldID)
+			}
+			keys = predicateProductKeysForRole(plan, role)
+		}
+		found := false
+		for _, key := range keys {
+			bound, err := boundPredicateProduct(bindings.Products, key)
+			if err != nil {
+				return PredicateFieldBinding{}, err
+			}
+			if _, present := bound.ColumnTypes[column]; present {
+				product, found = bound, true
+				break
+			}
+		}
+		if !found {
+			return PredicateFieldBinding{}, fmt.Errorf("having aggregate field %q is absent from its bound product", fieldID)
+		}
+	}
+	sqlType := "bigint"
+	if column != "*" {
+		sqlType = AggregateOutputType(function, product.ColumnTypes[column])
+	}
+	if sqlType == "" {
+		return PredicateFieldBinding{}, fmt.Errorf("having aggregate %s(%s) has no canonical output type", function, column)
+	}
+	productID := product.Name
+	if bindings.SemanticProductID != "" {
+		productID = bindings.SemanticProductID
+	}
+	expression := aggregateExpressionText(item.aggregate, role+"."+column)
+	digest := sha256.Sum256([]byte(expression))
+	return canonicalPredicateField(PredicateFieldBinding{SemanticProductID: productID, StableRole: role,
+		PublicFieldID: expression, ResolvedExpressionSHA256: hex.EncodeToString(digest[:]), SQLType: sqlType})
+}
+
+// predicateProductKeys lists every bound product of the plan in source order.
+func predicateProductKeys(plan QueryPlan) []PredicateProductKey {
+	if plan.From == nil {
+		return nil
+	}
+	var result []PredicateProductKey
+	appendScan := func(scan Scan) { result = append(result, PredicateProductKey{Role: scan.Role, Product: scan.Product}) }
+	switch {
+	case plan.From.Scan != nil:
+		appendScan(*plan.From.Scan)
+	case plan.From.Join != nil:
+		appendScan(plan.From.Join.Left)
+		appendScan(plan.From.Join.Right)
+	case plan.From.JoinMany != nil:
+		for _, scan := range plan.From.JoinMany.Sources {
+			appendScan(scan)
+		}
+	case plan.From.UnionDistinct != nil:
+		appendScan(plan.From.UnionDistinct.Left)
+		appendScan(plan.From.UnionDistinct.Right)
+	}
+	return result
 }

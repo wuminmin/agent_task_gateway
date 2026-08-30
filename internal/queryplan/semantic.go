@@ -176,14 +176,39 @@ func semanticAlgebraPlan(plan QueryPlan, compilation RelationalCompilation, prod
 				return node, encodingErr
 			}
 			aggregates = append(aggregates, AlgebraAggregateV2{Function: strings.ToLower(aggregate.Function),
-				Field: aggregate.Column, OutputType: outputType, ResultEncoding: resultEncoding})
+				Field: aggregate.Column, OutputType: outputType, ResultEncoding: resultEncoding, Distinct: aggregate.Distinct})
 		}
 		input := node
 		node = AlgebraPlanV2{Op: "group", Input: &input, GroupBy: append([]string(nil), plan.GroupBy...), Aggregates: aggregates}
+		if len(plan.Having) != 0 {
+			// HAVING is a Select over the group's output fields: the predicate
+			// reads aggregate values, whose Dependency footprint the group already
+			// carries, so no new footprint rule is needed.
+			predicates := make([]NormalizedFilter, 0, len(plan.Having))
+			for _, filter := range plan.Having {
+				var expression, outputType string
+				for index, aggregate := range plan.Aggregates {
+					if aggregate.Alias == filter.Column {
+						expression = aggregateExpressionText(aggregate, aggregate.Column)
+						outputType = aggregates[index].OutputType
+					}
+				}
+				if expression == "" {
+					return node, fmt.Errorf("having column %q is not an aggregate alias", filter.Column)
+				}
+				normalized, err := normalizeTypedFilterV4(NormalizedFilter{Column: expression, SQLType: outputType, Op: filter.Op}, filter.Value)
+				if err != nil {
+					return node, err
+				}
+				predicates = append(predicates, normalized)
+			}
+			input := node
+			node = AlgebraPlanV2{Op: "select", Input: &input, Predicates: predicates}
+		}
 	}
 	fields := append([]string(nil), plan.Columns...)
 	for _, aggregate := range plan.Aggregates {
-		fields = append(fields, strings.ToLower(strings.TrimSpace(aggregate.Function))+"("+aggregate.Column+")")
+		fields = append(fields, aggregateExpressionText(aggregate, aggregate.Column))
 	}
 	if len(fields) != 0 {
 		input := node
@@ -192,7 +217,7 @@ func semanticAlgebraPlan(plan QueryPlan, compilation RelationalCompilation, prod
 	if len(plan.OrderBy) != 0 {
 		aliases := make(map[string]string, len(plan.Aggregates))
 		for _, aggregate := range plan.Aggregates {
-			aliases[aggregate.Alias] = strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + aggregate.Column + ")"
+			aliases[aggregate.Alias] = aggregateExpressionText(aggregate, aggregate.Column)
 		}
 		orders := make([]NormalizedOrder, 0, len(plan.OrderBy))
 		for _, order := range plan.OrderBy {

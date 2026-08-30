@@ -36,6 +36,7 @@ type NormalForm struct {
 	Columns         []string              `json:"columns,omitempty"`
 	Aggregates      []NormalizedAggregate `json:"aggregates,omitempty"`
 	Filters         []NormalizedFilter    `json:"filters,omitempty"`
+	Having          []NormalizedFilter    `json:"having,omitempty"`
 	GroupBy         []string              `json:"group_by,omitempty"`
 	OrderBy         []NormalizedOrder     `json:"order_by,omitempty"`
 	Limit           int                   `json:"limit,omitempty"`
@@ -105,6 +106,7 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 		result.Columns = append(result.Columns, canonicalField(product.SourceNamespace, field))
 	}
 	aliases := make(map[string]string, len(plan.Aggregates))
+	aliasTypes := make(map[string]string, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
 		if aggregate.ResultEncoding != "" {
 			return NormalForm{}, errors.New("aggregate result casts are outside the single-product normal form")
@@ -114,14 +116,35 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 		if aggregate.Column != "*" {
 			column = canonicalField(product.SourceNamespace, aggregate.Column)
 		}
-		expression := function + "(" + column + ")"
+		expression := aggregateExpressionText(aggregate, column)
 		aliases[aggregate.Alias] = expression
 		outputType, err := exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
 		if err != nil {
 			return NormalForm{}, err
 		}
+		aliasTypes[aggregate.Alias] = outputType
 		result.Aggregates = append(result.Aggregates, NormalizedAggregate{Expression: expression, SQLType: outputType})
 	}
+	for _, filter := range plan.Having {
+		expression, present := aliases[filter.Column]
+		if !present {
+			return NormalForm{}, fmt.Errorf("having column %q is not an aggregate alias", filter.Column)
+		}
+		value, err := canonicalJSON(filter.Value)
+		if err != nil {
+			return NormalForm{}, fmt.Errorf("normalize having %s: %w", filter.Column, err)
+		}
+		op := strings.ToUpper(strings.TrimSpace(filter.Op))
+		if op == "!=" {
+			op = "<>"
+		}
+		result.Having = append(result.Having, NormalizedFilter{Column: expression, SQLType: aliasTypes[filter.Column], Op: op, Value: value})
+	}
+	sort.Slice(result.Having, func(i, j int) bool {
+		left, _ := json.Marshal(result.Having[i])
+		right, _ := json.Marshal(result.Having[j])
+		return string(left) < string(right)
+	})
 	sort.Slice(result.Aggregates, func(i, j int) bool {
 		if result.Aggregates[i].Expression != result.Aggregates[j].Expression {
 			return result.Aggregates[i].Expression < result.Aggregates[j].Expression
@@ -218,6 +241,34 @@ func NormalizeV4(plan QueryPlan, product Product) (NormalForm, error) {
 		right, _ := json.Marshal(result.Filters[j])
 		return bytes.Compare(left, right) < 0
 	})
+	result.Having = result.Having[:0]
+	for _, filter := range plan.Having {
+		var expression, sqlType string
+		for _, aggregate := range plan.Aggregates {
+			if aggregate.Alias != filter.Column {
+				continue
+			}
+			column := "*"
+			if aggregate.Column != "*" {
+				column = canonicalField(product.SourceNamespace, aggregate.Column)
+			}
+			expression = aggregateExpressionText(aggregate, column)
+			sqlType = AggregateOutputType(strings.ToLower(strings.TrimSpace(aggregate.Function)), product.ColumnTypes[aggregate.Column])
+		}
+		if expression == "" {
+			return NormalForm{}, fmt.Errorf("having column %q is not an aggregate alias", filter.Column)
+		}
+		normalized, err := normalizeTypedFilterV4(NormalizedFilter{Column: expression, SQLType: sqlType, Op: filter.Op}, filter.Value)
+		if err != nil {
+			return NormalForm{}, fmt.Errorf("normalize V4 having %s: %w", filter.Column, err)
+		}
+		result.Having = append(result.Having, normalized)
+	}
+	sort.Slice(result.Having, func(i, j int) bool {
+		left, _ := json.Marshal(result.Having[i])
+		right, _ := json.Marshal(result.Having[j])
+		return bytes.Compare(left, right) < 0
+	})
 	return result, nil
 }
 
@@ -298,6 +349,13 @@ func AggregateOutputType(function, input string) string {
 	switch function {
 	case "count":
 		return "bigint"
+	case "avg":
+		// AVG mirrors expectedAggregateOutputTypeV2: exact NUMERIC division over
+		// the exact fragment only.
+		switch input {
+		case "smallint", "integer", "bigint", "numeric":
+			return "numeric"
+		}
 	case "sum":
 		// SUM is admitted only over the exact/integer fragment; float SUM is
 		// excluded because IEEE-754 addition is order-dependent and the typed
@@ -439,6 +497,18 @@ type AlgebraAggregateV2 struct {
 	Field          string `json:"field"`
 	OutputType     string `json:"output_type"`
 	ResultEncoding string `json:"result_encoding,omitempty"`
+	Distinct       bool   `json:"distinct,omitempty"`
+}
+
+// algebraAggregateExpression is the field ID a group output carries in the
+// algebra: fn(field) or count(distinct field).
+func algebraAggregateExpression(aggregate AlgebraAggregateV2) string {
+	function := strings.ToLower(strings.TrimSpace(aggregate.Function))
+	field := strings.ToLower(strings.TrimSpace(aggregate.Field))
+	if aggregate.Distinct {
+		return function + "(distinct " + field + ")"
+	}
+	return function + "(" + field + ")"
 }
 
 type AlgebraNormalFormV2 struct {
@@ -847,8 +917,11 @@ func normalizeAlgebraAggregatesV2(input []AlgebraAggregateV2, fields map[string]
 	seen := make(map[string]struct{}, len(input))
 	for _, aggregate := range input {
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
-		if function != "count" && function != "sum" && function != "min" && function != "max" {
+		if function != "count" && function != "sum" && function != "min" && function != "max" && function != "avg" {
 			return nil, nil, fmt.Errorf("V2 aggregate %q is outside the grammar", aggregate.Function)
+		}
+		if aggregate.Distinct && (function != "count" || strings.TrimSpace(aggregate.Field) == "*") {
+			return nil, nil, fmt.Errorf("V2 aggregate %q admits DISTINCT for COUNT over one field only", function)
 		}
 		field := strings.ToLower(strings.TrimSpace(aggregate.Field))
 		inputType := ""
@@ -873,12 +946,15 @@ func normalizeAlgebraAggregatesV2(input []AlgebraAggregateV2, fields map[string]
 		if expectedType != outputType {
 			return nil, nil, fmt.Errorf("V2 aggregate %s(%s) output type must be %q", function, field, expectedType)
 		}
-		expression := function + "(" + field + ")"
+		expression := algebraAggregateExpression(aggregate)
 		if _, duplicate := seen[expression]; duplicate {
 			return nil, nil, fmt.Errorf("V2 group repeats aggregate %q", expression)
 		}
 		seen[expression] = struct{}{}
 		normalized := map[string]string{"function": function, "field": field, "output_type": outputType}
+		if aggregate.Distinct {
+			normalized["distinct"] = "true"
+		}
 		resultEncoding, encodingErr := canonicalAggregateResultEncoding(function, outputType, aggregate.ResultEncoding)
 		if encodingErr != nil {
 			return nil, nil, encodingErr

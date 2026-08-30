@@ -44,9 +44,12 @@ type QueryPlan struct {
 	Aggregates []Aggregate `json:"aggregates,omitempty"`
 	Filters    []Filter    `json:"filters,omitempty"`
 	GroupBy    []string    `json:"group_by,omitempty"`
-	OrderBy    []Order     `json:"order_by,omitempty"`
-	Limit      int         `json:"limit,omitempty"`
-	Offset     int         `json:"offset,omitempty"`
+	// Having filters aggregate outputs after grouping. Each filter names an
+	// aggregate by its alias; the emitted SQL repeats the aggregate expression.
+	Having  []Filter `json:"having,omitempty"`
+	OrderBy []Order  `json:"order_by,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	Offset  int      `json:"offset,omitempty"`
 }
 
 // From is the closed multi-product input grammar. Exactly one member must be
@@ -101,6 +104,30 @@ type Aggregate struct {
 	Column         string `json:"column"`
 	Alias          string `json:"alias"`
 	ResultEncoding string `json:"result_encoding,omitempty"`
+	// Distinct is COUNT(DISTINCT column); no other aggregate admits it.
+	Distinct bool `json:"distinct,omitempty"`
+}
+
+// AggregateSQLArgument renders the aggregate's argument list for SQL emission.
+func aggregateSQLArgument(aggregate Aggregate, quotedColumn string) (string, error) {
+	fn := strings.ToLower(strings.TrimSpace(aggregate.Function))
+	if aggregate.Distinct {
+		if fn != "count" || aggregate.Column == "*" {
+			return "", fmt.Errorf("DISTINCT is admitted for COUNT over one column only, not %s(%s)", fn, aggregate.Column)
+		}
+		return "DISTINCT " + quotedColumn, nil
+	}
+	return quotedColumn, nil
+}
+
+// aggregateExpressionText is the canonical spelling used by normal forms,
+// result names, and predicate atoms: fn(column) or count(distinct column).
+func aggregateExpressionText(aggregate Aggregate, column string) string {
+	fn := strings.ToLower(strings.TrimSpace(aggregate.Function))
+	if aggregate.Distinct {
+		return fn + "(distinct " + column + ")"
+	}
+	return fn + "(" + column + ")"
 }
 
 // NumericTextResultEncoding is the one non-identity aggregate presentation
@@ -138,6 +165,7 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 	selects := make([]string, 0, len(plan.Columns)+len(plan.Aggregates))
 	selectNames := make(map[string]struct{}, len(plan.Columns)+len(plan.Aggregates))
 	selectedColumns := make(map[string]struct{}, len(plan.Columns))
+	aggregateSQL := make(map[string]string, len(plan.Aggregates))
 	for _, column := range plan.Columns {
 		if err := allowedColumn(column, product); err != nil {
 			return "", err
@@ -169,6 +197,10 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 			}
 			argument = quoteIdentifier(aggregate.Column)
 		}
+		argument, err := aggregateSQLArgument(aggregate, argument)
+		if err != nil {
+			return "", err
+		}
 		if !safeIdentifier(aggregate.Alias) {
 			return "", errors.New("aggregate alias is invalid")
 		}
@@ -176,6 +208,7 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 			return "", fmt.Errorf("duplicate select name %q", aggregate.Alias)
 		}
 		selectNames[aggregate.Alias] = struct{}{}
+		aggregateSQL[aggregate.Alias] = fn + "(" + argument + ")"
 		selects = append(selects, fn+"("+argument+") AS "+quoteIdentifier(aggregate.Alias))
 	}
 
@@ -250,6 +283,31 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		b.WriteString(strings.Join(groups, ", "))
 	} else if len(plan.Aggregates) > 0 && len(plan.Columns) > 0 {
 		return "", errors.New("selected columns require group_by when aggregates are present")
+	}
+	if len(plan.Having) > 0 {
+		if len(plan.Aggregates) == 0 {
+			return "", errors.New("having requires aggregates")
+		}
+		havings := make([]string, 0, len(plan.Having))
+		for _, filter := range plan.Having {
+			expression, present := aggregateSQL[filter.Column]
+			if !present {
+				return "", fmt.Errorf("having column %q is not a selected aggregate alias", filter.Column)
+			}
+			op := strings.ToUpper(strings.TrimSpace(filter.Op))
+			switch op {
+			case "=", "!=", "<>", "<", "<=", ">", ">=":
+			default:
+				return "", fmt.Errorf("having operator %q is not supported", filter.Op)
+			}
+			literal, err := sqlLiteral(filter.Value)
+			if err != nil {
+				return "", err
+			}
+			havings = append(havings, expression+" "+op+" "+literal)
+		}
+		b.WriteString(" HAVING ")
+		b.WriteString(strings.Join(havings, " AND "))
 	}
 	if len(plan.OrderBy) > 0 {
 		orders := make([]string, 0, len(plan.OrderBy))

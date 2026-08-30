@@ -144,6 +144,7 @@ type OrdinalAggregateSpec struct {
 	ResultEncoding      string          `json:"result_encoding,omitempty"`
 	CanonicalExpression string          `json:"canonical_expression"`
 	WitnessMultiplicity uint64          `json:"witness_multiplicity"`
+	Distinct            bool            `json:"distinct,omitempty"`
 }
 
 // OrdinalWitnessRule is interpreted once per positive provenance member.
@@ -891,7 +892,8 @@ func ordinalAggregateSpecs(aggregates []Aggregate, product Product, bindings map
 			spec.InputKind = "field"
 			spec.Input = fieldUse(binding, 1)
 			spec.SQLType = AggregateOutputType(function, product.ColumnTypes[aggregate.Column])
-			spec.CanonicalExpression = function + "(" + binding.CanonicalExpression + ")"
+			spec.CanonicalExpression = aggregateExpressionText(aggregate, binding.CanonicalExpression)
+			spec.Distinct = aggregate.Distinct
 		}
 		if spec.SQLType == "" {
 			return nil, fmt.Errorf("aggregate %s has no canonical output type", spec.CanonicalExpression)
@@ -919,7 +921,8 @@ func relationalAggregateSpecs(aggregates []Aggregate, products map[string]Produc
 			}
 			spec.InputKind = "field"
 			spec.Input = fieldUse(binding, 1)
-			spec.CanonicalExpression = function + "(" + binding.CanonicalExpression + ")"
+			spec.CanonicalExpression = aggregateExpressionText(aggregate, binding.CanonicalExpression)
+			spec.Distinct = aggregate.Distinct
 			_, column, _ := splitFieldID(aggregate.Column)
 			for _, source := range compilation.Sources {
 				semanticRole := source.Role
