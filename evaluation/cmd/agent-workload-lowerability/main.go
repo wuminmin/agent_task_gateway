@@ -76,10 +76,10 @@ func product(name string, keys []string, columns map[string]string, aggregates .
 // approved aggregates.
 func products() map[string]queryplan.Product {
 	return map[string]queryplan.Product{
-		"expense_detail": product("expense_detail", []string{"receipt_no"}, map[string]string{"receipt_no": "text", "employee_no": "text", "employee_name": "text", "department": "text", "expense_date": "date", "expense_type": "text", "amount": "numeric", "city": "text", "purpose": "text", "status": "text"}, "sum", "count", "min", "max", "avg"),
-		"expense_summary": product("expense_summary", []string{"month", "department", "expense_type"}, map[string]string{"month": "text", "department": "text", "expense_type": "text", "total_amount": "numeric", "request_count": "bigint"}, "sum", "count", "min", "max", "avg"),
-		"provsql_orders": product("provsql_orders", []string{"orderkey"}, map[string]string{"orderkey": "bigint", "status": "bigint", "partition_key": "integer"}, "sum", "count", "avg"),
-		"provsql_lineitem": product("provsql_lineitem", []string{"orderkey", "linenumber"}, map[string]string{"orderkey": "bigint", "linenumber": "integer", "extendedprice": "numeric", "partition_key": "integer"}, "sum", "count", "avg"),
+		"expense_detail":        product("expense_detail", []string{"receipt_no"}, map[string]string{"receipt_no": "text", "employee_no": "text", "employee_name": "text", "department": "text", "expense_date": "date", "expense_type": "text", "amount": "numeric", "city": "text", "purpose": "text", "status": "text"}, "sum", "count", "min", "max", "avg"),
+		"expense_summary":       product("expense_summary", []string{"month", "department", "expense_type"}, map[string]string{"month": "text", "department": "text", "expense_type": "text", "total_amount": "numeric", "request_count": "bigint"}, "sum", "count", "min", "max", "avg"),
+		"provsql_orders":        product("provsql_orders", []string{"orderkey"}, map[string]string{"orderkey": "bigint", "status": "bigint", "partition_key": "integer"}, "sum", "count", "avg"),
+		"provsql_lineitem":      product("provsql_lineitem", []string{"orderkey", "linenumber"}, map[string]string{"orderkey": "bigint", "linenumber": "integer", "extendedprice": "numeric", "partition_key": "integer"}, "sum", "count", "avg"),
 		"final_v5_result_heavy": product("final_v5_result_heavy", []string{"row_id"}, map[string]string{"row_id": "bigint", "category": "text", "amount": "numeric", "event_date": "date", "sequence_no": "integer", "approved": "boolean", "event_timestamp": "timestamp", "description": "text", "quantity": "bigint", "unit_price": "numeric", "tax_amount": "numeric", "settled_date": "date", "processed_at": "timestamp", "region": "text", "revision": "integer", "active": "boolean"}),
 	}
 }

@@ -25,7 +25,7 @@ const (
 	run04CompactScope = `{"category":["alpha","beta","delta","gamma"]}`
 	run04JSONBScope   = `{"category": ["alpha", "beta", "delta", "gamma"]}`
 
-	run04GrantSHA256              = "646a66b82e4e2196481198a64583925acdd1a866d9710835cf2be7aa27602163"
+	run04GrantSHA256 = "646a66b82e4e2196481198a64583925acdd1a866d9710835cf2be7aa27602163"
 	// Re-pinned 2026-08-29: the only change to the result-heavy profile Catalog
 	// since the 2026-08-10 pin is 900fc96 (v1.11 release-freeze reprojection of
 	// the default route budget summary-manual-v5 -> final-v5-baseline-low-v1),

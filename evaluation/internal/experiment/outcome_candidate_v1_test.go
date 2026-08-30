@@ -521,8 +521,8 @@ func TestFinalizerRejectsAnEntirelyWrongButInternallyCoherentFiveMemberOutcomeSe
 		PostgreSQL: testRuntimeIdentity(), OperationID: inputs.OperationID,
 		ContractIdentity: inputs.ContractIdentity, Material: &material,
 		OutcomeCandidate: &expected, OutcomeCandidateCatalogSHA256: logicalCatalog.SHA256,
-		OutcomeCandidateFacts: finalv5oracle.DependencyScale10K,
-		OutcomeCandidateLinker: newOutcomeCandidateDomainLinkerV1(),
+		OutcomeCandidateFacts:              finalv5oracle.DependencyScale10K,
+		OutcomeCandidateLinker:             newOutcomeCandidateDomainLinkerV1(),
 		SettlementWroteExecutionBindingRow: true,
 	}
 	_, err = finalizeTaskGateObservationV3Core(receipt, verifier, carried, trusted)
