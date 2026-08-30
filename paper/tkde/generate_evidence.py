@@ -17,7 +17,7 @@ from v4_evidence import validate_v4_evidence
 from v4_supplemental_evidence import validate_v4_supplemental_evidence
 from rq5_evidence import validate_rq5_evidence
 from final_v5_pilot_evidence import validate_final_v5_pilot_evidence
-from final_v5_publication_evidence import validate_final_v5_publication_evidence
+from final_v5_publication_evidence import ATTACK_SEQUENCES, validate_final_v5_publication_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -1625,6 +1625,104 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond}}{{{decimal(fifty['requests_per_second_at_p50'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond}}{{{decimal(ten['requests_per_second_at_p50'], 1)}}}",
         rf"\newcommand{{\FinalVFivePublicationConcurrencyRounds}}{{{comma(sum(item['rounds'] for item in publication['concurrency'].values()))}}}",
+    ])
+    # ProvSQL-paired provenance-capture cost: byte-identical grouped SQL on
+    # pinned PostgreSQL, ProvSQL's complete typed drain, and BDG's full governed
+    # path, per scale (medians of client_full_drain_ms).
+    def tex(value) -> str:
+        return str(value).replace("_", r"\_")
+    provsql = publication["provsql"]
+    provsql_rows = []
+    for scale, suffix in (("1k", "OneK"), ("10k", "TenK"), ("45k", "FortyFiveK")):
+        item = provsql["scales"][scale]
+        provsql_rows.append(" & ".join([
+            scale, comma(item["rows"]), comma(item["dependency_facts"]),
+            decimal(item["postgresql_ms"], 1), decimal(item["provsql_ms"] / 1000, 2), decimal(item["taskgate_ms"] / 1000, 2),
+            comma(int(round(item["provsql_over_postgresql"]))) + r"$\times$",
+            decimal(item["taskgate_over_postgresql"], 1) + r"$\times$",
+            decimal(item["provsql_over_taskgate"], 1) + r"$\times$",
+        ]) + r" \\")
+        lines.extend([
+            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}PostgreSQLMS}}{{{comma(int(round(item['postgresql_ms'])))}}}",
+            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}ProvSQLS}}{{{decimal(item['provsql_ms'] / 1000, 1)}}}",
+            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}BDGS}}{{{decimal(item['taskgate_ms'] / 1000, 2)}}}",
+            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}DependencyFacts}}{{{comma(item['dependency_facts'])}}}",
+        ])
+    lines.append(r"\newcommand{\FinalVFivePublicationProvSQLTableBody}{%" + "\n" + "\n".join(provsql_rows) + "%\n}")
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationProvSQLSamples}}{{{comma(provsql['samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLPerCell}}{{{provsql['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMin}}{{{comma(int(round(provsql['provsql_over_taskgate_min'])))}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMax}}{{{comma(int(round(provsql['provsql_over_taskgate_max'])))}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMin}}{{{comma(int(round(provsql['taskgate_over_postgresql_min'])))}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax}}{{{comma(int(round(provsql['taskgate_over_postgresql_max'])))}}}",
+    ])
+    # Attack corpus: per-sequence charge totals, the per-step trajectory of
+    # every sequence, and the threshold ladder's refusal point.
+    attack = publication["attack"]
+    sequence_rows = []
+    step_rows = []
+    for sequence in ATTACK_SEQUENCES:
+        item = attack["sequences"][sequence]
+        complete = item.get("complete")
+        rejected = ", ".join(tex(code) for _, code in item["rejected_steps"]) or "--"
+        sequence_rows.append(" & ".join([
+            tex(sequence), str(len(item["steps"])), str(item["accepted_steps"]), rejected,
+            f"{complete['release']}/{complete['dependency']}" if complete else "--",
+            str(item["charged"]["release"]), str(item["charged"]["dependency"]), str(item["charged"]["outcome"]),
+        ]) + r" \\")
+        for index, step in enumerate(item["steps"], 1):
+            if step["rejected"]:
+                result = "refused"
+            elif step["scalar_int64"] is not None:
+                result = f"count={step['scalar_int64']}"
+            else:
+                result = f"{step['row_count']} rows"
+            step_rows.append(" & ".join([
+                tex(sequence) if index == 1 else "", str(index), tex(step["variant_id"]),
+                "child" if step["task_route"] == "delegated_child" else "root", result,
+                f"{step['actual_release_facts']}/{step['actual_dependency_facts']}/{step['actual_outcome_facts']}",
+                f"{step['charged_release_facts']}/{step['charged_dependency_facts']}/{step['charged_outcome_facts']}",
+                tex(step["observed_error_code"]) if step["rejected"] else ("replay" if step["classification"] == "semantic_replay" else "settled"),
+            ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationAttackSequenceTableBody}{%" + "\n" + "\n".join(sequence_rows) + "%\n}")
+    lines.append(r"\newcommand{\FinalVFivePublicationAttackStepTableBody}{%" + "\n" + "\n".join(step_rows) + "%\n}")
+    ladder = attack["sequences"]["E-threshold/preregistered-v1"]
+    threshold = ladder["threshold"]
+    cumulative = 0
+    threshold_rows = []
+    for index, step in enumerate(ladder["steps"], 1):
+        cumulative += step["charged_outcome_facts"]
+        if step["rejected"]:
+            result, decision = "refused", tex(step["observed_error_code"])
+        elif step["scalar_int64"] is not None:
+            result, decision = f"count={step['scalar_int64']}", "settled"
+        else:
+            result = f"{step['row_count']} rows"
+            decision = "replay" if step["classification"] == "semantic_replay" else "settled"
+        threshold_rows.append(" & ".join([
+            str(index), tex(step["variant_id"]), "child" if step["task_route"] == "delegated_child" else "root", result,
+            str(step["charged_release_facts"]), str(step["charged_dependency_facts"]), str(step["charged_outcome_facts"]),
+            f"{cumulative}/{threshold['outcome_ceiling']}", decision,
+        ]) + r" \\")
+    lines.append(r"\newcommand{\FinalVFivePublicationAttackThresholdTableBody}{%" + "\n" + "\n".join(threshold_rows) + "%\n}")
+    pagination = attack["sequences"]["A-pagination/complete-to-pages"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePublicationAttackSamples}}{{{comma(attack['samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackCells}}{{{attack['cells']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackPerCell}}{{{attack['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackSequences}}{{{len(attack['sequences'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackCorpusDigest}}{{\texttt{{{attack['corpus_sha256'][:12]}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackPaginationSteps}}{{{len(pagination['steps'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackPaginationReleaseFacts}}{{{pagination['charged']['release']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackPaginationDependencyFacts}}{{{pagination['charged']['dependency']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackPaginationOutcomeFacts}}{{{pagination['charged']['outcome']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdCeiling}}{{{threshold['outcome_ceiling']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionStep}}{{{threshold['rejection_step']}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionCode}}{{\texttt{{{tex(threshold['rejection_code'])}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionReason}}{{\texttt{{{tex(threshold['rejection_reason'])}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdProbes}}{{{len(threshold['expected_thresholds'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationAttackThresholdAnswered}}{{{len(threshold['observed_threshold_results'])}}}",
     ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",

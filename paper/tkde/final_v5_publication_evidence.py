@@ -51,6 +51,36 @@ class PublicationEvidenceError(RuntimeError):
     """Raised when retained publication evidence does not support a paper macro."""
 
 
+# The attack profile replays the frozen A--E corpus (evaluation/finalv5attack/
+# corpus-v1.json); every sample binds the corpus digest, so the corpus file at
+# HEAD is part of the evidence and is re-hashed here.
+ATTACK_CORPUS_RELATIVE_PATH = "evaluation/finalv5attack/corpus-v1.json"
+ATTACK_SEQUENCES = (
+    "A-pagination/complete-to-pages", "A-pagination/pages-to-complete",
+    "B-equivalent-sql/variants-v1", "C-request-id/same-and-different",
+    "D-split-union/complete-to-split", "D-split-union/split-to-complete",
+    "E-threshold/preregistered-v1",
+)
+ATTACK_CELLS = tuple(
+    [f"{seq}/{mode}" for seq in ATTACK_SEQUENCES[:3] for mode in ("direct", "novel")]
+    + ["C-request-id/same-and-different/" + mode for mode in ("novel", "semantic_replay", "idempotent_replay")]
+    + [f"{seq}/{mode}" for seq in ATTACK_SEQUENCES[4:] for mode in ("direct", "novel")]
+)
+ATTACK_STEP_KEYS = (
+    "variant_id", "classification", "role", "accepted", "rejected",
+    "observed_error_code", "observed_error_reason", "row_count", "column_count", "scalar_int64",
+    "actual_release_facts", "charged_release_facts", "actual_dependency_facts",
+    "charged_dependency_facts", "actual_outcome_facts", "charged_outcome_facts",
+)
+ATTACK_EXHAUSTED_CODE = "EXPOSURE_BUDGET_EXHAUSTED"
+
+# The ProvSQL profile pairs three real systems on byte-identical grouped SQL.
+PROVSQL_WORKLOAD = "nonce-join-group"
+PROVSQL_SCALES = ("1k", "10k", "45k")
+PROVSQL_SYSTEMS = ("postgresql", "provsql", "taskgate")
+PROVSQL_BOUNDARY = "provsql_complete_typed_drain"
+
+
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -258,6 +288,172 @@ def _execution_spread(samples, key=lambda sample: "/".join(sample["cell_id"].spl
     return result
 
 
+def _attack_stats(samples, corpus):
+    """Per-step ledger trajectory of every frozen attack sequence.
+
+    Each sample retains the corpus digest and one ``attack_verification`` record
+    with the observed per-step charge; the charge must be identical in every
+    sample of a cell (the corpus is deterministic) and its per-step sum must
+    equal the sample-level charge. ``corpus`` is the parsed frozen corpus, whose
+    digest every sample must carry.
+    """
+    corpus_digest = corpus["sha256"]
+    steps_by_case = {}
+    for case in corpus["document"]["cases"]:
+        steps_by_case[case["workload_id"] + "/" + case["scale"]] = case["steps"]
+    by_cell = {}
+    for sample in samples:
+        by_cell.setdefault(sample["cell_id"], []).append(sample)
+    missing = [cell for cell in ATTACK_CELLS if cell not in by_cell]
+    if missing:
+        raise PublicationEvidenceError(f"attack publication evidence is missing cells {missing}")
+    unexpected = sorted(set(by_cell) - set(ATTACK_CELLS))
+    if unexpected:
+        raise PublicationEvidenceError(f"attack publication evidence carries undeclared cells {unexpected}")
+    sequences = {}
+    per_cell = None
+    for cell in ATTACK_CELLS:
+        cell_samples = by_cell[cell]
+        if per_cell is None:
+            per_cell = len(cell_samples)
+        elif len(cell_samples) != per_cell:
+            raise PublicationEvidenceError(f"attack cell {cell} retains {len(cell_samples)} samples, others {per_cell}")
+        sequence, mode = cell.rsplit("/", 1)
+        signatures = set()
+        for sample in cell_samples:
+            verification = sample.get("attack_verification") or {}
+            if verification.get("corpus_sha256") != corpus_digest:
+                raise PublicationEvidenceError(f"attack sample in {cell} binds corpus {str(verification.get('corpus_sha256'))[:12]}, HEAD corpus is {corpus_digest[:12]}")
+            steps = verification.get("steps") or []
+            signatures.add(tuple(tuple((key, step.get(key)) for key in ATTACK_STEP_KEYS) for step in steps))
+        if len(signatures) != 1:
+            raise PublicationEvidenceError(f"attack cell {cell} observed {len(signatures)} distinct step outcomes across its samples")
+        steps = [dict(signature) for signature in next(iter(signatures))]
+        corpus_steps = steps_by_case.get(sequence)
+        if corpus_steps is None or [step["variant_id"] for step in steps] != [step["id"] for step in corpus_steps]:
+            raise PublicationEvidenceError(f"attack cell {cell} replayed steps that differ from the frozen corpus")
+        for step, corpus_step in zip(steps, corpus_steps):
+            step["task_route"] = corpus_step.get("task_route", "root")
+            step["threshold"] = corpus_step.get("threshold")
+            if corpus_step["classification"] == "expected_rejection":
+                if not step["rejected"] or step["observed_error_code"] != corpus_step["expected_error_code"]:
+                    raise PublicationEvidenceError(f"attack step {cell}/{step['variant_id']} did not fail closed as preregistered")
+            elif step["rejected"] or not step["accepted"]:
+                raise PublicationEvidenceError(f"attack step {cell}/{step['variant_id']} was refused although preregistered as accepted")
+        charged = tuple(sum(step[key] for step in steps) for key in ("charged_release_facts", "charged_dependency_facts", "charged_outcome_facts"))
+        sample_charged = {(s["charged_release_facts"], s["charged_dependency_facts"], s["charged_outcome_facts"]) for s in cell_samples}
+        if sample_charged != {charged}:
+            raise PublicationEvidenceError(f"attack cell {cell} step charges {charged} do not sum to the sample charges {sorted(sample_charged)}")
+        if mode != "novel":
+            if charged != (0, 0, 0):
+                raise PublicationEvidenceError(f"attack {mode} cell {cell} charged Facts {charged}")
+            continue
+        complete = [step for step in steps if step["role"] == "complete"]
+        entry = {
+            "sequence": sequence,
+            "samples": len(cell_samples),
+            "steps": steps,
+            "accepted_steps": sum(1 for step in steps if step["accepted"]),
+            "rejected_steps": [(step["variant_id"], step["observed_error_code"]) for step in steps if step["rejected"]],
+            "charged": {"release": charged[0], "dependency": charged[1], "outcome": charged[2]},
+        }
+        if complete:
+            entry["complete"] = {"release": complete[0]["actual_release_facts"], "dependency": complete[0]["actual_dependency_facts"], "rows": complete[0]["row_count"]}
+            if (charged[0], charged[1]) != (entry["complete"]["release"], entry["complete"]["dependency"]):
+                raise PublicationEvidenceError(f"attack sequence {sequence} charged {charged[:2]} Release/Dependency Facts, its complete query holds {entry['complete']}")
+        if sequence.startswith("E-threshold"):
+            verification = cell_samples[0]["attack_verification"]
+            rejected = [step for step in steps if step["rejected"]]
+            if len(rejected) != 1 or rejected[0]["observed_error_code"] != ATTACK_EXHAUSTED_CODE:
+                raise PublicationEvidenceError("the threshold sequence did not end in exactly one budget refusal")
+            if verification.get("observed_outcome") != verification.get("outcome_ceiling") or verification.get("observed_outcome") != charged[2]:
+                raise PublicationEvidenceError("the threshold sequence's Outcome charge does not reach its preregistered ceiling")
+            entry["threshold"] = {
+                "expected_thresholds": verification["expected_thresholds"],
+                "observed_threshold_results": verification["observed_threshold_results"],
+                "outcome_ceiling": verification["outcome_ceiling"],
+                "rejection_step": steps.index(rejected[0]) + 1,
+                "rejection_code": rejected[0]["observed_error_code"],
+                "rejection_reason": rejected[0]["observed_error_reason"],
+            }
+        sequences[sequence] = entry
+    if set(sequences) != set(ATTACK_SEQUENCES):
+        raise PublicationEvidenceError("attack publication evidence lacks a novel arm for some sequence")
+    return {
+        "cells": len(ATTACK_CELLS),
+        "samples": len(samples),
+        "samples_per_cell": per_cell,
+        "corpus_sha256": corpus_digest,
+        "corpus_id": corpus["document"]["corpus_id"],
+        "sequences": sequences,
+    }
+
+
+def _provsql_stats(samples):
+    """Paired provenance-capture cost per scale: PostgreSQL, ProvSQL, TaskGate.
+
+    Every sample is one execution of the byte-identical grouped SQL on one of
+    the three systems; the drain boundary is ``client_full_drain_ms`` on every
+    arm (evaluation/provenance-baseline/README.md), and every ProvSQL sample
+    must declare the complete typed-drain boundary.
+    """
+    by_key = {}
+    for sample in samples:
+        if sample.get("workload_id") != PROVSQL_WORKLOAD:
+            raise PublicationEvidenceError(f"provsql sample of undeclared workload {sample.get('workload_id')}")
+        by_key.setdefault((sample["scale"], sample["system"]), []).append(sample)
+    expected = {(scale, system) for scale in PROVSQL_SCALES for system in PROVSQL_SYSTEMS}
+    if set(by_key) != expected:
+        raise PublicationEvidenceError(f"provsql publication evidence covers {sorted(by_key)}, expected {sorted(expected)}")
+    per_cell = {len(values) for values in by_key.values()}
+    if len(per_cell) != 1:
+        raise PublicationEvidenceError(f"provsql cells retain unequal sample counts {sorted(per_cell)}")
+    samples_per_cell = per_cell.pop()
+    result = {}
+    for scale in PROVSQL_SCALES:
+        entry = {"samples_per_cell": samples_per_cell}
+        rows = set()
+        for system in PROVSQL_SYSTEMS:
+            values = by_key[(scale, system)]
+            drains = [float(s["client_full_drain_ms"]) for s in values]
+            if min(drains) <= 0:
+                raise PublicationEvidenceError(f"provsql cell {scale}/{system} reports a non-positive drain time")
+            entry[system + "_ms"] = _median(drains)
+            rows |= {s["row_count"] for s in values}
+            if system == "provsql":
+                boundaries = {(s.get("provsql_verification") or {}).get("boundary") for s in values}
+                if boundaries != {PROVSQL_BOUNDARY}:
+                    raise PublicationEvidenceError(f"provsql cell {scale} drained under boundaries {sorted(map(str, boundaries))}")
+            if system == "taskgate":
+                facts = {(s["actual_release_facts"], s["actual_dependency_facts"]) for s in values}
+                if len(facts) != 1:
+                    raise PublicationEvidenceError(f"provsql cell {scale}/taskgate observed varying Fact sets {sorted(facts)}")
+                entry["release_facts"], entry["dependency_facts"] = facts.pop()
+        if len(rows) != 1:
+            raise PublicationEvidenceError(f"provsql cell {scale} returned differing row counts {sorted(rows)} across systems")
+        entry["rows"] = rows.pop()
+        entry["provsql_over_postgresql"] = entry["provsql_ms"] / entry["postgresql_ms"]
+        entry["taskgate_over_postgresql"] = entry["taskgate_ms"] / entry["postgresql_ms"]
+        entry["provsql_over_taskgate"] = entry["provsql_ms"] / entry["taskgate_ms"]
+        result[scale] = entry
+    return {
+        "samples": len(samples),
+        "samples_per_cell": samples_per_cell,
+        "scales": result,
+        "provsql_over_taskgate_min": min(v["provsql_over_taskgate"] for v in result.values()),
+        "provsql_over_taskgate_max": max(v["provsql_over_taskgate"] for v in result.values()),
+        "taskgate_over_postgresql_min": min(v["taskgate_over_postgresql"] for v in result.values()),
+        "taskgate_over_postgresql_max": max(v["taskgate_over_postgresql"] for v in result.values()),
+    }
+
+
+def _load_attack_corpus(root: Path):
+    path = root / ATTACK_CORPUS_RELATIVE_PATH
+    if not path.is_file():
+        raise PublicationEvidenceError(f"attack corpus {ATTACK_CORPUS_RELATIVE_PATH} is absent")
+    return {"sha256": _digest(path), "document": _read_json(path)}
+
+
 def _baseline_stats(samples):
     by_cell = {}
     exposure = {}
@@ -383,4 +579,12 @@ def validate_final_v5_publication_evidence(root: Path) -> dict:
             by_experiment["concurrency"], key=lambda s: s["cell_id"], select=lambda s: True)
     else:
         raise PublicationEvidenceError("publication campaign retains no concurrency samples")
+    if "provsql" in by_experiment:
+        stats["provsql"] = _provsql_stats(by_experiment["provsql"])
+    else:
+        raise PublicationEvidenceError("publication campaign retains no provsql samples")
+    if "attack" in by_experiment:
+        stats["attack"] = _attack_stats(by_experiment["attack"], _load_attack_corpus(root))
+    else:
+        raise PublicationEvidenceError("publication campaign retains no attack samples")
     return stats

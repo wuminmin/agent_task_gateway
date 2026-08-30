@@ -9,12 +9,19 @@ import unittest
 from pathlib import Path
 
 from final_v5_publication_evidence import (
+    ATTACK_CELLS,
+    ATTACK_CORPUS_RELATIVE_PATH,
+    ATTACK_SEQUENCES,
     CAMPAIGN_EVIDENCE_RECORD,
     CONCURRENCY_CELLS,
     MANIFEST_RELATIVE_PATH,
     MANIFEST_VERSION,
     PHASE_CELLS,
     PIPELINE_PHASES,
+    PROVSQL_BOUNDARY,
+    PROVSQL_SCALES,
+    PROVSQL_SYSTEMS,
+    PROVSQL_WORKLOAD,
     SAMPLE_RECORD,
     PublicationEvidenceError,
     validate_final_v5_publication_evidence,
@@ -76,8 +83,125 @@ def _sample(cell: str, mode: str, drain_ms: float, seed: int) -> dict:
     }
 
 
+# Synthetic attack corpus mirroring the frozen A--E shapes: (step id, classification,
+# role, task route, [actual R, D, O], [charged R, D, O] in the novel arm, error code).
+_REJ = "SQL_NOT_LOWERABLE"
+ATTACK_STEPS = {
+    "A-pagination/complete-to-pages": [
+        ("complete", "accepted", "complete", "root", (12, 18, 1), (12, 18, 1), None),
+        ("page-1", "accepted", "partition", "root", (4, 6, 1), (0, 0, 1), None),
+        ("page-overlap", "accepted", "overlap", "root", (4, 6, 1), (0, 0, 1), None),
+        ("page-1-replay", "semantic_replay", "replay", "root", (4, 6, 1), (0, 0, 0), None),
+    ],
+    "A-pagination/pages-to-complete": [
+        ("page-1", "accepted", "partition", "root", (4, 6, 1), (4, 6, 1), None),
+        ("page-2", "accepted", "partition", "root", (8, 12, 1), (8, 12, 1), None),
+        ("complete", "accepted", "complete", "root", (12, 18, 1), (0, 0, 1), None),
+    ],
+    "B-equivalent-sql/variants-v1": [
+        ("equal-canonical", "accepted_equivalent", "equivalent", "root", (2, 3, 2), (2, 3, 2), None),
+        ("equal-reversed", "accepted_equivalent", "equivalent", "root", (2, 3, 2), (0, 0, 0), None),
+        ("unsupported-set-operation", "expected_rejection", "negative", "root", (0, 0, 0), (0, 0, 0), _REJ),
+    ],
+    "C-request-id/same-and-different": [
+        ("request-id-control", "accepted", "request_identity", "root", (6, 9, 1), (6, 9, 1), None),
+    ],
+    "D-split-union/complete-to-split": [
+        ("complete", "accepted", "complete", "root", (12, 18, 2), (12, 18, 2), None),
+        ("split-low", "accepted", "partition", "root", (4, 6, 2), (0, 0, 2), None),
+        ("split-high", "accepted", "partition", "root", (8, 12, 2), (0, 0, 2), None),
+        ("public-union-negative", "expected_rejection", "negative", "root", (0, 0, 0), (0, 0, 0), _REJ),
+    ],
+    "D-split-union/split-to-complete": [
+        ("split-low", "accepted", "partition", "root", (4, 6, 2), (4, 6, 2), None),
+        ("split-high", "accepted", "partition", "root", (8, 12, 2), (8, 12, 2), None),
+        ("complete", "accepted", "complete", "root", (12, 18, 2), (0, 0, 2), None),
+        ("public-union-negative", "expected_rejection", "negative", "root", (0, 0, 0), (0, 0, 0), _REJ),
+    ],
+    "E-threshold/preregistered-v1": [
+        ("threshold-300", "accepted", "threshold", "delegated_child", (1, 12, 2), (1, 12, 2), None),
+        ("threshold-320", "accepted", "threshold", "root", (1, 12, 2), (0, 0, 2), None),
+        ("outcome-primer-320-detail", "accepted", "outcome_primer", "root", (12, 18, 2), (12, 6, 1), None),
+        ("threshold-880-budget", "expected_rejection", "threshold_rejection", "delegated_child", (0, 0, 0), (0, 0, 0), "EXPOSURE_BUDGET_EXHAUSTED"),
+    ],
+}
+
+
+def _attack_corpus() -> dict:
+    cases = []
+    for sequence, steps in ATTACK_STEPS.items():
+        workload, scale = sequence.split("/")
+        case = {"workload_id": workload, "scale": scale, "steps": []}
+        if workload == "E-threshold":
+            case.update({"outcome_ceiling": 5, "thresholds": [300, 320, 880], "threshold_results": [6, 6, 4]})
+        for step_id, classification, role, route, _, _, code in steps:
+            step = {"id": step_id, "logical_sql": "SELECT 1", "direct_sql": "SELECT 1",
+                    "classification": classification, "role": role}
+            if route != "root":
+                step["task_route"] = route
+            if code:
+                step["expected_error_code"] = code
+            case["steps"].append(step)
+        cases.append(case)
+    return {"schema_version": 1, "corpus_id": "test-attack-corpus", "dataset_id": "test", "cases": cases}
+
+
+def _attack_sample(cell: str, corpus_sha256: str) -> dict:
+    sequence, mode = cell.rsplit("/", 1)
+    novel = mode == "novel"
+    steps = []
+    for index, (step_id, classification, role, route, actual, charged, code) in enumerate(ATTACK_STEPS[sequence], 1):
+        rejected = classification == "expected_rejection"
+        observed = actual if mode != "direct" else (0, 0, 0)
+        charge = charged if novel else (0, 0, 0)
+        step = {"index": index, "variant_id": step_id, "classification": classification, "role": role,
+                "accepted": not rejected, "rejected": rejected, "row_count": 0 if rejected else 6,
+                "column_count": 0 if rejected else 2,
+                "actual_release_facts": observed[0], "charged_release_facts": charge[0],
+                "actual_dependency_facts": observed[1], "charged_dependency_facts": charge[1],
+                "actual_outcome_facts": observed[2], "charged_outcome_facts": charge[2]}
+        if role == "threshold":
+            step["scalar_int64"] = 6
+        if rejected:
+            step["observed_error_code"] = code
+            step["observed_error_reason"] = "ROOT_OUTCOME_CEILING_EXCEEDED" if code.startswith("EXPOSURE") else "SET_OPERATION_UNSUPPORTED"
+        steps.append(step)
+    verification = {"corpus_sha256": corpus_sha256, "steps": steps}
+    if sequence.startswith("E-threshold"):
+        verification.update({"expected_thresholds": [300, 320, 880], "observed_threshold_results": [6, 6],
+                             "outcome_ceiling": 5, "observed_outcome": 5 if novel else 0})
+    totals = [sum(step[key] for step in steps) for key in ("charged_release_facts", "charged_dependency_facts", "charged_outcome_facts")]
+    return {
+        "campaign_class": "publication", "record": SAMPLE_RECORD,
+        "sample": {"campaign_id": CAMPAIGN_ID, "experiment_id": "attack", "cell_id": cell, "mode": mode,
+                   "workload_id": sequence.split("/")[0], "scale": sequence.split("/")[1],
+                   "warmup": False, "status": "pass", "publication_eligible": True,
+                   "charged_release_facts": totals[0], "charged_dependency_facts": totals[1],
+                   "charged_outcome_facts": totals[2], "attack_verification": verification},
+    }
+
+
+def _provsql_sample(scale: str, system: str, drain_ms: float) -> dict:
+    facts = {"1k": 29003, "10k": 290003, "45k": 1305003}[scale]
+    sample = {"campaign_id": CAMPAIGN_ID, "experiment_id": "provsql",
+              "cell_id": f"{PROVSQL_WORKLOAD}/{scale}/{'direct' if system == 'postgresql' else system}",
+              "workload_id": PROVSQL_WORKLOAD, "scale": scale, "system": system,
+              "mode": "direct" if system == "postgresql" else system,
+              "warmup": False, "status": "pass", "publication_eligible": True,
+              "client_full_drain_ms": drain_ms, "row_count": 3,
+              "actual_release_facts": 12 if system == "taskgate" else 0,
+              "actual_dependency_facts": facts if system == "taskgate" else 0}
+    if system == "provsql":
+        sample["provsql_verification"] = {"boundary": PROVSQL_BOUNDARY}
+    return {"campaign_class": "publication", "record": SAMPLE_RECORD, "sample": sample}
+
+
 def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) -> dict:
     campaign_root = root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID
+    corpus_path = root / ATTACK_CORPUS_RELATIVE_PATH
+    corpus_path.parent.mkdir(parents=True, exist_ok=True)
+    corpus_path.write_text(json.dumps(_attack_corpus()))
+    corpus_sha256 = _sha(corpus_path)
     record_digests = []
     for alias in profiles:
         for repetition in (1, 2, 3):
@@ -100,6 +224,17 @@ def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) 
                     concurrency_lines.append(json.dumps(_concurrency_sample(cell, 30.0 + 2.0 * width + i)))
             concurrency_raw = dep / "raw" / "concurrency.jsonl"
             concurrency_raw.write_text("\n".join(concurrency_lines) + "\n")
+            attack_lines = [json.dumps(_attack_sample(cell, corpus_sha256)) for cell in ATTACK_CELLS for _ in range(3)]
+            attack_raw = dep / "raw" / "attack.jsonl"
+            attack_raw.write_text("\n".join(attack_lines) + "\n")
+            provsql_lines = []
+            for scale in PROVSQL_SCALES:
+                for system in PROVSQL_SYSTEMS:
+                    base = {"postgresql": 10.0, "provsql": 2000.0, "taskgate": 200.0}[system] * {"1k": 1, "10k": 2, "45k": 4}[scale]
+                    for i in range(3):
+                        provsql_lines.append(json.dumps(_provsql_sample(scale, system, base + i + repetition)))
+            provsql_raw = dep / "raw" / "provsql.jsonl"
+            provsql_raw.write_text("\n".join(provsql_lines) + "\n")
             record = {
                 "schema_version": 1, "campaign_class": "publication", "publication_eligible": True,
                 "formal_campaign": True, "campaign_id": CAMPAIGN_ID, "submission_commit": COMMIT,
@@ -110,7 +245,13 @@ def _build_tree(root: Path, *, profiles=("analytics-orders", "expense-detail")) 
                            "sha256": _sha(raw), "bytes": raw.stat().st_size},
                           {"kind": "raw_jsonl", "experiment": "concurrency",
                            "path": f"deployments/{alias}/{repetition:03d}/raw/concurrency.jsonl",
-                           "sha256": _sha(concurrency_raw), "bytes": concurrency_raw.stat().st_size}],
+                           "sha256": _sha(concurrency_raw), "bytes": concurrency_raw.stat().st_size},
+                          {"kind": "raw_jsonl", "experiment": "attack",
+                           "path": f"deployments/{alias}/{repetition:03d}/raw/attack.jsonl",
+                           "sha256": _sha(attack_raw), "bytes": attack_raw.stat().st_size},
+                          {"kind": "raw_jsonl", "experiment": "provsql",
+                           "path": f"deployments/{alias}/{repetition:03d}/raw/provsql.jsonl",
+                           "sha256": _sha(provsql_raw), "bytes": provsql_raw.stat().st_size}],
             }
             path = dep / "deployment-record.json"
             path.write_text(json.dumps(record))
@@ -163,7 +304,8 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(stats["profile_cells"], 2 * len(CELLS))
         self.assertEqual(stats["total_cells"], 2 * len(CELLS) + 3)
         self.assertEqual(stats["fresh_executions"], 3)
-        self.assertEqual(stats["measured_samples"], 6 * len(CELLS) * 4 * 3 + 6 * len(CONCURRENCY_CELLS) * 3)
+        self.assertEqual(stats["measured_samples"],
+                         6 * len(CELLS) * 4 * 3 + 6 * len(CONCURRENCY_CELLS) * 3 + 6 * len(ATTACK_CELLS) * 3 + 6 * 9 * 3)
         baseline = stats["baseline"]
         self.assertEqual(baseline["replay_zero_sql_samples"], 6 * len(CELLS) * 2 * 3)
         self.assertGreater(baseline["overhead_min"], 1)
@@ -196,6 +338,78 @@ class PublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(set(stats["direct_spread"]), set(CELLS))
         self.assertEqual(set(stats["concurrency_spread"]), set(CONCURRENCY_CELLS))
         self.assertEqual(stats["concurrency_spread"]["serial-control/1/serial"]["spread"], 0.0)
+        provsql = stats["provsql"]
+        self.assertEqual(provsql["samples"], 6 * 9 * 3)
+        self.assertEqual(provsql["samples_per_cell"], 6 * 3)
+        self.assertEqual(provsql["scales"]["45k"]["dependency_facts"], 1305003)
+        self.assertGreater(provsql["scales"]["45k"]["provsql_over_taskgate"], 1)
+        self.assertGreater(provsql["scales"]["1k"]["taskgate_over_postgresql"], 1)
+        self.assertLessEqual(provsql["provsql_over_taskgate_min"], provsql["provsql_over_taskgate_max"])
+        attack = stats["attack"]
+        self.assertEqual(attack["samples"], 6 * len(ATTACK_CELLS) * 3)
+        self.assertEqual(attack["samples_per_cell"], 6 * 3)
+        self.assertEqual(set(attack["sequences"]), set(ATTACK_SEQUENCES))
+        pages = attack["sequences"]["A-pagination/pages-to-complete"]
+        self.assertEqual(pages["charged"], {"release": 12, "dependency": 18, "outcome": 3})
+        self.assertEqual(pages["complete"], {"release": 12, "dependency": 18, "rows": 6})
+        ladder = attack["sequences"]["E-threshold/preregistered-v1"]["threshold"]
+        self.assertEqual(ladder["rejection_step"], 4)
+        self.assertEqual(ladder["rejection_code"], "EXPOSURE_BUDGET_EXHAUSTED")
+        self.assertEqual(ladder["outcome_ceiling"], 5)
+        self.assertEqual(attack["sequences"]["E-threshold/preregistered-v1"]["steps"][0]["task_route"], "delegated_child")
+
+    def _rewrite_raw(self, raw: Path, index: int, transform) -> None:
+        lines = [json.loads(line) for line in raw.read_text().splitlines()]
+        for line in lines:
+            transform(line["sample"])
+        raw.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
+        record_path = raw.parent.parent / "deployment-record.json"
+        record = json.loads(record_path.read_text())
+        record["files"][index]["sha256"] = _sha(raw)
+        record["files"][index]["bytes"] = raw.stat().st_size
+        record_path.write_text(json.dumps(record))
+
+    def test_attack_charge_that_varies_between_samples_is_rejected(self):
+        raw = self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments/analytics-orders/001/raw/attack.jsonl"
+        seen = []
+
+        def perturb(sample):
+            if sample["cell_id"] == "A-pagination/complete-to-pages/novel" and not seen:
+                seen.append(True)
+                sample["attack_verification"]["steps"][1]["charged_release_facts"] = 4
+                sample["charged_release_facts"] += 4
+        self._rewrite_raw(raw, 2, perturb)
+        self._reseal()
+        with self.assertRaisesRegex(PublicationEvidenceError, "distinct step outcomes"):
+            validate_final_v5_publication_evidence(self.root)
+
+    def test_attack_decomposition_that_overcharges_is_rejected(self):
+        for dep in (self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments").glob("*/[0-9][0-9][0-9]"):
+            def overcharge(sample):
+                if sample["cell_id"] == "D-split-union/complete-to-split/novel":
+                    sample["attack_verification"]["steps"][1]["charged_release_facts"] = 4
+                    sample["charged_release_facts"] += 4
+            self._rewrite_raw(dep / "raw" / "attack.jsonl", 2, overcharge)
+        self._reseal()
+        with self.assertRaisesRegex(PublicationEvidenceError, "its complete query holds"):
+            validate_final_v5_publication_evidence(self.root)
+
+    def test_attack_corpus_drift_is_rejected(self):
+        corpus_path = self.root / ATTACK_CORPUS_RELATIVE_PATH
+        corpus_path.write_text(corpus_path.read_text() + "\n")
+        with self.assertRaisesRegex(PublicationEvidenceError, "binds corpus"):
+            validate_final_v5_publication_evidence(self.root)
+
+    def test_provsql_without_its_declared_boundary_is_rejected(self):
+        raw = self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments/analytics-orders/001/raw/provsql.jsonl"
+
+        def strip(sample):
+            if sample["system"] == "provsql":
+                sample["provsql_verification"]["boundary"] = "visible_only"
+        self._rewrite_raw(raw, 3, strip)
+        self._reseal()
+        with self.assertRaisesRegex(PublicationEvidenceError, "boundaries"):
+            validate_final_v5_publication_evidence(self.root)
 
     def test_missing_pipeline_phase_is_rejected(self):
         raw = self.root / "evaluation/final-v5-wsl2/raw" / CAMPAIGN_ID / "deployments/analytics-orders/001/raw/baseline.jsonl"
