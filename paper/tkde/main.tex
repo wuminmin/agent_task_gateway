@@ -1137,13 +1137,11 @@ abstract settlement system; none proves the parser or implementation. Four
 bounded TLC models \cite{lamport2002specifying} check abstract root
 settlement, FactSet/bitmap correspondence, exact Outcome-set settlement with
 collision fail-closed safety, and PENDING/AVAILABLE recovery at small
-configurations---the ledger model has one root and one child, two requests,
-two facts per dimension, limits $1/1/2$, and one replay
-(\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
-explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
-\ArtifactFormalStates{} states (bounds in the supplement): sanity checks of
-the specification that abstract away SQL, rows, hashes, signatures, and
-ciphertext. Executable Go/PostgreSQL differential, concurrency, tamper, and
+configurations (two facts per dimension, limits $1/1/2$;
+\ExposureFormalStates{}, \BitmapFormalStates{}, \OutcomeFormalStates{},
+and \ArtifactFormalStates{} states; bounds in the supplement): sanity
+checks of the specification that abstract away SQL, rows, hashes,
+signatures, and ciphertext. Executable Go/PostgreSQL differential, concurrency, tamper, and
 fault-injection tests check implementation correspondence (the supplement
 maps layers and gaps); among them a randomized root-family test settles
 \VFiveFamilyPropertyQueries{} random observation sets over
@@ -1401,17 +1399,9 @@ both and is refused at the column (RLS
 authorization; that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
-it could pass. No counter-based arm was executed; as an illustration only
-(not evidence), counters are replayed by admission arithmetic over the
-sealed per-query fact sets with budgets set by the same
-$\lfloor 0.7\,U\rfloor$ rule as the bounded arm: a row budget of
-\FinalVFivePublicationCounterRowBudget{} and a query budget of
-\FinalVFivePublicationCounterSetAdmitted{} coincide with the set ledger in
-the issued order (\FinalVFivePublicationCounterSetReleased{} Facts) but
-release the whole union (\FinalVFivePublicationPermutedRowReleased{}) when
-the same queries are replayed novelty-first, where the set ledger still
-releases \FinalVFivePublicationPermutedSetReleased{}: a counter's release
-bound depends on query order, the set ledger's does not (supplement table).
+it could pass. No counter-based arm was executed; the supplement replays
+row and query counters by admission arithmetic as an illustration only (a
+counter's release bound depends on query order, the set ledger's does not).
 
 \begin{figure}[t]
 \centering
@@ -1475,11 +1465,10 @@ or production-SLO behavior.
 \label{sec:limits}
 
 \textbf{Semantic and subject scope.} Outcome atoms and composites are
-governance units, not bits; BDG omits rejected rows, non-output groups/pages,
-rank-only inputs, timing, correlations, background knowledge, and physical
-reads, and provides neither minimal causality nor differential privacy
-(Section~\ref{sec:model} states the counter-channel and fresh-capacity
-boundaries). \textbf{Query and identity scope.} Evidence uses
+governance units, not bits; BDG omits rejected rows, non-output
+groups/pages, rank-only inputs, correlations, background knowledge, and
+physical reads, and provides neither minimal causality nor differential
+privacy (channels and fresh capacity: Section~\ref{sec:model}). \textbf{Query and identity scope.} Evidence uses
 frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries, and it is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
