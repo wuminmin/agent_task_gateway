@@ -1185,7 +1185,12 @@ agreement is implementation-to-specification, not a third party's reading;
 such oracles cannot detect specification errors or a shared misreading of
 PostgreSQL semantics, so we claim consistency with our oracle rather than
 independent validation, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
-cases are regression evidence, not statistical evidence),
+cases are regression evidence, not statistical evidence; one check does
+not share our specification: a pilot-class rerun expands ProvSQL's own
+provenance circuit to its base tuples on the paired join cells and finds
+them equal, member by member, to the oracle's
+\FinalVFiveProvSQLLeafTotalRowFacts{} base-row facts, to which BDG's
+Dependency sets are linked in turn),
 whose import boundary excludes
 every production package (enforced by a dependency test), fixes the
 expected Fact cardinalities of all

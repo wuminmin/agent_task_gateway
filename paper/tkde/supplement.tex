@@ -735,6 +735,7 @@ V5 outcome-set regressions and randomized root-family sequences & \VFiveImplemen
 Publication campaign (main Table~1; Tables~\ref{tab:baseline-publication}, \ref{tab:phase-breakdown}, \ref{tab:concurrency-publication}, \ref{tab:scale-publication}) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/subphase-pilot-06} & pilot; not publication evidence \\
+ProvSQL base-tuple cross-check (Section~\ref{sec:provsql-leaves-supp}) & \FinalVFiveProvSQLLeafCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/provsql-leaf-pilot-02} & pilot; not publication evidence \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
 Generated-plan campaign (Section~\ref{sec:generated-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
 TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
@@ -1532,9 +1533,10 @@ also linked member by member to the independent oracle's closed-form
 semantic set for that scale and nonce, as in the Scale profile:
 \FinalVFivePublicationProvSQLDependencyLinksVerified{} verifications, up to
 \FinalVFivePublicationProvSQLDependencyLinkMaxFacts{} Facts, none with a
-missing or extra ordinal; ProvSQL's own circuit is drained to its
-per-output-row roots and root types, not expanded to base tuples, so the
-pairing is a cost reference, not a provenance cross-check): PostgreSQL~16.14 from a digest-pinned image,
+missing or extra ordinal; in the sealed campaign ProvSQL's own circuit is
+drained only to its per-output-row roots, so the pairing there is a cost
+reference; Section~\ref{sec:provsql-leaves-supp} expands the circuit to base
+tuples in a pilot-class rerun): PostgreSQL~16.14 from a digest-pinned image,
 ProvSQL~1.11.0 built on that exact base image, and BDG's public
 \code{query_sql} path with settlement, receipt, and AVAILABLE delivery. The
 query is the orders--lineitem equijoin over the first 1,000, 10,000, or 45,000
@@ -1649,6 +1651,51 @@ bounded budgets $\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublication
 Arm & Answered & Refused at & Rows & Ledger & Stop reason \\
 \midrule
 \FinalVFivePublicationRLSArmTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{ProvSQL Base-Tuple Cross-Check (Pilot)}
+\label{sec:provsql-leaves-supp}
+
+To check the Dependency row facts against an oracle not written from our
+specification, a pilot-class rerun of the ProvSQL profile
+(\FinalVFiveProvSQLLeafSamples{} ProvSQL-arm samples, one per scale;
+\code{campaign_class} \code{pilot}, \code{publication_eligible}
+\code{false}) expands ProvSQL's provenance circuit itself: after the paired
+measurement, every output root of the grouped join (the three aggregate
+carriers and the hidden row token per output row) is walked through
+\code{provsql.get_children} to its \code{input} gates, each input gate is
+mapped to the base row whose \code{provsql} column carries it
+(\code{orders}, \code{lineitem}, or \code{nonce}), the rows are expressed
+as the oracle package's canonical base-row Facts from their key columns, and
+the resulting set is compared, member by member through sorted Fact
+digests, with the oracle's own base-row enumeration for the same scale and
+nonce. ProvSQL is a third-party implementation of why-provenance
+\cite{senellart2018provsql}; the only shared code is the identity encoding
+of a base row from its key, and no production package is involved. The
+expansion runs outside every timing boundary. Table~\ref{tab:provsql-leaves}
+reports, per scale, the roots, the input gates reached, the mapped rows per
+relation, the ProvSQL-derived row-Fact count, and the oracle's count; every
+sample matched with no unmapped gate. Since the campaign's BDG Dependency
+sets are linked member by member to the same oracle
+(Section~\ref{sec:provsql-publication-supp}), ProvSQL's base tuples and
+BDG's base-row Dependency facts coincide transitively on these cells. The
+check covers base rows, not predicate-cell facts, which ProvSQL does not
+represent.
+
+\begin{table}[t]
+\centering
+\caption{ProvSQL circuit expansion versus the oracle's base-row facts, per
+scale (pilot class).}
+\label{tab:provsql-leaves}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Scale & Roots & Input gates & Orders & Lineitem & Nonce & ProvSQL row facts & Oracle row facts & Expansion (ms) \\
+\midrule
+\FinalVFiveProvSQLLeafTableBody
 \bottomrule
 \end{tabular}
 \end{table}

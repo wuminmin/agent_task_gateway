@@ -1546,6 +1546,27 @@ def main(argv: list[str] | None = None) -> None:
     # deployment and are cited as such, but they are campaign_class=pilot and
     # publication_eligible=false, so the manuscript names their class wherever
     # it uses them and never calls them a completed publication campaign.
+    pilot_leaves = pilot.get("provsql_leaves")
+    if pilot_leaves is None:
+        raise SystemExit("pilot evidence lacks the ProvSQL base-tuple link family")
+    leaf_rows = []
+    for scale in ("1k", "10k", "45k"):
+        item = pilot_leaves["scales"][scale]
+        suffix = {"1k": "OneK", "10k": "TenK", "45k": "FortyFiveK"}[scale]
+        leaf_rows.append(" & ".join([scale, str(item["roots"]), comma(item["input_gates"]), comma(item["orders_rows"]),
+                                     comma(item["lineitem_rows"]), str(item["nonce_rows"]), comma(item["row_facts"]),
+                                     comma(item["oracle_row_facts"]), decimal(item["expansion_p50_ms"], 0)]) + r" \\")
+        lines.extend([
+            rf"\newcommand{{\FinalVFiveProvSQLLeafInputGates{suffix}}}{{{comma(item['input_gates'])}}}",
+            rf"\newcommand{{\FinalVFiveProvSQLLeafRowFacts{suffix}}}{{{comma(item['row_facts'])}}}",
+            rf"\newcommand{{\FinalVFiveProvSQLLeafExpansionMS{suffix}}}{{{decimal(item['expansion_p50_ms'], 0)}}}",
+        ])
+    lines.extend([
+        rf"\newcommand{{\FinalVFiveProvSQLLeafSamples}}{{{pilot_leaves['samples']}}}",
+        rf"\newcommand{{\FinalVFiveProvSQLLeafCommit}}{{{pilot_leaves['submission_commit'][:12]}}}",
+        rf"\newcommand{{\FinalVFiveProvSQLLeafTotalRowFacts}}{{{comma(pilot_leaves['total_row_facts'])}}}",
+        r"\newcommand{\FinalVFiveProvSQLLeafTableBody}{%" + "\n" + "\n".join(leaf_rows) + "%\n}",
+    ])
     pilot_artifact = pilot["artifact"]
     # Sub-phase pilot (profile-campaign pilot with Gateway component_ms retained):
     # atomic component medians of the novel arm for the three discussed cells.

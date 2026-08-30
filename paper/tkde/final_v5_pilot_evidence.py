@@ -147,7 +147,53 @@ def _load_profile_pilot(root: Path, entry: dict) -> list[dict]:
                 samples.append(sample)
     if len(samples) != entry["measured_samples"]:
         raise PilotEvidenceError(f"pilot campaign {entry['id']} has {len(samples)} measured samples, manifest declares {entry['measured_samples']}")
+    for sample in samples:
+        sample["_submission_commit"] = entry["submission_commit"]
     return samples
+
+
+PROVSQL_LEAF_SCALES = ("1k", "10k", "45k")
+PROVSQL_LEAF_LINK_VERSION = "taskgate-provsql-base-tuple-link-v1"
+
+
+def _provsql_leaf_stats(samples: list[dict]) -> dict:
+    """ProvSQL circuit expansion per scale: input gates, mapped base rows, and the
+    member-by-member comparison of their canonical row facts with the oracle's
+    base-row enumeration (ProvSQL arm of a provsql-profile pilot)."""
+    by_scale: dict[str, list[dict]] = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "provsql" or sample.get("system") != "provsql":
+            continue
+        by_scale.setdefault(sample["scale"], []).append(sample)
+    missing = [scale for scale in PROVSQL_LEAF_SCALES if scale not in by_scale]
+    if missing:
+        raise PilotEvidenceError(f"ProvSQL leaf pilot is missing scales {missing}")
+    result = {}
+    for scale in PROVSQL_LEAF_SCALES:
+        values = by_scale[scale]
+        links = []
+        for sample in values:
+            link = (sample.get("provsql_verification") or {}).get("base_tuple_link") or {}
+            if (link.get("version") != PROVSQL_LEAF_LINK_VERSION or link.get("match") is not True
+                    or link.get("unmapped_input_gates") != 0
+                    or link.get("provsql_row_facts") != link.get("oracle_row_facts")
+                    or link.get("provsql_row_fact_set_sha256") != link.get("oracle_row_fact_set_sha256")):
+                raise PilotEvidenceError(f"ProvSQL leaf pilot sample at {scale} lacks a matching base-tuple link")
+            links.append(link)
+        first = links[0]
+        for key in ("input_gates", "orders_rows", "lineitem_rows", "nonce_rows", "provsql_row_facts", "oracle_row_facts", "roots"):
+            if {link[key] for link in links} != {first[key]}:
+                raise PilotEvidenceError(f"ProvSQL leaf pilot samples at {scale} disagree on {key}")
+        result[scale] = {
+            "samples": len(values), "roots": first["roots"], "input_gates": first["input_gates"],
+            "orders_rows": first["orders_rows"], "lineitem_rows": first["lineitem_rows"], "nonce_rows": first["nonce_rows"],
+            "row_facts": first["provsql_row_facts"], "oracle_row_facts": first["oracle_row_facts"],
+            "expansion_p50_ms": _median([float(link["expansion_ms"]) for link in links]),
+        }
+    commits = {sample.get("_submission_commit") for sample in samples if sample.get("_submission_commit")}
+    return {"samples": sum(item["samples"] for item in result.values()), "scales": result,
+            "total_row_facts": sum(item["row_facts"] for item in result.values()),
+            "submission_commit": commits.pop() if len(commits) == 1 else ""}
 
 
 def _subphase_stats(samples: list[dict]) -> dict:
@@ -193,10 +239,13 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     if manifest.get("publication_eligible") is not False:
         raise PilotEvidenceError("pilot evidence manifest must declare itself publication-ineligible")
 
-    artifact_runs, baseline_samples, subphase_samples = [], [], []
+    artifact_runs, baseline_samples, subphase_samples, provsql_leaf_samples = [], [], [], []
     for entry in manifest["runs"]:
         if entry["family"] == "subphase":
             subphase_samples.extend(_load_profile_pilot(root, entry))
+            continue
+        if entry["family"] == "provsql_leaves":
+            provsql_leaf_samples.extend(_load_profile_pilot(root, entry))
             continue
         samples = _load_run(root, entry)
         if entry["family"] == "artifact":
@@ -297,4 +346,5 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         "exposure": exposure,
     }
     subphase = _subphase_stats(subphase_samples) if subphase_samples else None
-    return {"subphase": subphase, "artifact": artifact_stats, "baseline": baseline_stats}
+    provsql_leaves = _provsql_leaf_stats(provsql_leaf_samples) if provsql_leaf_samples else None
+    return {"subphase": subphase, "provsql_leaves": provsql_leaves, "artifact": artifact_stats, "baseline": baseline_stats}
