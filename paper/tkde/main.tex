@@ -1272,23 +1272,19 @@ per Fact as Dependency derivation. The archived V4 run (single deployment,
 recorded source hash, not publication-class) shows what ordinals buy: the
 ordinal companion cut the novel governed query by
 \RQFourVFourNovelReductionPct\% (\RQFourVFourLegacyNovelSpeedup$\times$)
-over legacy per-Fact hashing, and at \RQFourVFourOracleFacts{} Facts its
-phases were streaming \RQFourVFourOrdinalStreamMedianMS{}~ms, bitmap
-derivation \RQFourVFourBitmapDeriveMedianMS{}~ms, settlement
-\RQFourVFourSettleMedianMS{}~ms: derivation, not settlement, is the cost of
-exactness. A sub-phase pilot at the submission commit (one deployment per
-profile, one sample per cell, the adapter retaining the Gateway's component
-timers; not publication-class) splits execute-and-derive itself: the
-companion SQL takes \FinalVFiveSubphaseSQLSideMSSOneSFOne{},
-\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}, and
-\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms at S1/SF1, S2/SF10,
-and S6/100k-x16, while Go-side ordinal consumption and witness merging take
-\FinalVFiveSubphaseGoSidePctSOneSFOne{}, \FinalVFiveSubphaseGoSidePctSTwoSFTen{},
-and \FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\% of the phase
-(\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}~$\mu$s per Fact at S2/SF10,
-\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{} at S6, where the
-witness merge of \FinalVFiveSubphaseDominantMSSSixHundredKByteSixteen{}~ms
-dominates); the exactness cost is single-threaded Go encoding, not
+over legacy per-Fact hashing, with settlement
+\RQFourVFourSettleMedianMS{}~ms against streaming
+\RQFourVFourOrdinalStreamMedianMS{}~ms at \RQFourVFourOracleFacts{} Facts:
+derivation, not settlement, is the cost of exactness. A sub-phase pilot at the submission commit (one deployment per
+profile, one sample per cell, Gateway component timers retained; not
+publication-class) splits execute-and-derive: the companion SQL takes
+\FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
+at S1/SF1, S2/SF10, S6/100k-x16, while Go-side ordinal consumption and
+witness merging take
+\FinalVFiveSubphaseGoSidePctSOneSFOne{}/\FinalVFiveSubphaseGoSidePctSTwoSFTen{}/\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
+of the phase (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{} and
+\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s per Fact at
+S2/SF10 and S6); exactness is paid in single-threaded Go encoding, not in
 PostgreSQL, and multi-second governed latency suits batch reporting agents,
 not interactive ones (supplement table).
 
@@ -1412,7 +1408,7 @@ counter's release bound depends on query order, the set ledger's does not
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.2\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.19\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
@@ -1494,10 +1490,9 @@ execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
-(RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per Fact; a
-$10^9$-Fact Product would need hundreds of gigabytes and hours per build and
-per global aggregate, so the evaluated envelope is $10^5$--$10^6$-row
-reporting Products.
+(RQ5 Day~0) and derivation microseconds per Fact; a $10^9$-Fact Product
+would need hundreds of gigabytes and hours per build and per global
+aggregate, so the evaluated envelope is $10^5$--$10^6$-row Products.
 
 \textbf{Throughput scope.} Every settlement of a root family serializes on
 its head; same-root throughput falls from
