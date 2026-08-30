@@ -528,9 +528,24 @@ max-merge is commutative and idempotent. An identical materialized fact is
 retained, and relation-level union expressions are sorted before downstream
 composition. Group keys and witness commitments are sorted. The SQL compiler
 emits the same Catalog-canonical page suffix represented by the normal form.
-Every accepted graph spelling therefore denotes the same folded term; each
-remaining recursive rewrite preserves its effect. Structural induction over
-well-typed contexts proves the result.
+Every accepted graph spelling therefore denotes the same folded term. Per
+rule (main-text R1--R6), the effect-preservation lemma and its side
+condition are: R1 (alias erasure) changes no Fact identity because
+identities are built from stable roles and canonical fields, never display
+names; R2 (canonical spellings and typed literals) preserves the evaluated
+predicate under the attested type, collation, and numeric mode; R3 (sorting
+commutative components) preserves the bag because AND, projection sets,
+aggregate lists, group-key sets, and union/join operand order are
+commutative in the algebra; R4 (join-graph fold) applies only after the
+equi-join graph boundary, where every spelling of one connected graph
+enumerates the same matching bag; R5 (duplicate union branch collapse)
+requires the child's full-tuple distinctness proof, since without it the
+duplicate branch changes witness multiplicity (Scan carries no proof; Union
+and Group produce one; Select and Page preserve it; Project preserves it
+only when the schema is unchanged, because a narrowing projection can merge
+distinct tuples); R6 (page suffix) preserves the total order the Catalog
+keys define. Structural induction over well-typed contexts proves the
+result.
 \end{proof}
 
 \begin{proof}[Proof of Base-ledger split/page/join conservation]
@@ -1576,7 +1591,7 @@ budgets in any order, which is the property the paper claims for it.
 
 \begin{table}[t]
 \centering
-\caption{Counter arms on the adaptive trace (derived, not run): budget,
+\caption{Counter arms on the adaptive trace (derived by admission arithmetic, not run; an illustration of order dependence, not evidence): budget,
 queries admitted, first refusal, refused queries that add no fact to the
 full-trace union (``non-novel'') versus refused queries that do, and facts
 released (Release/Dependency/Outcome) in the trace's order; then facts

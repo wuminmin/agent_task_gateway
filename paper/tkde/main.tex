@@ -81,8 +81,7 @@ nested Views; SQL an off-the-shelf LLM writes for
 bitmaps, and a Merkle-radix set make novelty exact at $10^6$ facts. A sealed
 single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
-within set budgets where a derived permuted replay shows counters to be
-order-dependent, and costs
+within its set budgets, and costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
 a direct query, with settlement alone at
 \FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
@@ -346,9 +345,10 @@ and delegated calls are untrusted and may be adaptive. The security goal is
 bounded governed release: within one approved root family on one publication
 epoch, no more than $B_X$ distinct FactIDs of each kind become
 \code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
-Four extraction patterns motivate the three budgets and are the ones the
-evaluation exercises: sweeping a Product page by page, bounded by $B_R$
-(Section~\ref{sec:calibration}); aggregates that read far more base facts
+Four extraction patterns motivate the three budgets, three of them
+exercised by the evaluation: sweeping a Product page by page, bounded by
+$B_R$ (budget arithmetic in Section~\ref{sec:calibration}, not a measured
+cell); aggregates that read far more base facts
 than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
 ladders, bounded by $B_O$ (the corpus ladder); and delegation fan-out,
 bounded by the shared root ledger (the delegated child's refusal). Four
@@ -792,11 +792,10 @@ restricted selection--projection invariance the rewrite tests use.
 \begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
 \label{def:nf}
 $NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
-one normal-form profile the task contract binds: aliases become Catalog
-stable roles, the accepted join graph is canonicalized, and commutative
-components are ordered by typed stable identity; equality is syntactic. Its
-typed digest is the query-semantic component of replay/outcome identity,
-distinct from final-ledger Fact-set $\operatorname{normalize}$.
+one normal-form profile the task contract binds (rules R1--R6 below);
+equality is syntactic. Its typed digest is the query-semantic component of
+replay/outcome identity, distinct from final-ledger Fact-set
+$\operatorname{normalize}$.
 \end{definition}
 
 \begin{theorem}[Typed normal-form soundness]
@@ -811,7 +810,19 @@ set $V$,
 This is not completeness for arbitrary equivalent SQL: normalization neither
 invents nor removes transitive/redundant equalities.
 \end{theorem}
-\emph{Proof in the supplement.}
+The rewrite set is exactly: (R1) erase aliases and display names to Catalog
+stable roles; (R2) canonicalize qualified field, function, and operator
+spellings and typed literals; (R3) sort commutative components---AND
+conjuncts, projections, aggregates, group keys, union operands, and join
+operand/predicate order---by typed stable identity; (R4) fold an accepted
+connected equi-join graph into one canonical binary term (after the graph
+boundary only, never reassociating arbitrary SQL); (R5) collapse an
+identical duplicate union branch only when its child carries a full-tuple
+distinctness proof (Union and Group produce one, Select and Page preserve
+it, Project preserves it only for an unchanged schema, Scan has none);
+(R6) canonicalize the Catalog page-order suffix. The supplement states a
+per-rule effect-preservation lemma with these side conditions; RQ2's
+zero-charge guarantee covers exactly R1--R6.
 
 For a fixed approved task, let $\pi_T$ be the normal-form profile bound in
 $C$ and define the canonical replay descriptor
@@ -1089,8 +1100,9 @@ binding (\FinalVFivePublicationAttackThresholdCeiling{} atoms and
 composites refuse the third count probe); $B_R$ binds in the sweep case:
 under the default low route ($B_R=2{,}000{,}000$, $B_O=B_Q=128$) paging a
 $10^5\times16$ Product in 100 pages releases $1.6\times10^6$ Facts and 100
-composites, each page legal under any row limit, and a second sweep is
-refused at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
+composites, each page legal under any row limit, a repeat of the same pages
+is a zero-novelty replay, and a sweep of a second such Product is refused
+at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
 rows times aggregable fields bounds the \emph{distinct} base facts any
 aggregate sequence touches, not how many run (Section~\ref{sec:model}
 bounds settled and refused predicates). Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
@@ -1386,10 +1398,10 @@ both and is refused at the column (RLS
 authorization; that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
-it could pass. No counter-based arm was executed; counters are compared by
-admission arithmetic over the sealed per-query fact sets, with budgets set
-by the same $\lfloor 0.7\,U\rfloor$ rule as the bounded arm (a calibration
-on the reported trace, stated once here): a row budget of
+it could pass. No counter-based arm was executed; as an illustration only
+(not evidence), counters are replayed by admission arithmetic over the
+sealed per-query fact sets with budgets set by the same
+$\lfloor 0.7\,U\rfloor$ rule as the bounded arm: a row budget of
 \FinalVFivePublicationCounterRowBudget{} and a query budget of
 \FinalVFivePublicationCounterSetAdmitted{} coincide with the set ledger in
 the issued order (\FinalVFivePublicationCounterSetReleased{} Facts) but
