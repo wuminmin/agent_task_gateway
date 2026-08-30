@@ -1213,15 +1213,14 @@ adds about one second, \RQFiveDayZeroActivateMedianS{}~s in the tracked RQ5
 run); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
 cases, a generated-plan campaign (\GeneratedPlans{} random plans over
-\GeneratedFixtures{} random fixtures of
-\GeneratedRowsMin{}--\GeneratedRowsMax{} rows: three-valued selections,
-projections, two-source equijoins, grouped and global aggregates, pages)
-compares the production algebra with a separate reference evaluator
-written from the operator rules: \GeneratedMismatches{} set mismatches and
-\GeneratedHashMismatches{} hash disagreements over
-\GeneratedReleaseFacts{} Result and \GeneratedDependencyFacts{} Dependency
-Facts, and split-projection and page-partition unions equal to the complete
-query in all \GeneratedSplitChecks{} checks (supplement).
+\GeneratedFixtures{} fixtures of \GeneratedRowsMin{}--\GeneratedRowsMax{}
+rows: three-valued selections, projections, two-source equijoins, grouped
+and global aggregates, pages) compares the production algebra with a
+separate reference evaluator: \GeneratedMismatches{} set and
+\GeneratedHashMismatches{} hash mismatches over \GeneratedReleaseFacts{}
+Result and \GeneratedDependencyFacts{} Dependency Facts, with split and
+page unions equal to the complete query in all \GeneratedSplitChecks{}
+checks (supplement).
 
 The core workloads (the campaign's \emph{Baseline} profile): S1, a
 two-column projection of the frozen 50,000-order corpus under an order-key
@@ -1491,12 +1490,10 @@ execution.
 would need hundreds of gigabytes and hours per build and global aggregate,
 so the evaluated envelope is $10^5$--$10^6$-row Products.
 
-\textbf{Throughput scope.} Every settlement of a root family serializes on
-its head; same-root throughput falls from
-\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
-\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
-requests per second from width 10 to 50, and multi-root throughput is
-unmeasured.
+\textbf{Throughput scope.} Same-root settlement serializes on the head
+(\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
+\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} requests/s
+from width 10 to 50); multi-root throughput is unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted:
 BDG validates bindings, supported semantics, and settlement, not policy
