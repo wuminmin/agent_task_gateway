@@ -293,14 +293,13 @@ outcomes within one signed root, withholds delivery unless settlement
 succeeds, releases exact answers, and models neither prior knowledge, denial
 leakage, nor $\epsilon$; zero-novelty replay is the syntactic analogue of
 history-aware pricing, and Theorem~\ref{thm:nf-soundness} covers listed
-rewrites, not information-equivalent queries, so it is weaker than
-arbitrage-freedom.
-Why/where/how provenance identifies witnesses, locations, and derivations
+rewrites only, so it is weaker than arbitrage-freedom. Why/where/how
+provenance identifies witnesses, locations, and derivations
 \cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance,amsterdamer2011aggregate},
 and GProM and ProvSQL provide general rewrite/circuit mechanisms
 \cite{arab2018gprom,senellart2018provsql,sen2026provsql}; BDG claims no new
-provenance algebra but co-generates typed effects with answers for a positive
-fragment and settles cumulative novelty before release.
+provenance algebra but co-generates typed effects with answers and settles
+cumulative novelty before release.
 
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
