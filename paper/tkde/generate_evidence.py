@@ -1788,6 +1788,39 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationRQFiveSamplesPerCell}}{{{rq5['build_verify_activate']['samples']}}}",
         rf"\newcommand{{\FinalVFivePublicationIndependentOracleSamples}}{{{comma(publication['independent_oracle_samples'])}}}",
     ])
+    # TPC-H lowerability: which of the 22 templates enter the closed fragment
+    # as written and after the syntactic explicit-JOIN normalization.
+    tpch_path = ROOT / "evaluation/tpchlowerability/results.json"
+    tpch = json.loads(tpch_path.read_text(encoding="utf-8"))
+    passes = {item["variant"]: item for item in tpch["passes"]}
+    if set(passes) != {"as-written", "explicit-join"} or any(item["queries"] != 22 for item in passes.values()):
+        raise SystemExit("evaluation/tpchlowerability/results.json does not carry both 22-query passes")
+    reason_rows = []
+    labels = {
+        "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": "subquery (FROM, IN, EXISTS, scalar)",
+        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": "arithmetic inside an aggregate",
+        "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": "LIMIT over a multi-product join",
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": "arithmetic in the projection",
+        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": "HAVING",
+        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": "COUNT(DISTINCT)",
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": "IN (subquery) predicate",
+        "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": "date/interval arithmetic literal",
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": "comma join (no explicit JOIN ON)",
+    }
+    explicit = passes["explicit-join"]
+    for key, count in sorted(explicit["by_reason"].items(), key=lambda kv: (-kv[1], kv[0])):
+        queries = ", ".join(r["query"].upper() for r in explicit["results"] if (r.get("code", "") + "/" + r.get("reason", "")) == key)
+        reason_rows.append(" & ".join([labels.get(key, tex(key)), tex(key.split("/")[-1]), str(count), queries]) + r" \\")
+    lines.extend([
+        rf"\newcommand{{\TPCHQueries}}{{{explicit['queries']}}}",
+        rf"\newcommand{{\TPCHLowerableAsWritten}}{{{passes['as-written']['lowerable']}}}",
+        rf"\newcommand{{\TPCHLowerableExplicitJoin}}{{{explicit['lowerable']}}}",
+        rf"\newcommand{{\TPCHCommaJoinQueries}}{{{passes['as-written']['by_reason'].get('SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\TPCHSubqueryQueries}}{{{explicit['by_reason'].get('SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED', 0) + explicit['by_reason'].get('SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\TPCHArithmeticQueries}}{{{explicit['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED', 0) + explicit['by_reason'].get('SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\TPCHResultsDigest}}{{\texttt{{{hashlib.sha256(tpch_path.read_bytes()).hexdigest()[:12]}}}}}",
+        r"\newcommand{\TPCHReasonTableBody}{%" + "\n" + "\n".join(reason_rows) + "%\n}",
+    ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",

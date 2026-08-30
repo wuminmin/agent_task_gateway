@@ -1,0 +1,479 @@
+{
+  "version": "taskgate-tpch-lowerability-v1",
+  "lowering_profile": "taskgate-reporting-sql-v1",
+  "passes": [
+    {
+      "variant": "as-written",
+      "directory": "evaluation/tpchlowerability/queries",
+      "queries": 22,
+      "lowerable": 0,
+      "by_reason": {
+        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 2,
+        "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": 13,
+        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": 1,
+        "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": 5
+      },
+      "results": [
+        {
+          "query": "q01",
+          "sql_sha256": "7fe3c4fccea08630e00fe9276bc28155904ad91ec1dba1432527510dd5f7a9e4",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q02",
+          "sql_sha256": "67ad45dce51e23814ca8538292a9232af5f47d7484bfaafc4e50c5d69344eb61",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q03",
+          "sql_sha256": "5b3aeb9929b1ffb7511c62f761aff38610bcee9eeda56be93dafbe1f77fee909",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q04",
+          "sql_sha256": "feb69ebd338d370fa81a178c78fb377da090323f3fd4dd40d3030126cbcce828",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FILTER_LITERAL_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "a string, boolean, or numeric literal is required",
+          "from_sources": 1
+        },
+        {
+          "query": "q05",
+          "sql_sha256": "ddbf7ac4b6cb94207c81c6e1238832c705397aa6820054e7614c2bac19118868",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q06",
+          "sql_sha256": "358fa18c0b4235947b23ef3f31288bc03415666134e42c2745fa89ebe993d139",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q07",
+          "sql_sha256": "33d2bcd2d75af3ca358eb38c2013c174de9482c5ec8ef198f2e8433e32377b47",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q08",
+          "sql_sha256": "37e51b27603b7396d5085804481d2a091025eb1336487627bdde7f41a606ddd0",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q09",
+          "sql_sha256": "849102380f33761bff4bef73b7ba14221843a20bf8cd101aac811d61586c967a",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q10",
+          "sql_sha256": "72365e208b850baccf056e27e5098fe4bfb835c00a6881e7d0b3b01d5492d573",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q11",
+          "sql_sha256": "69867e5bd1800388187eef28afecfe4c3468dfab55366d221347c05198f19082",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "HAVING_UNSUPPORTED",
+          "clause": "HAVING",
+          "message": "HAVING predicates are outside this SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q12",
+          "sql_sha256": "fdcd3cb3c35cfa6ddddee28881b93799ea1d97189fdfaea5be57fbd1e5e27e33",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q13",
+          "sql_sha256": "a063627d85cbf44c9e7de5daf7321196505a5ed1163bf8253c9b68ac79ca26f3",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q14",
+          "sql_sha256": "3627c9879b9e63fb5b050c3d1c2f0d942468ba2b4692905a5c9d6b54c8777172",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q15",
+          "sql_sha256": "d000211ad1372a7dafc8dc1358ffba7a26cd8155ba54a9ee0710f14ce8b3a41d",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q16",
+          "sql_sha256": "1270b99a38e5216ad537baebf4afc015ed42da5af20b85ce716a87c5cfd86a96",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q17",
+          "sql_sha256": "0dfd00c502ade662575a187d43a34b261059cf3c75c8d6cd30003bf900ecc5b1",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q18",
+          "sql_sha256": "43f6f4df0f99fd407c4e45c02771d9d6228e757dbdc4ca97235229a51128f5c0",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q19",
+          "sql_sha256": "c93d9f9266d99b6bda606703efa3ebcb17c685d9e478ad284061dd30a070b8a2",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q20",
+          "sql_sha256": "7b4e536d189545912975c814281de14534bff6b49923889c94ddfde80fbd0371",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q21",
+          "sql_sha256": "f9e2782f2406429cc51d78ac94f2e74e3c9bfa42b82c8e945fdc42223a0e95e7",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q22",
+          "sql_sha256": "7c95caa4a1d248b027926cc774dde3cabed218075a823e6d4c97e49b6683d9bd",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 1
+        }
+      ]
+    },
+    {
+      "variant": "explicit-join",
+      "directory": "evaluation/tpchlowerability/queries-explicit-join",
+      "queries": 22,
+      "lowerable": 0,
+      "by_reason": {
+        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 5,
+        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": 5,
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 2,
+        "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": 6
+      },
+      "results": [
+        {
+          "query": "q01",
+          "sql_sha256": "7fe3c4fccea08630e00fe9276bc28155904ad91ec1dba1432527510dd5f7a9e4",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q02",
+          "sql_sha256": "c6efd4f8d612e20fc7a9943013449e6fac437962dbaec12e2b97765d79f1a3d3",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PAGINATION_UNSUPPORTED",
+          "clause": "LIMIT",
+          "message": "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q03",
+          "sql_sha256": "b71e7707831bf32f2f8c3dd0fcc83da8cfea3aedd2aa86f4d023664d304a464a",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PAGINATION_UNSUPPORTED",
+          "clause": "LIMIT",
+          "message": "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q04",
+          "sql_sha256": "feb69ebd338d370fa81a178c78fb377da090323f3fd4dd40d3030126cbcce828",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FILTER_LITERAL_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "a string, boolean, or numeric literal is required",
+          "from_sources": 1
+        },
+        {
+          "query": "q05",
+          "sql_sha256": "78aabcda04fd8e6ecaedbb89b0737ca198d7790ac2133eb455ab025c907eac57",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q06",
+          "sql_sha256": "358fa18c0b4235947b23ef3f31288bc03415666134e42c2745fa89ebe993d139",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q07",
+          "sql_sha256": "33d2bcd2d75af3ca358eb38c2013c174de9482c5ec8ef198f2e8433e32377b47",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q08",
+          "sql_sha256": "37e51b27603b7396d5085804481d2a091025eb1336487627bdde7f41a606ddd0",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q09",
+          "sql_sha256": "849102380f33761bff4bef73b7ba14221843a20bf8cd101aac811d61586c967a",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 2
+        },
+        {
+          "query": "q10",
+          "sql_sha256": "31634e518b07d5c65a680d7cf6c1547ca68f5e3c787e90aaded072eb9bd6a05e",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PAGINATION_UNSUPPORTED",
+          "clause": "LIMIT",
+          "message": "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q11",
+          "sql_sha256": "69867e5bd1800388187eef28afecfe4c3468dfab55366d221347c05198f19082",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "HAVING_UNSUPPORTED",
+          "clause": "HAVING",
+          "message": "HAVING predicates are outside this SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q12",
+          "sql_sha256": "c16006cf5e614885e24eee4536dbbfc99bcd2dffe11ea1147becf58eb44f4d50",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q13",
+          "sql_sha256": "a063627d85cbf44c9e7de5daf7321196505a5ed1163bf8253c9b68ac79ca26f3",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q14",
+          "sql_sha256": "6c5b4e1f7c538464707b1469c3eae20d301161a15e55a32df578d70b83923f24",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "A projection must be an approved column or an approved aggregate.",
+          "from_sources": 1
+        },
+        {
+          "query": "q15",
+          "sql_sha256": "7637134354a9edb1b5dc0db6c261b8ff87fd356aa80d2dfd1d3c7c6e68de5022",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q16",
+          "sql_sha256": "ea24f9c01307f086a1b05d296f3642b33945d05cd2214786ce32dbdf52c4f3bd",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_MODIFIER_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "DISTINCT, FILTER, ORDER BY, window, and variadic aggregate modifiers are outside this profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q17",
+          "sql_sha256": "bcdd28b590f40a2b5431151d224cfe84f981bfa6421969cd1d14785482058702",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "A projection must be an approved column or an approved aggregate.",
+          "from_sources": 1
+        },
+        {
+          "query": "q18",
+          "sql_sha256": "9d1b37fd47fc691463ea8ad533ddcdf13d0580206405de54f455981795eadbcc",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PAGINATION_UNSUPPORTED",
+          "clause": "LIMIT",
+          "message": "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q19",
+          "sql_sha256": "d4b192c18d7faf7500018f59815af9f6a0da68e21c97925b48f43e053fc23049",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q20",
+          "sql_sha256": "5f155c499b5bdb8a35bde1d55c3ca99b28d579926312fef67251621efaed4395",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FILTER_PREDICATE_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "WHERE accepts conjunctions of column-to-literal predicates only.",
+          "from_sources": 1
+        },
+        {
+          "query": "q21",
+          "sql_sha256": "a6217881dec63875f5cc56032f13b13fea6d3dc9325e10bdc04610569eb38852",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "PAGINATION_UNSUPPORTED",
+          "clause": "LIMIT",
+          "message": "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q22",
+          "sql_sha256": "7c95caa4a1d248b027926cc774dde3cabed218075a823e6d4c97e49b6683d9bd",
+          "lowerable": false,
+          "code": "SUBQUERY_UNSUPPORTED",
+          "reason": "SUBQUERY_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "Subqueries are outside the reporting SQL profile.",
+          "from_sources": 1
+        }
+      ]
+    }
+  ]
+}

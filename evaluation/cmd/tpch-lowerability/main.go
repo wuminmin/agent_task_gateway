@@ -21,14 +21,14 @@ import (
 )
 
 type result struct {
-	Query      string `json:"query"`
-	SQLSHA256  string `json:"sql_sha256"`
-	Lowerable  bool   `json:"lowerable"`
-	Code       string `json:"code,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Clause     string `json:"clause,omitempty"`
-	Message    string `json:"message,omitempty"`
-	Sources    int    `json:"from_sources"`
+	Query     string `json:"query"`
+	SQLSHA256 string `json:"sql_sha256"`
+	Lowerable bool   `json:"lowerable"`
+	Code      string `json:"code,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Clause    string `json:"clause,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Sources   int    `json:"from_sources"`
 }
 
 type pass struct {
@@ -67,14 +67,14 @@ func product(name string, key string, columns map[string]string) queryplan.Produ
 
 func products() map[string]queryplan.Product {
 	return map[string]queryplan.Product{
-		"part": product("part", "p_partkey", map[string]string{"p_partkey": "integer", "p_name": "text", "p_mfgr": "text", "p_brand": "text", "p_type": "text", "p_size": "integer", "p_container": "text", "p_retailprice": "numeric", "p_comment": "text"}),
+		"part":     product("part", "p_partkey", map[string]string{"p_partkey": "integer", "p_name": "text", "p_mfgr": "text", "p_brand": "text", "p_type": "text", "p_size": "integer", "p_container": "text", "p_retailprice": "numeric", "p_comment": "text"}),
 		"supplier": product("supplier", "s_suppkey", map[string]string{"s_suppkey": "integer", "s_name": "text", "s_address": "text", "s_nationkey": "integer", "s_phone": "text", "s_acctbal": "numeric", "s_comment": "text"}),
 		"partsupp": product("partsupp", "ps_partkey", map[string]string{"ps_partkey": "integer", "ps_suppkey": "integer", "ps_availqty": "integer", "ps_supplycost": "numeric", "ps_comment": "text"}),
 		"customer": product("customer", "c_custkey", map[string]string{"c_custkey": "integer", "c_name": "text", "c_address": "text", "c_nationkey": "integer", "c_phone": "text", "c_acctbal": "numeric", "c_mktsegment": "text", "c_comment": "text"}),
-		"orders": product("orders", "o_orderkey", map[string]string{"o_orderkey": "integer", "o_custkey": "integer", "o_orderstatus": "text", "o_totalprice": "numeric", "o_orderdate": "date", "o_orderpriority": "text", "o_clerk": "text", "o_shippriority": "integer", "o_comment": "text"}),
+		"orders":   product("orders", "o_orderkey", map[string]string{"o_orderkey": "integer", "o_custkey": "integer", "o_orderstatus": "text", "o_totalprice": "numeric", "o_orderdate": "date", "o_orderpriority": "text", "o_clerk": "text", "o_shippriority": "integer", "o_comment": "text"}),
 		"lineitem": product("lineitem", "l_orderkey", map[string]string{"l_orderkey": "integer", "l_partkey": "integer", "l_suppkey": "integer", "l_linenumber": "integer", "l_quantity": "numeric", "l_extendedprice": "numeric", "l_discount": "numeric", "l_tax": "numeric", "l_returnflag": "text", "l_linestatus": "text", "l_shipdate": "date", "l_commitdate": "date", "l_receiptdate": "date", "l_shipinstruct": "text", "l_shipmode": "text", "l_comment": "text"}),
-		"nation": product("nation", "n_nationkey", map[string]string{"n_nationkey": "integer", "n_name": "text", "n_regionkey": "integer", "n_comment": "text"}),
-		"region": product("region", "r_regionkey", map[string]string{"r_regionkey": "integer", "r_name": "text", "r_comment": "text"}),
+		"nation":   product("nation", "n_nationkey", map[string]string{"n_nationkey": "integer", "n_name": "text", "n_regionkey": "integer", "n_comment": "text"}),
+		"region":   product("region", "r_regionkey", map[string]string{"r_regionkey": "integer", "r_name": "text", "r_comment": "text"}),
 	}
 }
 
