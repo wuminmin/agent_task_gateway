@@ -107,9 +107,9 @@ millions of source rows look cheap, and bytes depend on encoding. Query
 pricing develops anti-arbitrage objectives
 \cite{koutris2012query,deep2017qirana,peng2025aria} and provenance explains
 where results came from \cite{green2007provenance,amsterdamer2011aggregate};
-BDG asks how human authorization can create a stateful disclosure budget
-conserved across adaptive querying and delegation, without inspecting an LLM
-or depending on an agent-specific planner. Enterprise operational analytics
+BDG asks how human authorization can create a stateful release budget
+conserved across adaptive querying and delegation, without inspecting an
+LLM. Enterprise operational analytics
 commonly serves scheduled ETL outputs rather than OLTP primaries; BDG compiles
 each completed cut into an immutable publication, new roots may bind the next
 cut, and unfinished roots stay on the prior one through version routing or
@@ -339,10 +339,8 @@ adding a deterministic task-scoped ledger settled before availability
 (composition not evaluated).
 
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
-controls: BDG adds three-set FactID novelty and shared-root settlement after
-authorization and any DFC check, is narrower than DFC's policy/SQL/write scope
-and cross-tool IFC, and is exact only for its signed profile, closed language,
-root family, and publication, never as a DP or knowledge measure.
+controls; BDG is exact only for its signed profile, closed language, root
+family, and publication, never as a DP or knowledge measure.
 
 \begin{table*}[t]
 \centering
@@ -1059,11 +1057,9 @@ resume PENDING promotion, and never repeats Business execution.
 
 Withholding the buffer does not hide the decision bit: a rejected attempt
 returns only the code \code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count,
-or row), so the agent learns one inequality---the query's novel effect
-exceeded some remaining budget---and nothing else; rejection is a threshold
-oracle that charges no exposure. It is not free: the prototype settles a rejected attempt as a failed query, which
-consumes one unit of the request budget $B_Q$ and its observed rows and
-database time and is recorded terminally.
+or row), so the agent learns one inequality and nothing else; rejection
+charges no exposure but is settled as a failed query that consumes one unit
+of the request budget $B_Q$ and its observed rows and database time.
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1391,15 +1387,15 @@ so that every circuit is novel---on pinned PostgreSQL~16.14, on
 ProvSQL~1.11.0's complete typed drain (rewriting, aggregate-token and
 persistent circuit construction; no semiring evaluation), and on BDG's full
 governed path, \FinalVFivePublicationProvSQLPerCell{} samples per cell
-(supplement table). Medians are
-\FinalVFivePublicationProvSQLOneKPostgreSQLMS{}/\FinalVFivePublicationProvSQLTenKPostgreSQLMS{}/\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms
-for PostgreSQL,
-\FinalVFivePublicationProvSQLOneKProvSQLS{}/\FinalVFivePublicationProvSQLTenKProvSQLS{}/\FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s
-for ProvSQL, and
-\FinalVFivePublicationProvSQLOneKBDGS{}/\FinalVFivePublicationProvSQLTenKBDGS{}/\FinalVFivePublicationProvSQLFortyFiveKBDGS{}~s
-for BDG over
-\FinalVFivePublicationProvSQLOneKDependencyFacts{}--\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{}
-Dependency Facts: typed exact-set derivation plus settlement costs
+(supplement table). At 45k orders the medians are
+\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms for PostgreSQL,
+\FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s for ProvSQL, and
+\FinalVFivePublicationProvSQLFortyFiveKBDGS{}~s for BDG over
+\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{} Dependency Facts
+(1k: \FinalVFivePublicationProvSQLOneKPostgreSQLMS{}~ms,
+\FinalVFivePublicationProvSQLOneKProvSQLS{}~s,
+\FinalVFivePublicationProvSQLOneKBDGS{}~s): across the three scales, typed
+exact-set derivation plus settlement costs
 \FinalVFivePublicationProvSQLOverBDGMin{}--\FinalVFivePublicationProvSQLOverBDGMax{}$\times$
 less than general circuit capture of the same queries and
 \FinalVFivePublicationProvSQLBDGOverPostgreSQLMin{}--\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax{}$\times$
@@ -1445,9 +1441,8 @@ is generalized to cold-cache, multi-node, or production-SLO behavior.
 governance units, not bits; BDG omits rejected rows, non-output groups/pages,
 rank-only inputs, timing, correlations, background knowledge, and physical
 reads, and provides neither minimal causality nor differential privacy;
-refusal leaks a threshold bit charged only against the request budget, and
-every approved root or publication has fresh capacity absent external
-principal/tenant policy. \textbf{Query and identity scope.} Evidence uses
+Section~\ref{sec:model} states the refusal-bit, ledger-visibility, and
+fresh-capacity boundaries. \textbf{Query and identity scope.} Evidence uses
 frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries; materialized
 Views are opaque leaves; stable keys and publications are trusted
