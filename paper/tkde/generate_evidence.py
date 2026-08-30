@@ -1467,424 +1467,54 @@ def main(argv: list[str] | None = None) -> None:
     # it uses them and never calls them a completed publication campaign.
     pilot_artifact = pilot["artifact"]
     # Sub-phase pilot (profile-campaign pilot with Gateway component_ms retained):
-    # per-component medians of execute_and_derive for the three discussed cells.
+    # atomic component medians of the novel arm for the three discussed cells.
+    # ordinal_stream = provenance_postgresql + ordinal_stream_consumer and
+    # bitmap_derivation = preparation + consumer + finish are composites and
+    # are not tabulated as addends (internal/gateway/query.go).
     subphase = pilot.get("subphase")
     if subphase:
+        atomic = (
+            ("business_postgresql", "visible SQL (PostgreSQL)"),
+            ("provenance_postgresql", "companion SQL (PostgreSQL)"),
+            ("ordinal_visible_preparation", "visible preparation"),
+            ("ordinal_stream_consumer", "ordinal stream consumer (Go)"),
+            ("ordinal_finish", "witness merge and finish (Go)"),
+            ("exposure_derivation", "exposure derivation"),
+            ("result_encoding", "result encoding (Parquet)"),
+            ("encryption", "encryption (AES-GCM)"),
+            ("settle_persist", "settlement persist"),
+        )
+        subphase_cells = ("S1/SF1", "S2/SF10", "S6/100k-x16")
         subphase_rows = []
-        labels = {
-            "business_postgresql": "visible SQL (PostgreSQL)", "provenance_postgresql": "companion SQL (PostgreSQL)",
-            "ordinal_visible_preparation": "visible preparation", "ordinal_stream": "ordinal stream",
-            "ordinal_stream_consumer": "stream consumer", "ordinal_finish": "ordinal finish",
-            "bitmap_derivation": "bitmap derivation", "exposure_derivation": "exposure derivation",
-            "result_encoding": "result encoding (Parquet)", "encryption": "encryption (AES-GCM)",
-            "settle_persist": "settlement persist", "exposure_fact_store": "fact store", "receipt_signing": "receipt signing",
-        }
-        names = [n for n in labels if any(n in subphase[c]["components_p50_ms"] for c in subphase)]
-        for name in names:
+        for name, label in atomic:
+            if not any(name in subphase[c]["components_p50_ms"] for c in subphase_cells):
+                continue
             cells = []
-            for cell in ("S1/SF1", "S2/SF10", "S6/100k-x16"):
+            for cell in subphase_cells:
                 value = subphase[cell]["components_p50_ms"].get(name)
                 cells.append(decimal(value, 1) if value is not None else "--")
-            subphase_rows.append(" & ".join([labels[name]] + cells) + r" \\")
-        subphase_rows.append(" & ".join(["\\midrule execute-and-derive (pipeline)"] + [decimal(subphase[c]["execute_and_derive_p50_ms"], 1) for c in ("S1/SF1", "S2/SF10", "S6/100k-x16")]) + r" \\")
+            subphase_rows.append(" & ".join([label] + cells) + r" \\")
+        subphase_rows.append(r"\midrule")
+        subphase_rows.append(" & ".join(["execute-and-derive (pipeline phase)"] + [decimal(subphase[c]["execute_and_derive_p50_ms"], 1) for c in subphase_cells]) + r" \\")
+        subphase_rows.append(" & ".join(["server total"] + [decimal(subphase[c]["server_total_p50_ms"], 1) for c in subphase_cells]) + r" \\")
         lines.append(r"\newcommand{\FinalVFiveSubphaseTableBody}{%" + "\n" + "\n".join(subphase_rows) + "%\n}")
-        def dominant(cell):
-            comps = {k: v for k, v in subphase[cell]["components_p50_ms"].items() if k in labels}
-            name = max(comps, key=comps.get)
-            return name, comps[name]
-        for cell, suffix in (("S1/SF1", "SOneSFOne"), ("S2/SF10", "STwoSFTen"), ("S6/100k-x16", "SSixHundredKByteSixteen")):
-            name, value = dominant(cell)
+        labels = dict(atomic)
+        for cell, suffix in zip(subphase_cells, ("SOneSFOne", "STwoSFTen", "SSixHundredKByteSixteen")):
             item = subphase[cell]
+            comps = {k: v for k, v in item["components_p50_ms"].items() if k in labels}
+            name = max(comps, key=comps.get)
+            go_side = sum(comps.get(k, 0.0) for k in ("ordinal_visible_preparation", "ordinal_stream_consumer", "ordinal_finish"))
+            sql_side = sum(comps.get(k, 0.0) for k in ("business_postgresql", "provenance_postgresql"))
             lines.extend([
                 rf"\newcommand{{\FinalVFiveSubphaseDominant{suffix}}}{{{labels[name]}}}",
-                rf"\newcommand{{\FinalVFiveSubphaseDominantMS{suffix}}}{{{decimal(value, 1)}}}",
-                rf"\newcommand{{\FinalVFiveSubphaseDominantSharePct{suffix}}}{{{decimal(100 * value / item['execute_and_derive_p50_ms'], 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseDominantMS{suffix}}}{{{decimal(comps[name], 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseGoSideMS{suffix}}}{{{decimal(go_side, 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseSQLSideMS{suffix}}}{{{decimal(sql_side, 1)}}}",
+                rf"\newcommand{{\FinalVFiveSubphaseGoSidePct{suffix}}}{{{decimal(100 * go_side / item['execute_and_derive_p50_ms'], 0)}}}",
                 rf"\newcommand{{\FinalVFiveSubphaseExecuteMS{suffix}}}{{{decimal(item['execute_and_derive_p50_ms'], 1)}}}",
                 rf"\newcommand{{\FinalVFiveSubphaseSamples{suffix}}}{{{item['samples']}}}",
                 rf"\newcommand{{\FinalVFiveSubphaseMicrosPerFact{suffix}}}{{{decimal(1000 * item['execute_and_derive_p50_ms'] / max(1, item['dependency_facts'] + item['release_facts']), 1)}}}",
             ])
-    pilot_baseline = pilot["baseline"]
-    pilot_s_one = pilot_baseline["cell_medians"]["S1/SF10"]
-    pilot_s_two = pilot_baseline["cell_medians"]["S2/SF10"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePilotArtifactDeployments}}{{{pilot_artifact['deployments']}}}",
-        rf"\newcommand{{\FinalVFivePilotArtifactCells}}{{{pilot_artifact['cells']}}}",
-        rf"\newcommand{{\FinalVFivePilotArtifactSamples}}{{{pilot_artifact['samples']}}}",
-        rf"\newcommand{{\FinalVFivePilotArtifactPerCell}}{{{pilot_artifact['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePilotArtifactCommit}}{{\texttt{{{pilot_artifact['commit'][:12]}}}}}",
-        rf"\newcommand{{\FinalVFivePilotBaselineCells}}{{{pilot_baseline['cells']}}}",
-        rf"\newcommand{{\FinalVFivePilotBaselineSamples}}{{{pilot_baseline['samples']}}}",
-        rf"\newcommand{{\FinalVFivePilotBaselinePerCell}}{{{pilot_baseline['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePilotReplayZeroSQLSamples}}{{{pilot_baseline['replay_zero_sql_samples']}}}",
-        rf"\newcommand{{\FinalVFivePilotOverheadMin}}{{{decimal(pilot_baseline['overhead_min'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePilotOverheadMax}}{{{decimal(pilot_baseline['overhead_max'], 1)}}}",
-    ])
-    # Per-cell detail. The main paper cites the range and one illustration; the
-    # supplement tabulates every cell. The whole table body is emitted as one
-    # macro rather than a macro per cell, so a run that gains a workload widens
-    # the supplement automatically instead of silently showing a stale subset.
-    rows = []
-    for cell in sorted(pilot_baseline["cell_medians"]):
-        medians = pilot_baseline["cell_medians"][cell]
-        facts = pilot_baseline["exposure"][cell]
-        # A cell records a replay median only for the modes its contract
-        # declares: S5 has no rewrite and S6 has no replays at all.
-        def replay(key: str) -> str:
-            return decimal(medians[key], 2) if key in medians else "--"
-        rows.append(" & ".join([
-            cell.replace("_", r"\_"),
-            comma(facts["rows"]), comma(facts["release"]), comma(facts["dependency"]),
-            decimal(medians["direct_ms"], 2), decimal(medians["novel_ms"], 2),
-            replay("semantic_ms"), replay("idempotent_ms"),
-            decimal(medians["novel_over_direct"], 1) + r"$\times$",
-        ]) + r" \\")
-    # Every row carries its terminator, and the body ends with a comment so the
-    # closing brace adds no trailing token: booktabs' \bottomrule is a \noalign
-    # and anything between it and the last terminator lands inside a cell.
-    lines.append(r"\newcommand{\FinalVFivePilotBaselineTableBody}{%" + "\n" +
-                 "\n".join(rows) + "%\n}")
-    # The frozen publication campaign (campaign_class=publication,
-    # publication_eligible=true): one submission commit, every profile deployed
-    # three times fresh, plus the deployment-free Scale and Compiler
-    # sub-campaigns. Every number is re-derived from the retained sample bytes
-    # the campaign's own deployment records digest.
-    pub_baseline = publication["baseline"]
-    pub_s_one = pub_baseline["cell_medians"]["S1/SF10"]
-    pub_s_two = pub_baseline["cell_medians"]["S2/SF10"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationCampaign}}{{\texttt{{{publication['campaign_id']}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationCommit}}{{\texttt{{{publication['commit'][:12]}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationDeployments}}{{{publication['deployments']}}}",
-        rf"\newcommand{{\FinalVFivePublicationProfiles}}{{{publication['profiles']}}}",
-        rf"\newcommand{{\FinalVFivePublicationFreshExecutions}}{{{publication['fresh_executions']}}}",
-        rf"\newcommand{{\FinalVFivePublicationProfileCells}}{{{publication['profile_cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleNonProfileCells}}{{{publication['scale_non_profile_cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCompilerNonProfileCells}}{{{publication['compiler_non_profile_cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationTotalCells}}{{{publication['total_cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationMeasuredSamples}}{{{comma(publication['measured_samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationBaselineCells}}{{{pub_baseline['cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationBaselineSamples}}{{{comma(pub_baseline['samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationBaselinePerCell}}{{{pub_baseline['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePublicationReplayZeroSQLSamples}}{{{comma(pub_baseline['replay_zero_sql_samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationOverheadMin}}{{{decimal(pub_baseline['overhead_min'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationOverheadMax}}{{{decimal(pub_baseline['overhead_max'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationSOneNovelS}}{{{decimal(pub_s_one['novel_ms'] / 1000, 2)}}}",
-        rf"\newcommand{{\FinalVFivePublicationSOneReleaseFacts}}{{{comma(pub_baseline['exposure']['S1/SF10']['release'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationSTwoNovelS}}{{{decimal(pub_s_two['novel_ms'] / 1000, 2)}}}",
-        rf"\newcommand{{\FinalVFivePublicationSTwoRows}}{{{comma(pub_baseline['exposure']['S2/SF10']['rows'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationSTwoDependencyFacts}}{{{comma(pub_baseline['exposure']['S2/SF10']['dependency'])}}}",
-    ])
-    rows = []
-    for cell in sorted(pub_baseline["cell_medians"]):
-        medians = pub_baseline["cell_medians"][cell]
-        facts = pub_baseline["exposure"][cell]
-        def replay(key: str) -> str:
-            return decimal(medians[key], 2) if key in medians else "--"
-        rows.append(" & ".join([
-            cell.replace("_", r"\_"),
-            comma(facts["rows"]), comma(facts["release"]), comma(facts["dependency"]),
-            decimal(medians["direct_ms"], 2), decimal(medians["novel_ms"], 2),
-            replay("semantic_ms"), replay("idempotent_ms"),
-            decimal(medians["novel_over_direct"], 1) + r"$\times$",
-        ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationBaselineTableBody}{%" + "\n" +
-                 "\n".join(rows) + "%\n}")
-    # Gateway phase breakdown of the novel governed query (medians, ms) for the
-    # cells the main text discusses, plus the dominant phase of each.
-    phase_rows = []
-    phase_macro_names = {"S1/SF1": "SOneSFOne", "S2/SF10": "STwoSFTen", "S6/100k-x16": "SSixHundredKByteSixteen"}
-    for cell in ("S1/SF1", "S2/SF10", "S6/100k-x16"):
-        phases = publication["phases"][cell]
-        phase_rows.append(" & ".join([
-            cell.replace("_", r"\_"),
-            *(decimal(phases[key], 2) for key in (
-                "prepare", "execute_and_derive", "artifact_stage", "control_settlement",
-                "artifact_publication", "response_finalize", "server_total")),
-        ]) + r" \\")
-        suffix = phase_macro_names[cell]
-        dominant = phases["dominant_phase"].replace("_", r"\_")
-        lines.extend([
-            rf"\newcommand{{\FinalVFivePublicationPhaseDominant{suffix}}}{{{dominant}}}",
-            rf"\newcommand{{\FinalVFivePublicationPhaseDominantSharePct{suffix}}}{{{decimal(100 * phases['dominant_share'], 1)}}}",
-            rf"\newcommand{{\FinalVFivePublicationPhaseSettlementMS{suffix}}}{{{decimal(phases['control_settlement'], 2)}}}",
-        ])
-    lines.append(r"\newcommand{\FinalVFivePublicationPhaseTableBody}{%" + "\n" +
-                 "\n".join(phase_rows) + "%\n}")
-    # Same-root concurrency cells: one sample is one round of `width`
-    # contenders; drain is the round wall time, requests/s is width over the
-    # median drain.
-    concurrency_rows = []
-    for cell in ("serial-control/1/serial", "shared-root/10/forced_queue_safety",
-                 "shared-root/10/natural_contention", "shared-root/50/forced_queue_safety",
-                 "shared-root/50/natural_contention"):
-        item = publication["concurrency"][cell]
-        concurrency_rows.append(" & ".join([
-            str(item["width"]), item["mode"].replace("_", r"\_"), comma(item["rounds"]),
-            decimal(item["drain_p50_ms"], 1), decimal(item["drain_p95_ms"], 1),
-            decimal(item["requests_per_second_at_p50"], 1),
-        ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationConcurrencyTableBody}{%" + "\n" +
-                 "\n".join(concurrency_rows) + "%\n}")
-    # Between-execution dispersion: per-execution medians of the novel and
-    # direct arms per Baseline cell, and of the round drain per concurrency cell.
-    spread_rows = []
-    for cell in sorted(publication["novel_spread"]):
-        novel = publication["novel_spread"][cell]
-        direct = publication["direct_spread"][cell]
-        spread_rows.append(" & ".join([
-            cell.replace("_", r"\_"),
-            *(decimal(v, 2) for v in novel["execution_medians"]), decimal(100 * novel["spread"], 1) + r"\%",
-            *(decimal(v, 2) for v in direct["execution_medians"]), decimal(100 * direct["spread"], 1) + r"\%",
-        ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationSpreadTableBody}{%" + "\n" + "\n".join(spread_rows) + "%\n}")
-    concurrency_spread_rows = []
-    for cell in ("serial-control/1/serial", "shared-root/10/forced_queue_safety",
-                 "shared-root/10/natural_contention", "shared-root/50/forced_queue_safety",
-                 "shared-root/50/natural_contention"):
-        item = publication["concurrency_spread"][cell]
-        concurrency_spread_rows.append(" & ".join([
-            cell.split("/")[1], cell.split("/")[2].replace("_", r"\_"),
-            *(decimal(v, 1) for v in item["execution_medians"]), decimal(100 * item["spread"], 1) + r"\%",
-        ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationConcurrencySpreadTableBody}{%" + "\n" + "\n".join(concurrency_spread_rows) + "%\n}")
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationNovelSpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['novel_spread'].values()), 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationDirectSpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['direct_spread'].values()), 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencySpreadMaxPct}}{{{decimal(100 * max(v['spread'] for v in publication['concurrency_spread'].values()), 1)}}}",
-    ])
-    serial = publication["concurrency"]["serial-control/1/serial"]
-    fifty = publication["concurrency"]["shared-root/50/natural_contention"]
-    ten = publication["concurrency"]["shared-root/10/natural_contention"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationConcurrencySerialDrainPFiftyMS}}{{{decimal(serial['drain_p50_ms'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS}}{{{decimal(fifty['drain_p50_ms'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS}}{{{decimal(fifty['drain_p95_ms'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond}}{{{decimal(fifty['requests_per_second_at_p50'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond}}{{{decimal(ten['requests_per_second_at_p50'], 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationConcurrencyRounds}}{{{comma(sum(item['rounds'] for item in publication['concurrency'].values()))}}}",
-    ])
-    # ProvSQL-paired provenance-capture cost: byte-identical grouped SQL on
-    # pinned PostgreSQL, ProvSQL's complete typed drain, and BDG's full governed
-    # path, per scale (medians of client_full_drain_ms).
-    def tex(value) -> str:
-        return str(value).replace("_", r"\_")
-    provsql = publication["provsql"]
-    provsql_rows = []
-    for scale, suffix in (("1k", "OneK"), ("10k", "TenK"), ("45k", "FortyFiveK")):
-        item = provsql["scales"][scale]
-        provsql_rows.append(" & ".join([
-            scale, comma(item["rows"]), comma(item["dependency_facts"]),
-            decimal(item["postgresql_ms"], 1), decimal(item["provsql_ms"] / 1000, 2), decimal(item["taskgate_ms"] / 1000, 2),
-            comma(int(round(item["provsql_over_postgresql"]))) + r"$\times$",
-            decimal(item["taskgate_over_postgresql"], 1) + r"$\times$",
-            decimal(item["provsql_over_taskgate"], 1) + r"$\times$",
-        ]) + r" \\")
-        lines.extend([
-            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}PostgreSQLMS}}{{{comma(int(round(item['postgresql_ms'])))}}}",
-            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}ProvSQLS}}{{{decimal(item['provsql_ms'] / 1000, 1)}}}",
-            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}BDGS}}{{{decimal(item['taskgate_ms'] / 1000, 2)}}}",
-            rf"\newcommand{{\FinalVFivePublicationProvSQL{suffix}DependencyFacts}}{{{comma(item['dependency_facts'])}}}",
-        ])
-    lines.append(r"\newcommand{\FinalVFivePublicationProvSQLTableBody}{%" + "\n" + "\n".join(provsql_rows) + "%\n}")
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationProvSQLSamples}}{{{comma(provsql['samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationProvSQLPerCell}}{{{provsql['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMin}}{{{comma(int(round(provsql['provsql_over_taskgate_min'])))}}}",
-        rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMax}}{{{comma(int(round(provsql['provsql_over_taskgate_max'])))}}}",
-        rf"\newcommand{{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMin}}{{{comma(int(round(provsql['taskgate_over_postgresql_min'])))}}}",
-        rf"\newcommand{{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax}}{{{comma(int(round(provsql['taskgate_over_postgresql_max'])))}}}",
-    ])
-    # Attack corpus: per-sequence charge totals, the per-step trajectory of
-    # every sequence, and the threshold ladder's refusal point.
-    attack = publication["attack"]
-    sequence_rows = []
-    step_rows = []
-    for sequence in ATTACK_SEQUENCES:
-        item = attack["sequences"][sequence]
-        complete = item.get("complete")
-        rejected = ", ".join(tex(code) for _, code in item["rejected_steps"]) or "--"
-        sequence_rows.append(" & ".join([
-            tex(sequence), str(len(item["steps"])), str(item["accepted_steps"]), rejected,
-            f"{complete['release']}/{complete['dependency']}" if complete else "--",
-            str(item["charged"]["release"]), str(item["charged"]["dependency"]), str(item["charged"]["outcome"]),
-        ]) + r" \\")
-        for index, step in enumerate(item["steps"], 1):
-            if step["rejected"]:
-                result = "refused"
-            elif step["scalar_int64"] is not None:
-                result = f"count={step['scalar_int64']}"
-            else:
-                result = f"{step['row_count']} row" + ("s" if step["row_count"] != 1 else "")
-            step_rows.append(" & ".join([
-                tex(sequence) if index == 1 else "", str(index), tex(step["variant_id"]),
-                "child" if step["task_route"] == "delegated_child" else "root", result,
-                f"{step['actual_release_facts']}/{step['actual_dependency_facts']}/{step['actual_outcome_facts']}",
-                f"{step['charged_release_facts']}/{step['charged_dependency_facts']}/{step['charged_outcome_facts']}",
-                tex(step["observed_error_code"]) if step["rejected"] else ("replay" if step["classification"] == "semantic_replay" else "settled"),
-            ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationAttackSequenceTableBody}{%" + "\n" + "\n".join(sequence_rows) + "%\n}")
-    lines.append(r"\newcommand{\FinalVFivePublicationAttackStepTableBody}{%" + "\n" + "\n".join(step_rows) + "%\n}")
-    ladder = attack["sequences"]["E-threshold/preregistered-v1"]
-    threshold = ladder["threshold"]
-    cumulative = 0
-    threshold_rows = []
-    for index, step in enumerate(ladder["steps"], 1):
-        cumulative += step["charged_outcome_facts"]
-        if step["rejected"]:
-            result, decision = "--", "refused"
-        elif step["scalar_int64"] is not None:
-            result, decision = f"count={step['scalar_int64']}", "settled"
-        else:
-            result = f"{step['row_count']} row" + ("s" if step["row_count"] != 1 else "")
-            decision = "replay" if step["classification"] == "semantic_replay" else "settled"
-        issuer = r"$^\dagger$" if step["task_route"] == "delegated_child" else ""
-        threshold_rows.append(" & ".join([
-            str(index), tex(step["variant_id"]) + issuer, result,
-            str(step["charged_release_facts"]), str(step["charged_dependency_facts"]), str(step["charged_outcome_facts"]),
-            f"{cumulative}/{threshold['outcome_ceiling']}", decision,
-        ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationAttackThresholdTableBody}{%" + "\n" + "\n".join(threshold_rows) + "%\n}")
-    pagination = attack["sequences"]["A-pagination/complete-to-pages"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationAttackSamples}}{{{comma(attack['samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackCells}}{{{attack['cells']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackPerCell}}{{{attack['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackSequences}}{{{len(attack['sequences'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackCorpusDigest}}{{\texttt{{{attack['corpus_sha256'][:12]}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackPaginationSteps}}{{{len(pagination['steps'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackPaginationReleaseFacts}}{{{pagination['charged']['release']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackPaginationDependencyFacts}}{{{pagination['charged']['dependency']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackPaginationOutcomeFacts}}{{{pagination['charged']['outcome']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdCeiling}}{{{threshold['outcome_ceiling']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionStep}}{{{threshold['rejection_step']}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionCode}}{{\texttt{{{tex(threshold['rejection_code'])}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdRejectionReason}}{{\texttt{{{tex(threshold['rejection_reason'])}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdProbes}}{{{len(threshold['expected_thresholds'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationAttackThresholdAnswered}}{{{len(threshold['observed_threshold_results'])}}}",
-    ])
-    # Adaptive 100-query trace: PostgreSQL RLS (per-query) versus BDG unlimited
-    # and BDG bounded, with the independent trace-union oracle's prefix curve.
-    rls = publication["rls"]
-    arm_rows = []
-    for arm, label in (("rls", "PostgreSQL RLS"), ("unlimited", "BDG, unlimited"), ("bounded", "BDG, bounded")):
-        item = rls["arms"][arm]
-        ledger = "/".join(str(v) for v in item["ledger"]) if "ledger" in item else "--"
-        stop = str(item["first_rejection_index"]) if item["first_rejection_index"] else "--"
-        arm_rows.append(" & ".join([label, str(item["successful_queries"]), stop, comma(item["rows_returned"]), ledger,
-                                    tex(item["stop_reason"])]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationRLSArmTableBody}{%" + "\n" + "\n".join(arm_rows) + "%\n}")
-    for index, name in ((0, "Release"), (1, "Dependency"), (2, "Outcome")):
-        coordinates = " ".join(f"({k},{prefix[index]})" for k, prefix in enumerate(rls["prefixes"], 1))
-        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSPrefix{name}}}{{{coordinates}}}")
-        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSBudget{name}}}{{{rls['budgets'][index]}}}")
-        lines.append(rf"\newcommand{{\FinalVFivePublicationRLSUnion{name}}}{{{rls['union'][index]}}}")
-    bounded = rls["arms"]["bounded"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationRLSSamples}}{{{rls['samples']}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSPerCell}}{{{rls['samples_per_cell']}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSQueries}}{{{rls['queries']}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSRowsRLS}}{{{comma(rls['arms']['rls']['rows_returned'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSRowsBounded}}{{{comma(bounded['rows_returned'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSBoundedSuccessful}}{{{bounded['successful_queries']}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSBoundedRefusalIndex}}{{{bounded['first_rejection_index']}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSBoundedLedger}}{{{'/'.join(str(v) for v in bounded['ledger'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSControlErrorRLS}}{{\texttt{{{tex(rls['control']['rls']['authorization_error'])}}}}}",
-        rf"\newcommand{{\FinalVFivePublicationRLSControlErrorBDG}}{{\texttt{{{tex(rls['control']['bounded']['authorization_error'])}}}}}",
-    ])
-    # Counter arms derived from the sealed trace (admission is set arithmetic).
-    arms = rls["counter_arms"]
-    arm_rows = []
-    for key, label in (("set_ledger", "set ledger (7/12/18), continued"), ("row_budget", "cumulative row budget"), ("query_budget", "query-count budget")):
-        item = arms[key]
-        budget = str(item.get("budget", "--"))
-        arm_rows.append(" & ".join([label, budget, str(item["admitted"]), str(item["first_refusal"] or "--"),
-                                    str(item["legitimate_refused"]), str(item["novel_refused"]),
-                                    "/".join(str(v) for v in item["released"])]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationCounterArmTableBody}{%" + "\n" + "\n".join(arm_rows) + "%\n}")
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationTraceZeroNoveltyQueries}}{{{arms['zero_novelty_queries']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterRowBudget}}{{{arms['row_budget']['budget']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterRowLegitRefused}}{{{arms['row_budget']['legitimate_refused']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterQueryLegitRefused}}{{{arms['query_budget']['legitimate_refused']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterSetLegitRefused}}{{{arms['set_ledger']['legitimate_refused']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterSetAdmitted}}{{{arms['set_ledger']['admitted']}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterSetReleased}}{{{'/'.join(str(v) for v in arms['set_ledger']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterRowReleased}}{{{'/'.join(str(v) for v in arms['row_budget']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationCounterQueryReleased}}{{{'/'.join(str(v) for v in arms['query_budget']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedSetReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['set_ledger']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedRowReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['row_budget']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedQueryReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['query_budget']['released'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedSetAdmitted}}{{{arms['novelty_first']['set_ledger']['admitted']}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedRowAdmitted}}{{{arms['novelty_first']['row_budget']['admitted']}}}",
-        rf"\newcommand{{\FinalVFivePublicationPermutedQueryAdmitted}}{{{arms['novelty_first']['query_budget']['admitted']}}}",
-    ])
-    # Dependency-history scale: settlement against a pre-seeded ledger.
-    scale = publication["scale"]
-    scale_rows = []
-    for size in ("10k", "100k", "1035000"):
-        for overlap in ("0", "50", "90", "100"):
-            novel = scale["cells"][f"dependency-e2e/{size}-overlap-{overlap}/novel"]
-            replay = scale["cells"][f"dependency-e2e/{size}-overlap-{overlap}/semantic_replay"]
-            scale_rows.append(" & ".join([
-                comma(novel["existing_facts"]), overlap + r"\%", comma(novel["charged_dependency_facts"]),
-                decimal(novel["execute_p50_ms"], 1), decimal(novel["settlement_p50_ms"], 1), decimal(novel["drain_p50_ms"], 1),
-                decimal(replay["drain_p50_ms"], 1),
-            ]) + r" \\")
-    lines.append(r"\newcommand{\FinalVFivePublicationScaleTableBody}{%" + "\n" + "\n".join(scale_rows) + "%\n}")
-    small = scale["cells"]["dependency-e2e/10k-overlap-0/novel"]
-    large = scale["cells"]["dependency-e2e/1035000-overlap-0/novel"]
-    large_full = scale["cells"]["dependency-e2e/1035000-overlap-100/novel"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationScaleSamples}}{{{comma(scale['samples'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleCells}}{{{len(scale['cells'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleSettleTenKMS}}{{{decimal(small['settlement_p50_ms'], 0)}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleSettleMillionMS}}{{{decimal(large['settlement_p50_ms'], 0)}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleSettleMillionFullOverlapMS}}{{{decimal(large_full['settlement_p50_ms'], 0)}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleMillionHistory}}{{{comma(large['existing_facts'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationScaleMillionDrainMS}}{{{comma(int(round(large['drain_p50_ms'])))}}}",
-    ])
-    rq5 = publication["rq5"]["cells"]
-    lines.extend([
-        rf"\newcommand{{\FinalVFivePublicationRQFiveBuildS}}{{{decimal(rq5['build_verify_activate']['drain_p50_ms'] / 1000, 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationRQFiveBuildMaxS}}{{{decimal(rq5['build_verify_activate']['drain_max_ms'] / 1000, 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationRQFiveRouteS}}{{{decimal(rq5['retained_route']['drain_p50_ms'] / 1000, 1)}}}",
-        rf"\newcommand{{\FinalVFivePublicationRQFiveRows}}{{{comma(rq5['build_verify_activate']['rows_per_publication'])}}}",
-        rf"\newcommand{{\FinalVFivePublicationRQFiveSamplesPerCell}}{{{rq5['build_verify_activate']['samples']}}}",
-        rf"\newcommand{{\FinalVFivePublicationIndependentOracleSamples}}{{{comma(publication['independent_oracle_samples'])}}}",
-    ])
-    # TPC-H lowerability: which of the 22 templates enter the closed fragment
-    # as written and after the syntactic explicit-JOIN normalization.
-    tpch_path = ROOT / "evaluation/tpchlowerability/results.json"
-    tpch = json.loads(tpch_path.read_text(encoding="utf-8"))
-    passes = {item["variant"]: item for item in tpch["passes"]}
-    if set(passes) != {"as-written", "explicit-join"} or any(item["queries"] != 22 for item in passes.values()):
-        raise SystemExit("evaluation/tpchlowerability/results.json does not carry both 22-query passes")
-    reason_rows = []
-    labels = {
-        "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": "subquery (FROM, IN, EXISTS, scalar)",
-        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": "arithmetic inside an aggregate",
-        "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": "LIMIT over a multi-product join",
-        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": "arithmetic in the projection",
-        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": "HAVING",
-        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": "COUNT(DISTINCT)",
-        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": "IN (subquery) predicate",
-        "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": "date/interval arithmetic literal",
-        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": "comma join (no explicit JOIN ON)",
-    }
-    explicit = passes["explicit-join"]
-    for key, count in sorted(explicit["by_reason"].items(), key=lambda kv: (-kv[1], kv[0])):
-        queries = ", ".join(r["query"].upper() for r in explicit["results"] if (r.get("code", "") + "/" + r.get("reason", "")) == key)
-        reason_rows.append(" & ".join([labels.get(key, tex(key)), tex(key.split("/")[-1]), str(count), queries]) + r" \\")
-    lines.extend([
-        rf"\newcommand{{\TPCHQueries}}{{{explicit['queries']}}}",
-        rf"\newcommand{{\TPCHLowerableAsWritten}}{{{passes['as-written']['lowerable']}}}",
-        rf"\newcommand{{\TPCHLowerableExplicitJoin}}{{{explicit['lowerable']}}}",
-        rf"\newcommand{{\TPCHCommaJoinQueries}}{{{passes['as-written']['by_reason'].get('SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED', 0)}}}",
-        rf"\newcommand{{\TPCHSubqueryQueries}}{{{explicit['by_reason'].get('SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED', 0) + explicit['by_reason'].get('SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED', 0)}}}",
-        rf"\newcommand{{\TPCHArithmeticQueries}}{{{explicit['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED', 0) + explicit['by_reason'].get('SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED', 0)}}}",
-        rf"\newcommand{{\TPCHResultsDigest}}{{\texttt{{{hashlib.sha256(tpch_path.read_bytes()).hexdigest()[:12]}}}}}",
-        r"\newcommand{\TPCHReasonTableBody}{%" + "\n" + "\n".join(reason_rows) + "%\n}",
-    ])
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",
