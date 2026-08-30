@@ -69,15 +69,14 @@ systems typically do not provide a unified, task-scoped cumulative release
 contract for adaptive agents. \systemname{} (BDG) governs agents that query
 immutable reporting publications produced by scheduled synchronization. For
 each approved root task and its delegated descendants, BDG models three
-profile-defined effects: accounted result facts, conservative positive-output
+profile-defined effects: accounted result facts, declared positive-output
 dependency facts, and canonical query outcomes. A visible query and its
 provenance companion share one PostgreSQL snapshot. Before release, BDG
 computes profile-relative exact set novelty against the root-family ledger and
 atomically settles all three budgets, so within one root family on one
 publication epoch no more than the approved number of distinct facts of each
-kind can become retrievable; a rejected attempt reveals only a threshold
-bit, and the number of such bits is bounded by the request budgets of the
-approved task tree. Failed promotion remains recoverable without
+kind can become retrievable, and a rejected attempt reveals one threshold
+bit, their number bounded by the task tree's request budgets. Failed promotion remains recoverable without
 re-executing the business query. The admitted positive relational fragment supports connected
 inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
 ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
@@ -150,8 +149,9 @@ boundary; the raw lake is never exposed to the agent.
 \system budgets the root task in three set-valued dimensions. \emph{Accounted
 result exposure} identifies selected result values (wire label \emph{release});
 accounting can precede availability. The \emph{positive-output dependency
-footprint} conservatively identifies participating base facts---neither minimal
-causes nor all physical reads---so a one-cell aggregate can expose large input.
+footprint} identifies the base facts the declared rules read---neither minimal
+causes nor all physical reads, and not order-only fields---so a one-cell
+aggregate can expose large input.
 \emph{Query outcome} combines canonical predicate atoms with one normalized
 query/result composite. Existing set members add zero novelty: related
 thresholds reuse shared atoms but charge different literals/composites, while
@@ -356,13 +356,12 @@ untrusted, and claims neither result sanitization, prompt/tool flow tracking,
 nor inference safety.
 
 \textbf{Governed data products over MCP.} Data Product MCP
-\cite{tonnarelli2026dataproductmcp} and the access-request assistant it
-builds on \cite{dietz2025automating} automate discovery, purpose review, and
+\cite{tonnarelli2026dataproductmcp} and the assistant it builds on
+\cite{dietz2025automating} automate discovery, purpose review, and
 pre-execution contract guards over open-standard contracts
-\cite{bitol2025odcs}, per query and with a probabilistic purpose check; BDG is
-downstream and complementary, assuming a bound Product, contract, and purpose
-and adding a deterministic task-scoped ledger settled before availability.
-Their composition is not evaluated here.
+\cite{bitol2025odcs}, per query and probabilistically; BDG is downstream and
+complementary, adding a deterministic task-scoped ledger settled before
+availability (composition not evaluated).
 
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
 controls. BDG adds three-set FactID novelty and shared-root settlement after
@@ -564,7 +563,9 @@ $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
 \end{equation}
 Repeated literals and supported rewrites thus reuse atom identities, while
 the composite commits to the normalized query, exact result observation, and
-complete atom set; the Merkle-radix set stores $M_O(q)$, empty results and
+complete atom set, so every distinct successful query, including every page
+of a paged result, adds one composite and $B_O$ therefore also caps the
+number of distinct successful queries; the Merkle-radix set stores $M_O(q)$, empty results and
 scalar zero remain explicit, and the signed grant bounds literal occurrences,
 unique atoms, and atom payloads before settlement.
 
@@ -581,9 +582,10 @@ For query $q$ over snapshot $D_s$, the exposure effect
 $\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
 result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
-versioned profile $\pi$.  The latter are the conservative base facts selected
-by the inductive rules below for successfully derived selected output rows and
-cells; they are not claimed to be minimal causal provenance or all physical reads.
+versioned profile $\pi$.  The latter are the base facts the inductive rules
+below select for successfully derived output rows and cells; they are not
+minimal causal provenance or all physical reads, and the order keys and
+tie-break suffix of Page are excluded by this profile.
 $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
 query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
@@ -1072,9 +1074,11 @@ canonical object or AVAILABLE row; ambiguous connector outcomes charge
 resources but no exposure; terminal replay returns the first status, may
 resume PENDING promotion, and never repeats Business execution.
 
-Withholding the buffer does not hide the decision bit: whether settlement
-accepts a query reveals whether its novel Effect fits the remaining budgets,
-so rejection is a threshold oracle that charges no exposure. It is not free: the prototype settles a rejected attempt as a failed query, which
+Withholding the buffer does not hide the decision bit: a rejected attempt
+returns only the code \code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count,
+or row), so the agent learns one inequality---the query's novel effect
+exceeded some remaining budget---and nothing else; rejection is a threshold
+oracle that charges no exposure. It is not free: the prototype settles a rejected attempt as a failed query, which
 consumes one unit of the request budget $B_Q$ and its observed rows and
 database time and is recorded terminally.
 
@@ -1170,13 +1174,16 @@ row, $B_D$ is sized to row count times the fields a purpose may aggregate
 and then bounds how many \emph{distinct} base facts any sequence of
 aggregates can touch, not how many aggregates may run. One sequence this blocks and per-query
 authorization with row limits admits: paging through the whole
-$10^5\times16$ Product releases $1.6\times10^6$ Facts, each page a legal query
-under any row limit, and a second such sweep of another Product is refused
-at $B_R$ although every page still passes the row limit. $B_O$ bounds how
+$10^5\times16$ Product in 100 pages of 1,000 rows releases $1.6\times10^6$
+Facts and 100 composites, each page a legal query under any row limit, and a
+second such sweep of another Product is refused at $B_R$ although every page
+still passes the row limit; $B_O$ must exceed the distinct queries, pages
+included, that a purpose needs. $B_O$ bounds how
 many \emph{distinct} predicates a task may probe (a threshold ladder
 \code{amount > t} is charged one atom and one composite per step), not what
 one probe reveals: a binary search on one hidden value fits within
-$B_O=128$, which is the inference-control limit of Section~\ref{sec:related}.
+$B_O=128$; bounding the number of probes, not what a probe reveals, is
+exactly the limit inference control identifies (Section~\ref{sec:related}).
 One sequence it does not block: \code{SELECT id ... ORDER BY salary LIMIT k},
 paged, reveals the salary ordering while charging no dependency on
 \code{salary}, because order-only fields are outside this profile
@@ -1276,12 +1283,12 @@ cumulative ledger, Parquet, receipt, and promotion path.
 \toprule
 RQ & Current result \\
 \midrule
-RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases (\RQOneRows{} rows) \\
-RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches \\
-RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths \\
-RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, and a \RQFourVFourOracleFacts{}-Fact offline re-derivation (shares the FactID encoder) \\
-RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions \\
-Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} measured samples, all passing \\
+RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated at this commit \\
+RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches; regenerated \\
+RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated \\
+RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, and a \RQFourVFourOracleFacts{}-Fact offline re-derivation (shares the FactID encoder); archived run at its recorded source hash \\
+RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions; regenerated \\
+Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} measured samples, all passing; sealed at commit \FinalVFivePublicationCommit{} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1297,14 +1304,13 @@ retry, snapshot identity, joins/unions, delegation, and races; Outcome
 regressions cover empty probes, replay, radix tamper, and digest binding. The
 supplement's broad-SQL stress test checks row equality only, not FactSets.
 
-The Baseline workloads are: S1, a two-column projection of the frozen
-50,000-order corpus under an order-key threshold (SF1 selects 5,000 orders,
-SF10 all 50,000); S2, the orders--lineitem equijoin grouped to three rows;
-S3, a one-column projection over 1,000--45,000 rows of the 414,000-row
-exposure-scale Product, where every retained row carries five Dependency
-facts; S4, the depth-4 semantic-View form of S2/SF1; S5, a two-branch
-union-distinct with S1's shape; and S6, result-heavy releases of
-100--100,000 rows with 4 or 16 columns. Modes are direct (the same SQL against PostgreSQL without BDG), novel (the
+The Baseline workloads: S1, a two-column projection of the frozen
+50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
+all); S2, the orders--lineitem equijoin grouped to three rows; S3, a
+one-column projection over 1,000--45,000 rows of the 414,000-row
+exposure-scale Product (five Dependency facts per row); S4, the depth-4
+semantic-View form of S2/SF1; S5, a two-branch union-distinct of S1's shape;
+S6, result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes are direct (the same SQL against PostgreSQL without BDG), novel (the
 first governed execution), and the replays. ``Publication-class'' is
 the frozen protocol's campaign class, as opposed to pilot runs, which are
 never publication-eligible. The frozen publication campaign
@@ -1394,10 +1400,9 @@ the raw samples but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
-and no state carried between them. RQ1--RQ3, RQ5, and the TLC results are
-regenerated at the manuscript's own commit, and the RQ4 ordinal/bitmap run is
-an archived campaign bound to its recorded source hash; the supplement maps
-every number group to its commit and raw file. Across those three executions the
+and no state carried between them; Table~\ref{tab:current-evidence} labels
+the source state of every other line, and the supplement maps each number
+group to its commit and raw file. Across those three executions the
 per-execution novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
@@ -1425,25 +1430,24 @@ every approved root or publication has fresh capacity absent external
 principal/tenant policy.
 
 \textbf{Query and identity scope.} Evidence uses frozen, manifest-proven
-publications, not mutable sources or active-root migration; the closed
-fragment fails closed on richer joins, sets, paging, negation, recursion, and
-subqueries, materialized Views are opaque leaves, stable keys and publications
-are trusted declarations, and View drift is checked at request, approval, and
-execution rather than continuously.
+publications; the closed fragment fails closed on richer joins, sets,
+paging, negation, recursion, and subqueries; materialized Views are opaque
+leaves; stable keys and publications are trusted declarations; View drift is
+checked at request, approval, and execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
-\RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact on
-this host (RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per
-Fact (Table~\ref{tab:phase-breakdown}), so a $10^9$-Fact Product would need
-hundreds of gigabytes and hours per build and per global aggregate; the
-evaluated envelope is reporting Products of $10^5$--$10^6$ rows.
+\RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
+(RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per Fact
+(Table~\ref{tab:phase-breakdown}); a $10^9$-Fact Product would need hundreds
+of gigabytes and hours per build and per global aggregate, so the evaluated
+envelope is $10^5$--$10^6$-row reporting Products.
 
 \textbf{Throughput scope.} Every settlement of a root family serializes on
-its head; measured same-root throughput falls from
+its head; same-root throughput falls from
 \FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
 \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
-requests per second as the round width grows from 10 to 50 on one host, and
-multi-root throughput is not measured.
+requests per second from width 10 to 50, and multi-root throughput is
+unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
 validates structural and version bindings for administrator-attested identities,
@@ -1465,11 +1469,9 @@ theorems, bounded models, and executable tests support the scoped safety
 claim that no governed artifact becomes \code{AVAILABLE} before atomic
 root-family settlement (Section~\ref{sec:limits} states the scope).
 
-BDG is a task-to-data release layer for existing enterprise data estates,
-not another lake or agent framework: it turns governed data at rest into
-governed agent capability in use, and it makes an approved policy enforceable
-as autonomous querying unfolds rather than deciding what that policy should
-be.
+BDG is a task-to-data release layer for existing data estates, not another
+lake or agent framework: it makes an approved policy enforceable as
+autonomous querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
