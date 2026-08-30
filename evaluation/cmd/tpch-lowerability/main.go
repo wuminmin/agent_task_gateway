@@ -31,13 +31,19 @@ type result struct {
 	Sources    int    `json:"from_sources"`
 }
 
+type pass struct {
+	Variant   string         `json:"variant"`
+	Directory string         `json:"directory"`
+	Queries   int            `json:"queries"`
+	Lowerable int            `json:"lowerable"`
+	ByReason  map[string]int `json:"by_reason"`
+	Results   []result       `json:"results"`
+}
+
 type report struct {
-	Version   string            `json:"version"`
-	Profile   string            `json:"lowering_profile"`
-	Queries   int               `json:"queries"`
-	Lowerable int               `json:"lowerable"`
-	ByReason  map[string]int    `json:"by_reason"`
-	Results   []result          `json:"results"`
+	Version string `json:"version"`
+	Profile string `json:"lowering_profile"`
+	Passes  []pass `json:"passes"`
 }
 
 func product(name string, key string, columns map[string]string) queryplan.Product {
@@ -72,22 +78,17 @@ func products() map[string]queryplan.Product {
 	}
 }
 
-func main() {
-	queries := flag.String("queries", "evaluation/tpchlowerability/queries", "directory of qNN.sql files")
-	out := flag.String("out", "evaluation/tpchlowerability/results.json", "output path")
-	flag.Parse()
-	files, err := filepath.Glob(filepath.Join(*queries, "q*.sql"))
+func runPass(variant, directory string) (pass, error) {
+	files, err := filepath.Glob(filepath.Join(directory, "q*.sql"))
 	if err != nil || len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "no query files found")
-		os.Exit(1)
+		return pass{}, fmt.Errorf("no query files found in %s", directory)
 	}
 	sort.Strings(files)
-	rep := report{Version: "taskgate-tpch-lowerability-v1", Profile: sqllowering.Profile, ByReason: map[string]int{}}
+	rep := pass{Variant: variant, Directory: directory, ByReason: map[string]int{}}
 	for _, file := range files {
 		raw, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return pass{}, err
 		}
 		sum := sha256.Sum256(raw)
 		name := strings.TrimSuffix(filepath.Base(file), ".sql")
@@ -111,6 +112,25 @@ func main() {
 		rep.Results = append(rep.Results, item)
 	}
 	rep.Queries = len(rep.Results)
+	return rep, nil
+}
+
+func main() {
+	root := flag.String("root", "evaluation/tpchlowerability", "directory holding queries/ and queries-explicit-join/")
+	out := flag.String("out", "evaluation/tpchlowerability/results.json", "output path")
+	flag.Parse()
+	rep := report{Version: "taskgate-tpch-lowerability-v1", Profile: sqllowering.Profile}
+	for _, spec := range []struct{ variant, dir string }{
+		{"as-written", filepath.Join(*root, "queries")},
+		{"explicit-join", filepath.Join(*root, "queries-explicit-join")},
+	} {
+		p, err := runPass(spec.variant, spec.dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		rep.Passes = append(rep.Passes, p)
+	}
 	encoded, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -120,5 +140,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("%d/%d TPC-H queries lower as written; written %s\n", rep.Lowerable, rep.Queries, *out)
+	for _, p := range rep.Passes {
+		fmt.Printf("%s: %d/%d TPC-H queries lower\n", p.Variant, p.Lowerable, p.Queries)
+	}
+	fmt.Printf("written %s\n", *out)
 }

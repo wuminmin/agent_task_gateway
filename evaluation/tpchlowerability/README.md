@@ -10,3 +10,11 @@ approved, and writes `results.json`: for each query whether it lowers into the
 closed fragment as written and, if not, the first rejection code, reason, and
 clause the lowerer reports. The lowerer stops at the first rejection, so the
 reason is the first construct encountered, not the only unsupported one.
+
+`queries-explicit-join/` holds the same 22 templates after one purely
+syntactic normalization: the 13 comma-join queries are rewritten to explicit
+`JOIN ... ON` with their equality predicates (no other change); the other nine
+are byte-identical copies. The program lowers both directories and reports
+each pass separately, so the reader can separate the FROM-shape rejection
+(a syntactic form the lowerer marks retryable-after-rewrite) from the first
+semantic construct outside the fragment.
