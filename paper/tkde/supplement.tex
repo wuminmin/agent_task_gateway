@@ -14,6 +14,7 @@
 \usepackage[hidelinks]{hyperref}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\DeclareUrlCommand\filepath{\urlstyle{tt}}
 \newcommand{\lbag}{\{\!\{}
 \newcommand{\rbag}{\}\!\}}
 \newcommand{\llbracket}{[\![}
@@ -637,7 +638,7 @@ RQ & Current result \\
 \midrule
 RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated \\
 RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches; regenerated \\
-RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus (Section~\ref{sec:attack-provsql}) \\
+RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus (Section~\ref{sec:attack-publication-supp}) \\
 RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, \RQFourVFourOracleFacts{}-Fact offline re-derivation (shared encoder); archived run at its recorded source hash \\
 RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions; regenerated \\
 Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} samples, all passing; sealed at \FinalVFivePublicationCommit{} \\
@@ -661,14 +662,14 @@ or commit binding disagrees.
 \toprule
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
-RQ1--RQ3 (Table 2) & repository head & \path{evaluation/exposure/results.json}, \path{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
-RQ4 archived ordinal/bitmap & recorded in \path{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \path{evaluation/exposure-performance/results.json}, \path{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
-RQ5 publication and routing & repository head & \path{evaluation/daily-publication/evidence/}, \path{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
-V5 outcome-set regressions & \VFiveImplementationCommit{} & \path{evaluation/v5-outcome/evidence.json}, \path{raw/go-test.jsonl}, \path{compose-receipt.json} & \path{scripts/record-compose-e2e.sh} \\
-Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \path{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \path{campaign-evidence.json}, \path{deployments/*/raw/*.jsonl} & \path{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
-Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \path{deployments/*/raw/*.jsonl} plus \path{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
-Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \path{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
-TLC (Table VI) & repository head & \path{formal/results/*.json}, \path{*.log} & \code{make formal} \\
+RQ1--RQ3 (Table 2) & repository head & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
+RQ4 archived ordinal/bitmap & recorded in \filepath{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
+RQ5 publication and routing & repository head & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
+V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \filepath{scripts/record-compose-e2e.sh} \\
+Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
+Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
+Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
+TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
 \end{table}
