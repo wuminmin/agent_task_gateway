@@ -23,17 +23,17 @@
       "service": "control-postgres"
     },
     {
-      "image_id": "sha256:5563205a48b2525d9d9da4c2ec6f1e3d3a08bb51475621eb9267475a732769b7",
+      "image_id": "sha256:f9a5a6273c7f2784d99cc7b7121e9f0a96621a9be93373c624735b703be8fcce",
       "reference": "taskbound-gateway-integration-gateway",
       "service": "gateway"
     },
     {
-      "image_id": "sha256:dcb06be58a7b2b886dbae3994860da342dc545e8350ed32b4b20ae9580616552",
+      "image_id": "sha256:0d8ae46b0173e32be1602c6aa2f2184fbabcb3b440255731ddac9918ffe787bb",
       "reference": "taskbound-gateway-integration-mcp-probe",
       "service": "mcp-probe"
     },
     {
-      "image_id": "sha256:5465441c7372cf64a6570be001737a3aaddff608e49847b22fa9617def05895e",
+      "image_id": "sha256:a1e0d61ec38b39d8e2a5d9b4a198893ae2913f25f0c8266d4b6993669cccf4b0",
       "reference": "taskbound-gateway-integration-oa-demo",
       "service": "oa-demo"
     },
@@ -48,17 +48,17 @@
       "service": "result-object-store-init"
     },
     {
-      "image_id": "sha256:a2942cabf4fba79bfb3727a5768c5808522076ad3f72ac1d862d95fcb4614324",
+      "image_id": "sha256:e6f367afa7bed2715118e06eb8957ef8c8ed7eeaccdaf9063929e8810fdc6a42",
       "reference": "taskbound-gateway-integration-snapshot-index-detail",
       "service": "snapshot-index-detail"
     },
     {
-      "image_id": "sha256:3255972e8be9302724ec943c93cee15a5e7dbd77631b1b8a718444e5499340a1",
+      "image_id": "sha256:668022b3c234b899a6dd140a4304ada1b39a36dcdd351a0b98c22c8adda2edfa",
       "reference": "taskbound-gateway-integration-snapshot-index-summary",
       "service": "snapshot-index-summary"
     },
     {
-      "image_id": "sha256:dd9c48496acc5e3ca61da5ceb037188d5ee71301b469c47373baf33a5f79bd3d",
+      "image_id": "sha256:8ed670081a1494b50281d7c05b6f150ce450401839a9d5cba28f70e36db10fc7",
       "reference": "taskbound-gateway-integration-test-runner",
       "service": "test-runner"
     }
@@ -68,7 +68,7 @@
     "files": [
       {
         "path": "paper/tkde/generate_evidence.py",
-        "sha256": "459f40ffc1f2fa032c561229a83d00ad6cd52f63d6f06749b8a33fc5b03f8b88"
+        "sha256": "b632b777c564211426cd3ff49084019fb1cb4f7147a9d3887ef7b3c4aeeb5632"
       },
       {
         "path": "scripts/integration-test.sh",
@@ -79,12 +79,12 @@
         "sha256": "dbb5dfd5839feec55f102c4f02d2ff069e0312d99abd99812620dfd02ff87ffd"
       }
     ],
-    "sha256": "8e03e19d924931fe0a381acfa117b4e4fddfcc9c295db251ea4b63e8a5907b12"
+    "sha256": "bf933f5b7b79571421a8f703b1fe07256bd124c19aba3a211467d1cf551191db"
   },
-  "executed_at": "2026-08-29T07:42:13Z",
+  "executed_at": "2026-08-30T03:12:59Z",
   "exit_code": 0,
   "raw_log": "evaluation/v5-outcome/raw/compose-e2e.log",
-  "raw_log_sha256": "e55b57d0d5c88475491ff8481afbc34258889571fb332169a20f35dc370f0389",
+  "raw_log_sha256": "8de1aee79d834624426ffe88c32e8358f666ea87f172bbfadeba05ac515c5c90",
   "schema_version": 2,
-  "submission_commit": "368343760d0e783b3cca47a31a49a5ebaf4d650d"
+  "submission_commit": "464cb8a398cbf47f225eb8f7eaf3c666f3fde38a"
 }
