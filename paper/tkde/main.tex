@@ -686,9 +686,9 @@ $\facts_D^\pi$ is exactly the declared inductive footprint, including retained
 predicate fields, join-key annotations, group keys, and complete aggregate
 arguments; it excludes rejected rows and non-output pages under this profile.
 \item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
-projection splits, complete page partitions, idempotent overlaps/retries, join support,
-and root-ledger delegation cannot reduce cumulative charge. This covers the
-stated aliases and join parenthesizations, not arbitrary SQL equivalence.
+projection splits, complete page partitions, idempotent overlaps/retries, join
+support, and root-ledger delegation cannot reduce cumulative charge; arbitrary
+SQL equivalence is not covered.
 \item[\textbf{O4}] \textbf{Probe capacity.} Each success creates one composite
 and canonical predicate atoms; exact replay reuses them, while a changed
 canonical predicate component or normalized query/result observation changes the corresponding
@@ -773,9 +773,9 @@ and a proven total page order. Undefined premises reject. Complete syntax,
 typing, and resource guards are supplemental.
 
 The nested-View front end lowers a bounded acyclic DAG of projection/rename,
-inner equijoins, literal conjunctions, and optional grouping into this core. It
-admits one aggregate barrier and rejects richer SQL or unsafe dependencies; no
-general PostgreSQL View-equivalence result is claimed.
+inner equijoins, literal conjunctions, and at most one grouping barrier into
+this core, rejecting richer SQL or unsafe dependencies; no general
+View-equivalence result is claimed.
 
 Predicates use PostgreSQL three-valued logic and retain only true rows, whereas
 grouping/distinct use typed \code{IS NOT DISTINCT FROM}. The closed canonical
@@ -788,9 +788,9 @@ nothing; the complete type domain and encoders are supplemental.
 \subsection{Annotated Bags and Complete Output Keys}
 
 A relation is a typed PostgreSQL bag with unique occurrence keys and optional
-proven total order. Rows and cells carry support $S$, positive witness
-multiset $W$, canonical lineage, and optional materialized release identity.
-Every operator preserves
+proven total order; rows and cells carry support $S$, positive witness
+multiset $W$, canonical lineage, and optional materialized release identity,
+and every operator preserves
 \begin{equation}
  \operatorname{support}(W_r)=S_r,\qquad
  \operatorname{support}(W_a)=S_a.                 \label{eq:anninv}
@@ -829,13 +829,11 @@ inference rules, auxiliary functions, NULL/empty-input cases, and page bounds
 are there as well.
 
 
-Union is conservatively bag-aware and becomes idempotent only when its complete
-typed tuples are proven duplicate-free. Grouping/distinct equivalence is
-\code{IS NOT DISTINCT FROM}. Exact/integer \code{SUM} is admitted, but
-floating-point \code{SUM} is rejected because the typed bag does not fix a
-physical fold order. Pagination appends Catalog keys until the PostgreSQL order
-is total. These restrictions make the summarized relation a partial function,
-not a semantics for arbitrary SQL.
+Union is bag-aware and idempotent only when its typed tuples are proven
+duplicate-free, grouping/distinct equivalence is \code{IS NOT DISTINCT FROM},
+floating-point \code{SUM} is rejected because the bag fixes no fold order,
+and pagination appends Catalog keys until the order is total; the relation is
+a partial function, not a semantics for arbitrary SQL.
 
 Finally, define materialization and the effect---they are not an implementation
 afterthought:
@@ -1181,11 +1179,10 @@ race and fault-injection tests; neither is a mechanized refinement.
 profile units from resource guards and from quantities they do not estimate.
 
 
-These human-governed declarations are neither learned risk scores nor
-optimization targets: 1,000 permits 1,000 declared units, not ``risk 1,000.''
-BDG neither values unused capacity nor infers a smaller allowance; the bound
-profile must remain acceptable when fully used. Unit weights enable exact set
-union, not harm or DP accounting.
+These human-governed declarations are neither risk scores nor optimization
+targets: 1,000 permits 1,000 declared units, the bound profile must remain
+acceptable when fully used, and unit weights enable exact set union, not harm
+or DP accounting.
 
 \section{System Realization}
 \label{sec:system}
