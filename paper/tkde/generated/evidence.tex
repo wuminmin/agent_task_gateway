@@ -222,17 +222,17 @@
 \newcommand{\ArtifactFormalStates}{1,324}
 \newcommand{\ArtifactFormalDistinct}{441}
 \newcommand{\ArtifactFormalDepth}{17}
-\newcommand{\EvidenceChainCommit}{\texttt{00acf61c977a}}
-\newcommand{\VFiveImplementationCommit}{\texttt{00acf61c977afb0094d39d96bab8e313f1dac9cb}}
+\newcommand{\EvidenceChainCommit}{\texttt{f35945915d50}}
+\newcommand{\VFiveImplementationCommit}{\texttt{f35945915d505a4dcbd6f497d1c36e1cb4244baa}}
 \newcommand{\VFiveImplementationSourceHash}{\nolinkurl{58c16c8841d83b561f813dd95e26914b8800b5c37f426f3cc707667e4eb50449}}
-\newcommand{\VFiveRawLogHash}{\nolinkurl{e7517c435fabf122185cbf3c3eb531946ea79f7eb63ef64a1ebd03b6c96e3519}}
+\newcommand{\VFiveRawLogHash}{\nolinkurl{833d2efab457719818c3dc05a41c9a97b033dd9f9cbe20684c370f30537985f7}}
 \newcommand{\VFiveRawTestsPassed}{12}
 \newcommand{\VFiveFamilyPropertySeeds}{24}
 \newcommand{\VFiveFamilyPropertyTasks}{89}
 \newcommand{\VFiveFamilyPropertyMaxTasks}{7}
 \newcommand{\VFiveFamilyPropertyQueries}{693}
-\newcommand{\VFiveFamilyPropertyCommitted}{386}
-\newcommand{\VFiveFamilyPropertyRefused}{307}
+\newcommand{\VFiveFamilyPropertyCommitted}{384}
+\newcommand{\VFiveFamilyPropertyRefused}{309}
 \newcommand{\VFiveFamilyPropertySaturatedSeeds}{22}
 \newcommand{\VFiveDeterministicMembers}{10,000}
 \newcommand{\VFiveRootCardinality}{100,000}
@@ -640,6 +640,21 @@ COUNT(DISTINCT) & AGGREGATE\_MODIFIER\_UNSUPPORTED & 1 & Q16 \\
 date/interval arithmetic literal & FILTER\_LITERAL\_UNSUPPORTED & 1 & Q04 \\
 IN (subquery) predicate & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q20 \\
 HAVING & HAVING\_UNSUPPORTED & 1 & Q11 \\%
+}
+\newcommand{\SSBQueries}{13}
+\newcommand{\SSBLowerableAsWritten}{0}
+\newcommand{\SSBLowerableExplicitJoin}{2}
+\newcommand{\SSBLoweredQueries}{Q2.1, Q2.3}
+\newcommand{\SSBCommaJoinQueries}{13}
+\newcommand{\SSBArithmeticQueries}{6}
+\newcommand{\SSBDisjunctionQueries}{2}
+\newcommand{\SSBOrderByQueries}{2}
+\newcommand{\SSBResultsDigest}{\texttt{c8f96e317fd4}}
+\newcommand{\SSBReasonTableBody}{%
+arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 6 & Q1.1, Q1.2, Q1.3, Q4.1, Q4.2, Q4.3 \\
+OR disjunction in WHERE & BOOLEAN\_OPERATOR\_UNSUPPORTED & 2 & Q3.3, Q3.4 \\
+ORDER BY on an aggregate alias & QUERYPLAN\_VALIDATION\_FAILED & 2 & Q3.1, Q3.2 \\
+BETWEEN over text literals & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q2.2 \\%
 }
 \newcommand{\GeneratedPlans}{5,000}
 \newcommand{\GeneratedFixtures}{50}
