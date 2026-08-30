@@ -663,7 +663,7 @@ or commit binding disagrees.
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
 RQ1--RQ3 (Table 2) & repository head & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
-RQ4 archived ordinal/bitmap & recorded in \filepath{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-} \code{performance}, \code{-scale}, \code{-storage} \\
+RQ4 archived ordinal/bitmap & recorded in \filepath{evidence/} \filepath{legacy-rq4-source.json} under the results directory & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-} \code{performance}, \code{-scale}, \code{-storage} \\
 RQ5 publication and routing & repository head & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
 V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
@@ -852,7 +852,7 @@ The main text's accounting obligations O1--O4 read as follows.
 \begin{enumerate}
 \item[\textbf{O1}] \textbf{Output coverage.} Every selected cell
 $(t,a)\in R\times V$ of a successful result satisfies
-$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (Eq.~\eqref{eq:observe});
+$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (the main text's observation equation);
 normalization may merge equal identities, so coverage is not row count.
 \item[\textbf{O2}] \textbf{Positive dependency coverage.} $\facts_D^\pi$
 is exactly the declared inductive footprint (retained predicate fields,
