@@ -932,16 +932,16 @@ mean arbitrary SQL.
 \subsection{Canonical Join and Semantic-View Lowering}
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
-builder, which emits the multi-way join operator (\code{JoinMany} in the
-implementation) and the deterministic binary SQL/effect fold; unsupported
-joins, set trees, and pagination fail closed, and callers cannot supply roles,
-SQL fragments, FactIDs, or provenance. For semantic Views, one catalog
-snapshot checks exact definitions, interfaces, and dependency edges, expands
-safe acyclic Views to Catalog-mapped materialized leaves, and emits the same
-core; four digests (root definition, dependency closure, canonical plan,
-public interface) bind into the Grant and query, recompilation plus a
-same-snapshot connector check detects drift and requires a new approval, and
-execution resolves least-privilege terminal scopes before reservation.
+builder, which emits the multi-way join operator (\code{JoinMany}) and the
+deterministic binary SQL/effect fold; unsupported joins, set trees, and
+pagination fail closed, and callers cannot supply roles, SQL fragments,
+FactIDs, or provenance. For semantic Views, one catalog snapshot checks exact
+definitions, interfaces, and dependency edges, expands safe acyclic Views to
+Catalog-mapped materialized leaves, and emits the same core; four digests
+(root definition, dependency closure, canonical plan, public interface) bind
+into the Grant and query, recompilation plus a same-snapshot connector check
+detects drift and requires a new approval, and execution resolves
+least-privilege terminal scopes before reservation.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
 
@@ -958,10 +958,8 @@ group, and aggregate rules require, a k-way hash merge reproduces the witness
 commitment, Release/Dependency use segmented Roaring bitmaps, and Outcome
 hashes enter an exact Merkle-radix set. Invalid handles, manifests, encodings,
 overflow, or truncation fail closed; the materialized algebra remains the
-oracle.
-
-For each segment, publication defines a FactID--ordinal bijection $D_j$;
-portable Roaring compression changes representation, not membership
+oracle. For each segment, publication defines a FactID--ordinal bijection
+$D_j$; portable Roaring compression changes representation, not membership
 \cite{chambi2016roaring}.
 
 \begin{theorem}[Exact bitmap refinement]
@@ -1276,13 +1274,14 @@ all); S2, the orders--lineitem equijoin grouped to three rows; S3, a
 one-column projection over 1,000--45,000 rows of the 414,000-row
 exposure-scale Product (five Dependency facts per row); S4, the depth-4
 semantic-View form of S2/SF1; S5, a two-branch union-distinct of S1's shape;
-S6, result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes are direct (the same SQL against PostgreSQL without BDG), novel (the
-first governed execution), and the replays. ``Publication-class'' is
-the frozen protocol's campaign class, as opposed to pilot runs, which are
-never publication-eligible. The frozen publication campaign
-(\FinalVFivePublicationCampaign{}, commit
-\FinalVFivePublicationCommit{}) executed all \FinalVFivePublicationTotalCells{}
-frozen cells---\FinalVFivePublicationProfileCells{} profile cells across
+S6, result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes
+are direct (the same SQL against PostgreSQL without BDG), novel (the first
+governed execution), and the replays; ``publication-class'' is the frozen
+protocol's campaign class, as opposed to never-eligible pilot runs. The
+frozen campaign (\FinalVFivePublicationCampaign{}, commit
+\FinalVFivePublicationCommit{}) executed all
+\FinalVFivePublicationTotalCells{} frozen
+cells---\FinalVFivePublicationProfileCells{} profile cells across
 \FinalVFivePublicationDeployments{} fresh deployments of
 \FinalVFivePublicationProfiles{} profiles, each deployed
 \FinalVFivePublicationFreshExecutions{} times, plus
@@ -1290,25 +1289,24 @@ frozen cells---\FinalVFivePublicationProfileCells{} profile cells across
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
 cells---and every one of its \FinalVFivePublicationMeasuredSamples{} measured
 samples passed with a verified Receipt. Across the
-\FinalVFivePublicationBaselineCells{} Baseline cells (a cell is one workload,
-scale, and mode; the supplement collapses them to workload/scale rows) a novel
+\FinalVFivePublicationBaselineCells{} Baseline cells (one workload, scale,
+and mode each; the supplement collapses them to workload/scale rows) a novel
 governed query costs
-\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{} times
-its direct PostgreSQL equivalent, and that cost follows the total Fact effect
-the query materializes, not its visible row count: S2/SF10 returns
+\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
+times its direct PostgreSQL equivalent, and that cost follows the total Fact
+effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSTwoRows{} grouped rows over
 \FinalVFivePublicationSTwoDependencyFacts{} dependencies in
 \FinalVFivePublicationSTwoNovelS{}~s, longer than S1/SF10 needs to release
 \FinalVFivePublicationSOneReleaseFacts{} Facts
-(\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells,
-whose Release sets dominate their Dependency sets, cost more per Fact than
-S2 (supplement per-cell table), so Release materialization is at least as
-expensive per Fact as Dependency derivation. All
-\FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
-business SQL and charged no Facts---that, not latency, is what replay buys---but
-replay is not a latency win at these scales: semantic replay exceeds direct re-execution in every cell, and only
-idempotent replay at S2/SF10 undercuts it; the supplement tabulates every
-cell.
+(\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells cost
+more per Fact than S2 (supplement per-cell table), so Release
+materialization is at least as expensive per Fact as Dependency derivation.
+All \FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
+business SQL and charged no Facts---that, not latency, is what replay
+buys---but replay is not a latency win at these scales: semantic replay
+exceeds direct re-execution in every cell, and only idempotent replay at
+S2/SF10 undercuts it (the supplement tabulates every cell).
 
 The supplement's phase table shows where that time goes: the Gateway
 reports six non-overlapping server phases per governed response, and the
