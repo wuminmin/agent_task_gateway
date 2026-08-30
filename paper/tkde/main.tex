@@ -62,33 +62,29 @@ Accounting for AI Agents}
 \begin{abstract}
 Per-query authorization does not compose across an adaptive agent's pages,
 retries, rewrites, and delegated subtasks, and query, row, or byte counters
-are order- and encoding-dependent. \systemname{} (BDG) is a release layer
-for immutable reporting publications that turns one approved task into a
-cumulative contract: three set-valued budgets over declared identities
-(result facts, positive-output dependency facts, canonical query outcomes)
-shared by the root task and its descendants. A visible query and a
-provenance companion run on one PostgreSQL snapshot; exact set novelty
-against the root-family ledger is settled atomically before any result
-becomes retrievable, and failed promotion recovers without re-execution.
-The guarantee is bounded \emph{release}: within one root family and
-publication epoch no more than the approved number of distinct declared
-facts of each kind becomes available, whatever admitted sequence the agent
-issues; it does not bound inference from answered or refused predicates
-(one bit per refusal, charged to the tree's request budgets, and a charge
-count per settled query), and BDG measures neither knowledge nor
-differential privacy. Accounting is exact with respect to the declared
-rules and checked against same-team oracles, over a closed reporting
-fragment (connected equijoins, grouping, bounded unions, nested Views;
-SQL an off-the-shelf LLM writes for \AgentWorkloadQueries{} reporting
-questions lowers unedited in \AgentWorkloadLowerablePct\% of cases). Immutable ordinals, compressed bitmaps, and a
-Merkle-radix set make novelty exact at $10^6$ facts; propositions, bounded
-model checking, and executable PostgreSQL tests support the semantics and
-protocol. A sealed single-host campaign (\FinalVFivePublicationMeasuredSamples{}
-samples) charges every scripted decomposition exactly once and keeps an
-adaptive trace within set budgets that a derived permuted replay shows to be
-order-independent where row and query counters are not; a governed novel query
-costs \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
-its direct execution, and the settlement transaction alone takes
+are order-dependent. \systemname{} (BDG) is a release layer for immutable
+reporting publications that turns one approved task into a cumulative
+contract: three set-valued budgets over declared identities (result facts,
+positive-output dependency facts, canonical query outcomes) shared by the
+root task and its descendants. A visible query and a provenance companion
+run on one PostgreSQL snapshot; exact set novelty against the root-family
+ledger is settled atomically before any result becomes retrievable. The
+guarantee is bounded \emph{release}: within one root family and publication
+epoch no more than the approved number of distinct declared facts of each
+kind becomes available, whatever admitted sequence the agent issues; it does
+not bound inference from answered or refused predicates. Accounting is exact
+with respect to the declared rules, checked against same-team oracles, over
+a closed reporting fragment (connected equijoins, grouping, bounded unions,
+nested Views; SQL an off-the-shelf LLM writes for
+\AgentWorkloadQueries{} reporting questions lowers unedited in
+\AgentWorkloadLowerablePct\% of cases). Immutable ordinals, compressed
+bitmaps, and a Merkle-radix set make novelty exact at $10^6$ facts. A sealed
+single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
+charges every scripted decomposition exactly once, keeps an adaptive trace
+within set budgets where a derived permuted replay shows counters to be
+order-dependent, and costs
+\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
+a direct query, with settlement alone at
 \FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
 history.
 \end{abstract}
