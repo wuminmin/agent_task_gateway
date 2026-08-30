@@ -157,7 +157,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.52\textwidth}{!}{%
+\resizebox{0.48\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -1218,8 +1218,7 @@ RQ3 conservation under adaptive execution, delegation, and concurrency, RQ4
 ordinal/bitmap acceptance, and RQ5 daily publication and retained routing;
 RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}. Every call uses a complete signed profile; no
 representation or budget planner is evaluated. Medians and p95 are Type-7
-quantiles (linear interpolation between order statistics) over the stated
-samples. Passant is a semantic
+quantiles over the stated samples. Passant is a semantic
 comparator, not a latency baseline \cite{summers2026passant}; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
@@ -1283,10 +1282,9 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 more per Fact than S2 (supplement per-cell table), so Release
 materialization is at least as expensive per Fact as Dependency derivation.
 All \FinalVFivePublicationReplayZeroSQLSamples{} replay samples issued zero
-business SQL and charged no Facts---that, not latency, is what replay
-buys---but replay is not a latency win at these scales: semantic replay
-exceeds direct re-execution in every cell, and only idempotent replay at
-S2/SF10 undercuts it (the supplement tabulates every cell).
+business SQL and charged no Facts, but replay is not a latency win at these
+scales: semantic replay exceeds direct re-execution in every cell, and only
+idempotent replay at S2/SF10 undercuts it (supplement per-cell table).
 
 The supplement's phase table shows where that time goes: the Gateway
 reports six non-overlapping server phases per governed response, and the
