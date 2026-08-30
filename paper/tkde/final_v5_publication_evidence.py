@@ -555,11 +555,17 @@ def _rls_stats(samples):
     for arm in RLS_ARMS:
         cell_samples = by_cell[f"{RLS_CONTROL_CELL}/{arm}"]
         rows = {sample["row_count"] for sample in cell_samples}
-        negative = {json.dumps(sample["rls_verification"].get("negative_control"), sort_keys=True) for sample in cell_samples}
+        negative = set()
+        for sample in cell_samples:
+            item = sample["rls_verification"].get("negative_control") or {}
+            negative.add((item.get("expected_authorization_error_code"), item.get("observed_authorization_error_code"),
+                          item.get("policy_filtered"), item.get("expected_row_count"), item.get("observed_row_count")))
         if rows != {0} or len(negative) != 1:
-            raise PublicationEvidenceError(f"rls policy-denied control {arm} released rows {sorted(rows)} or varied")
-        item = json.loads(negative.pop())
-        control[arm] = {"rows": 0, "authorization_error": item.get("observed_authorization_error_code") or item.get("expected_authorization_error_code")}
+            raise PublicationEvidenceError(f"rls policy-denied control {arm} released rows {sorted(rows)} or varied {sorted(map(str, negative))}")
+        expected_code, observed_code, filtered, expected_rows, observed_rows = negative.pop()
+        if observed_code != expected_code or filtered is not True or expected_rows != 0 or observed_rows != 0:
+            raise PublicationEvidenceError(f"rls policy-denied control {arm} did not fail closed as preregistered")
+        control[arm] = {"rows": 0, "authorization_error": observed_code}
     return {
         "samples": len(samples),
         "samples_per_cell": per_cell.pop(),
