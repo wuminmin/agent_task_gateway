@@ -123,7 +123,9 @@ retries, pages, and delegated subtasks. Marketplace-integrated agents
 close the discovery-and-request half of this gap: Data Product MCP lets an
 agent find, request, and query governed data products over MCP and validates
 the declared purpose against natural-language contracts with an LLM-based
-check before each query \cite{tonnarelli2026dataproductmcp}. Once a purpose
+check before each query \cite{tonnarelli2026dataproductmcp}, building on
+an assistant over open-standard contracts
+\cite{dietz2025automating,bitol2025odcs}. Once a purpose
 is approved, per-query checks still do not state how much governed data the
 task has cumulatively released across retries, pages, rewrites, and delegated
 subtasks, and that system's own expert panel names letting a language model
@@ -329,14 +331,6 @@ release. BDG assumes the authorization boundary, makes every descendant
 settle against one root ledger, treats the agent and its SQL as untrusted,
 and claims neither result sanitization, prompt/tool flow tracking, nor
 inference safety.
-
-\textbf{Governed data products over MCP.} Data Product MCP
-\cite{tonnarelli2026dataproductmcp} and the assistant it builds on
-\cite{dietz2025automating} automate discovery, purpose review, and
-pre-execution contract guards over open-standard contracts
-\cite{bitol2025odcs}, per query and probabilistically; BDG is downstream,
-adding a deterministic task-scoped ledger settled before availability
-(composition not evaluated).
 
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
 controls; BDG is exact only for its signed profile, closed language, root
