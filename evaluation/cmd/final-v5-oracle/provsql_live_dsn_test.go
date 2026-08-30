@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 )
 
 // The live ProvSQL dataset agreement runs only in the DSN-enabled integration
