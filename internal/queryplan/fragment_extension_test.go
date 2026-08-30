@@ -19,7 +19,7 @@ func extensionProduct() Product {
 func TestCompileEmitsHavingAndDistinct(t *testing.T) {
 	plan := QueryPlan{Product: "orders", Columns: []string{"status"},
 		Aggregates: []Aggregate{{Function: "count", Column: "order_id", Alias: "orders", Distinct: true}, {Function: "avg", Column: "amount", Alias: "mean"}},
-		GroupBy:    []string{"status"}, Having: []Filter{{Column: "mean", Op: ">", Value: 10}}}
+		GroupBy:    []string{"status"}, Having: []Filter{{Column: "mean", Op: ">", Value: 10.0}}}
 	sql, err := Compile(plan, extensionProduct())
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestNormalFormCarriesHavingAndDistinct(t *testing.T) {
 	product := extensionProduct()
 	plan := QueryPlan{Product: "orders", Columns: []string{"status"},
 		Aggregates: []Aggregate{{Function: "count", Column: "order_id", Alias: "orders", Distinct: true}},
-		GroupBy:    []string{"status"}, Having: []Filter{{Column: "orders", Op: ">", Value: 1}}}
+		GroupBy:    []string{"status"}, Having: []Filter{{Column: "orders", Op: ">", Value: 1.0}}}
 	withHaving, err := NormalizeV2(plan, product)
 	if err != nil {
 		t.Fatal(err)

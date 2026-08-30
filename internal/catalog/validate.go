@@ -548,9 +548,9 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	if v2Product {
 		for _, aggregate := range product.AllowedAggregates {
 			switch strings.ToLower(strings.TrimSpace(aggregate)) {
-			case "count", "sum", "min", "max":
+			case "count", "sum", "min", "max", "avg":
 			default:
-				problems = append(problems, fieldError(path+".allowed_aggregates", "V2 supports only count, sum, min, and max", ErrInvalidCatalog))
+				problems = append(problems, fieldError(path+".allowed_aggregates", "V2 supports only count, sum, min, max, and avg", ErrInvalidCatalog))
 			}
 		}
 	}
