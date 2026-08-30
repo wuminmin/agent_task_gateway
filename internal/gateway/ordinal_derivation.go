@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -104,7 +103,8 @@ type ordinalDeriver struct {
 
 	release   *ordinal.Builder
 	influence *ordinal.Builder
-	facts     exposure.FactSet
+	derived   exposure.FactSet
+	observed  *exposure.ReleaseObservation
 	finished  bool
 	effect    ordinalEffect
 }
@@ -325,7 +325,7 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 	if err != nil {
 		return nil, err
 	}
-	facts, err := exposure.NewFactSet()
+	derived, err := exposure.NewFactSet()
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +335,8 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 		grouped:     len(program.Groups) != 0 || len(program.Aggregates) != 0,
 		leafFields:  make(map[string][]string, len(program.Sources)),
 		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
-		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(), facts: facts,
+		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(),
+		derived:     derived, observed: exposure.NewReleaseObservation(),
 		visibleRows: make(map[string]ordinalVisibleRow), groupKeys: make(map[string]string),
 		seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
 	}
@@ -849,13 +850,17 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 			if err != nil {
 				return err
 			}
-			if err := d.verifyBaseFact(cell.baseRef, fact); err != nil {
+			payload, hash, err := fact.CanonicalPayloadHash()
+			if err != nil {
+				return err
+			}
+			if err := d.verifyBaseFact(cell.baseRef, hash); err != nil {
 				return err
 			}
 			if err := d.release.Add(cell.baseRef); err != nil {
 				return err
 			}
-			if err := d.facts.Add(fact); err != nil {
+			if err := d.observed.AddCanonical(fact, payload, hash); err != nil {
 				return err
 			}
 			continue
@@ -873,7 +878,7 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 		if err != nil {
 			return err
 		}
-		if err := d.facts.Add(fact); err != nil {
+		if err := d.addDerived(fact); err != nil {
 			return err
 		}
 	}
@@ -1029,7 +1034,7 @@ func (d *ordinalDeriver) flushGroup() error {
 		if err != nil {
 			return err
 		}
-		if err := d.facts.Add(fact); err != nil {
+		if err := d.addDerived(fact); err != nil {
 			return err
 		}
 	}
@@ -1043,7 +1048,8 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	if d == nil || d.provenance == nil || d.finished {
 		return ordinalEffect{}, errors.New("ordinal derivation is not finishable")
 	}
-	defer d.facts.Close()
+	defer d.derived.Close()
+	defer d.observed.Close()
 	if err := d.flushUnion(); err != nil {
 		return ordinalEffect{}, err
 	}
@@ -1092,11 +1098,7 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	if err := d.multi.ValidateSetBounds(release.Union(influence)); err != nil {
 		return ordinalEffect{}, err
 	}
-	releaseFacts, err := d.facts.Values()
-	if err != nil {
-		return ordinalEffect{}, err
-	}
-	outcomeDigest, err := exposure.ReleaseOutcomeDigest(releaseFacts, d.visible.RowCount)
+	outcomeDigest, err := d.observed.Digest(d.visible.RowCount)
 	if err != nil {
 		return ordinalEffect{}, err
 	}
@@ -1131,11 +1133,9 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 			return ordinalEffect{}, setErr
 		}
 	}
-	dynamic := make([]exposure.FactID, 0)
-	for _, fact := range releaseFacts {
-		if fact.Kind == exposure.FactDerived {
-			dynamic = append(dynamic, fact)
-		}
+	dynamic, err := d.derived.Values()
+	if err != nil {
+		return ordinalEffect{}, err
 	}
 	d.effect = ordinalEffect{Release: release, Influence: influence, DerivedRelease: dynamic, Outcome: outcomes}
 	d.finished = true
@@ -1146,20 +1146,24 @@ func (c ordinalCellState) baseFact() (exposure.FactID, error) {
 	return exposure.NewBaseCellFactV2(c.namespace, c.snapshot, c.entityKey, c.binding.FieldID, c.binding.SQLType, c.value)
 }
 
-func (d *ordinalDeriver) verifyBaseFact(ref ordinal.FactRef, fact exposure.FactID) error {
-	hashText, err := fact.Hash()
-	if err != nil {
-		return err
-	}
-	want, err := hex.DecodeString(hashText)
-	if err != nil {
-		return err
-	}
+// verifyBaseFact checks the canonical base fact hash against the snapshot
+// ordinal; the caller computed the hash once and reuses it for the release
+// observation.
+func (d *ordinalDeriver) verifyBaseFact(ref ordinal.FactRef, want [32]byte) error {
 	got, err := d.multi.Hash(ref)
-	if err != nil || !bytes.Equal(want, got[:]) {
+	if err != nil || got != want {
 		return errors.New("snapshot ordinal does not match the canonical base fact")
 	}
 	return nil
+}
+
+// addDerived records a derived release fact both for settlement (the sparse
+// dynamic set) and for the outcome observation digest.
+func (d *ordinalDeriver) addDerived(fact exposure.FactID) error {
+	if err := d.derived.Add(fact); err != nil {
+		return err
+	}
+	return d.observed.Add(fact)
 }
 
 func ordinalWitnessCommitment(witness ordinal.WeightedSet, index ordinal.FactHashStreamer) (string, error) {

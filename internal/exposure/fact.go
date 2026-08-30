@@ -431,18 +431,27 @@ func (f FactID) CanonicalPayload() ([]byte, error) {
 
 // HashBytes returns the binary PostgreSQL ledger index for the semantic payload.
 func (f FactID) HashBytes() ([32]byte, error) {
+	_, hash, err := f.CanonicalPayloadHash()
+	return hash, err
+}
+
+// CanonicalPayloadHash returns the canonical payload together with the
+// FactID hash derived from it, so callers that need both compute the payload
+// once. The domain prefix is hashed but never part of the returned payload.
+func (f FactID) CanonicalPayloadHash() ([]byte, [32]byte, error) {
 	payload, err := f.CanonicalPayload()
 	if err != nil {
-		return [32]byte{}, err
+		return nil, [32]byte{}, err
 	}
+	prefixed := payload
 	if f.IsV2() {
-		payload = append([]byte(factDomainV2), payload...)
+		prefixed = append([]byte(factDomainV2), payload...)
 	} else if f.IsV3() {
-		payload = append([]byte(factDomainV3), payload...)
+		prefixed = append([]byte(factDomainV3), payload...)
 	} else if f.IsV5() {
-		payload = append([]byte(factDomainV5), payload...)
+		prefixed = append([]byte(factDomainV5), payload...)
 	}
-	return sha256.Sum256(payload), nil
+	return payload, sha256.Sum256(prefixed), nil
 }
 
 // Hash returns the durable hexadecimal PostgreSQL ledger index for the semantic payload.
