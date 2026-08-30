@@ -390,10 +390,9 @@ more base facts than a purpose warrants, bounded by $B_D$ (the adaptive
 trace); probe ladders, bounded by $B_O$ (the corpus ladder); and delegation
 fan-out, bounded by the shared root ledger (the delegated child's refusal).
 Four boundaries hold at this goal: it counts declared identities, not
-inference; the Catalog tie-break keys that complete a page order are the
-only order-only fields (every \code{ORDER BY} column must be selected, so
-ordered values are Released); every approved root and every publication
-epoch has fresh capacity, so cumulative release across days is bounded by
+inference; only the Catalog tie-break keys of a page order are order-only
+(every \code{ORDER BY} column must be selected); every approved root and
+publication epoch has fresh capacity, so release across days is bounded by
 the approval workflow, not by BDG; and the
 settlement decision is two data-dependent counter channels. A rejected
 attempt is a chosen membership question over unaccounted facts answered by
@@ -1130,11 +1129,10 @@ measured cell). $B_O$ bounds how many distinct predicates a task may
 \emph{settle} (a ladder \code{amount > t} is charged one atom and one
 composite per answered step), not what an answer reveals, and not rejected
 probes, which $B_Q$ bounds: a binary search on one hidden value fits within
-$B_O=128$ answered steps or $B_Q$ refusals. Ranking a hidden field is not admitted:
-the lowerer rejects an \code{ORDER BY} column that is not selected
-(\code{ORDER_FIELD_NOT_SELECTED}), so a paged \code{SELECT id ... ORDER
-BY salary} must release \code{salary}, and only the Catalog tie-break keys
-that complete a total order are order-only.
+$B_O=128$ answered steps or $B_Q$ refusals. Ranking a hidden field is not admitted: the lowerer rejects an
+\code{ORDER BY} column that is not selected
+(\code{ORDER_FIELD_NOT_SELECTED}), so \code{SELECT id ... ORDER BY salary}
+must release \code{salary}.
 
 \section{System Realization}
 \label{sec:system}
@@ -1227,18 +1225,16 @@ across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
 \FinalVFivePublicationRQFiveBuildS{}~s p50); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
-cases, a generated-plan differential campaign (\GeneratedPlans{} random
-plans over \GeneratedFixtures{} random fixtures of
-\GeneratedRowsMin{}--\GeneratedRowsMax{} rows: selections with
-three-valued predicates, projections, two-source equijoins, grouped and
-global aggregates, pages) compares the production algebra against an
-independent reference evaluator written from the operator rules in the RQ1
-oracle's vocabulary: \GeneratedMismatches{} Result/Dependency set
-mismatches and \GeneratedHashMismatches{} FactID hash disagreements over
+cases, a generated-plan campaign (\GeneratedPlans{} random plans over
+\GeneratedFixtures{} random fixtures of
+\GeneratedRowsMin{}--\GeneratedRowsMax{} rows: three-valued selections,
+projections, two-source equijoins, grouped and global aggregates, pages)
+compares the production algebra with an independent reference evaluator
+written from the operator rules: \GeneratedMismatches{} set mismatches and
+\GeneratedHashMismatches{} hash disagreements over
 \GeneratedReleaseFacts{} Result and \GeneratedDependencyFacts{} Dependency
-Facts, with split-projection and page-partition unions equal to the complete
-query in every one of \GeneratedSplitChecks{} checks (supplement). The
-supplement's evidence table labels the source state of every line.
+Facts, and split-projection and page-partition unions equal to the complete
+query in all \GeneratedSplitChecks{} checks (supplement).
 
 The core workloads (the campaign's \emph{Baseline} profile): S1, a
 two-column projection of the frozen 50,000-order corpus under an order-key
@@ -1345,13 +1341,13 @@ execute-and-derive (supplement table).
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
 
-\textbf{Scripted decompositions.} The attack profile replays a frozen,
-digest-bound corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
+\textbf{Scripted decompositions.} The attack profile replays a frozen
+corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
 \FinalVFivePublicationAttackSequences{} sequences that try to obtain
-governed Facts twice: pages and an overlap around a complete query (both
-orders), four spellings of one predicate, a range split and its union,
-replays, and a count-probe ladder with delegation
-(\FinalVFivePublicationAttackSamples{} samples, identical per-step charges
+governed Facts twice (pages and an overlap around a complete query in both
+orders, four spellings of one predicate, a range split and its union,
+replays, a count-probe ladder with delegation;
+\FinalVFivePublicationAttackSamples{} samples, identical per-step charges
 per cell). Each decomposition was charged exactly
 its complete query's Facts once
 (\FinalVFivePublicationAttackPaginationReleaseFacts{}/\FinalVFivePublicationAttackPaginationDependencyFacts{}
@@ -1424,11 +1420,10 @@ bound depends on query order, the set ledger's does not (supplement table).
   node[pos=0.85, right, font=\tiny, align=left] {bounded arm\\refuses};
 \end{axis}
 \end{tikzpicture}
-\caption{Distinct governed facts obtained by the adaptive trace as a function of
-query index (independent trace-union oracle; solid) against the bounded arm's
-budgets (dashed). RLS and BDG-unlimited answer all
-\FinalVFivePublicationRLSQueries{} queries; BDG-bounded refuses at the first
-query whose prefix crosses a budget; the trace stops there.}
+\caption{Distinct governed facts obtained by the adaptive trace by query
+index (independent trace-union oracle; solid) against the bounded arm's
+budgets (dashed); BDG-bounded refuses at the first query whose prefix
+crosses a budget, where the trace stops.}
 \label{fig:rls-trace}
 \end{figure}
 
