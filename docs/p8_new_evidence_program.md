@@ -65,4 +65,10 @@
   live pE-v112-fixedpoint-10 全绿 + 离线固定点提交 c126487），全量 evaluation 套件与 vet -tags 全绿。十次发射的失败谱系
   （分支落后/旧版钉死/磁盘满）与流程补丁（预检内置 pull、df 纪律）见台账。
   下一步：DB 套件+链 #8 复核 v1.12 树，然后 (c2) 阶梯的 adapter/校验器休眠切片（slice b），最后 workload 声明激活（slice c）。
+- slice b 设计定稿（2026-08-31）：阶梯沿用 experiment `rls`（新 experiment id 会牵动 launcher 映射/example 配置/finalize 注册表，面更大）。
+  adapter：`validRLSCell` 增列 `refused-footprint-ladder-v1`/`1e5-rows`/{bounded,unlimited}，Execute 分派到新的 ladder runner
+  （fresh root per rung；unlimited 臂 12 阶全过并核对精确标量；bounded 臂仅 rung-01 过，其余核对 EXPOSURE_BUDGET_EXHAUSTED 与
+  charged_dependency==语料基数；每步 client_ms）。验证器：`validateRLSVerificationStrict` 在语料绑定检查**之前**按 WorkloadID 分支——
+  ladder 样本绑定 finalv5footprint（CorpusID/sha、每阶期望），不撞 finalv5rls 的 CorpusSHA256 钉。capability 矩阵与 frozen 协议
+  workloads 在 slice c（激活）时一并动，capability_test 的 cellCount 6→8 同步。
 
