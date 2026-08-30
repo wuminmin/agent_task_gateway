@@ -1,0 +1,283 @@
+{
+  "version": "taskgate-ssb-lowerability-v1",
+  "lowering_profile": "taskgate-reporting-sql-v1",
+  "passes": [
+    {
+      "variant": "as-written",
+      "directory": "evaluation/ssblowerability/queries",
+      "queries": 13,
+      "lowerable": 0,
+      "by_reason": {
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": 13
+      },
+      "results": [
+        {
+          "query": "q1_1",
+          "sql_sha256": "5f2c09b402fe86858c0bb28a6bd16e2bbb58645a85f928aa13ccd9ebe5c08b10",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q1_2",
+          "sql_sha256": "344ffbe787975977bf7e93bca6dc992f735ee68593653f0b5dd4ee0194104400",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q1_3",
+          "sql_sha256": "1778c43be4e885784e5fcecc7c248cdb9f82ec7559e6ece6577d284dee91160c",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q2_1",
+          "sql_sha256": "3d3085e3fe0255bfe6b8b15d69cf03b84a280768266c2a2127d4f7043daae4d9",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q2_2",
+          "sql_sha256": "2c1419cb4d849d62bbf0e0f9efe99f7636c3f917d7137b912df6c6ba0b0157d2",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q2_3",
+          "sql_sha256": "8b46ecf2e68e962b2d5b1ba3d68bbb4993e8550ce85c99264327bc073372f0eb",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_1",
+          "sql_sha256": "21cae13ed0f2b740dd164b48e1dd131f77b4b9e6c0d6f83ae92ead617caae2e2",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_2",
+          "sql_sha256": "1ca7280e81a7a11cde03f994987804e13f7ed04d1b97078735e686d91cacde66",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_3",
+          "sql_sha256": "756d40a15103d2cf7e4061f16e52e7af798f2f51c1bbe9cf58fa1172d49831c2",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_4",
+          "sql_sha256": "653ed120f4d8b6b5a5f7b543a170cedb686b73e38fb57f65e0b11e87382e8526",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_1",
+          "sql_sha256": "f20fd6b81af45ef21b78efacab54befc5043879a61b221c04c0eaa4277765cf1",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_2",
+          "sql_sha256": "ee575a7a465f7103916aa3e3dae86920ddcd878a53ce40c197b51341dd489340",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_3",
+          "sql_sha256": "288aaa2592d5c5ef27bad456eb7c948dd2404784bf0227620fb90b3d8266d62f",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
+          "from_sources": 1
+        }
+      ]
+    },
+    {
+      "variant": "explicit-join",
+      "directory": "evaluation/ssblowerability/queries-explicit-join",
+      "queries": 13,
+      "lowerable": 2,
+      "by_reason": {
+        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 6,
+        "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": 2,
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/QUERYPLAN_VALIDATION_FAILED": 2
+      },
+      "results": [
+        {
+          "query": "q1_1",
+          "sql_sha256": "de0210aa35ae0992b51b5818d7bffd86a349541dff5f84b9d18d12c5ced5a2e9",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q1_2",
+          "sql_sha256": "1da089402b7631b384124d000ae27352b624a47463b246c48032f69e3fa9a4f1",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q1_3",
+          "sql_sha256": "06e8f80d39b4335930e596376d52fc3079f1a9d2c5caf7db8b4b5ab745b6dbfb",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q2_1",
+          "sql_sha256": "df616b2e183b6207cb6333995327cb2d9950027cdb66b31b04e4e24aca2ee72e",
+          "lowerable": true,
+          "from_sources": 1
+        },
+        {
+          "query": "q2_2",
+          "sql_sha256": "acc7180be934396c0a5f8cf9d2f0219256e6d9ed1af8e150447ae6dc02d6df48",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "FILTER_PREDICATE_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "This WHERE predicate is outside the closed reporting SQL profile.",
+          "from_sources": 1
+        },
+        {
+          "query": "q2_3",
+          "sql_sha256": "1e42889eb6dcdfd2a9895190484f3acbba8e2c4ba151393116ee93a67ffe7fec",
+          "lowerable": true,
+          "from_sources": 1
+        },
+        {
+          "query": "q3_1",
+          "sql_sha256": "8e38b443beb26bd1eac3e20d745629b571dc811ed1a28277d3f71f3b7ad13233",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "QUERYPLAN_VALIDATION_FAILED",
+          "clause": "SQL",
+          "message": "relational ORDER BY requires every grouped key exactly once",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_2",
+          "sql_sha256": "a05b7fbe7d03a19735b8ebce1a295f7f7f75caeb7a59762304a9700ca47cd6f6",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "QUERYPLAN_VALIDATION_FAILED",
+          "clause": "SQL",
+          "message": "relational ORDER BY requires every grouped key exactly once",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_3",
+          "sql_sha256": "75826c18fe90c528f341828c482088b5404086f7babffb4b7fa21826712af780",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "BOOLEAN_OPERATOR_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "WHERE supports AND conjunctions only.",
+          "from_sources": 1
+        },
+        {
+          "query": "q3_4",
+          "sql_sha256": "0d6a6d9bb5f8315905a7d0330d0b8dc3326d5dbaf77e8a72d6604365abf84294",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "BOOLEAN_OPERATOR_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "WHERE supports AND conjunctions only.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_1",
+          "sql_sha256": "c2823e1f720687515eaf809c19ecad2e78ff7bce1b786a6887f9acb1118c04ad",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_2",
+          "sql_sha256": "f9c0d8f519e0d6213fe6381ebb348b9e7de7bff0644bfc1c6d2a28dd756e9a9d",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        },
+        {
+          "query": "q4_3",
+          "sql_sha256": "22790fa532ffcf1b7e3795c388088a302f4794ed901d76172f4c91c23e87a41e",
+          "lowerable": false,
+          "code": "SQL_NOT_LOWERABLE",
+          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "clause": "SELECT",
+          "message": "Aggregate expressions must be direct approved columns.",
+          "from_sources": 1
+        }
+      ]
+    }
+  ]
+}
