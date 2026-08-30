@@ -35,4 +35,6 @@ AGENTS.md 的八条做法每条都对应一次已发生的代价；同类根因�
 - campaign 运行中不得动它的工作树：pilot-09 跑到部署完成后被「running Gateway image names revision e6a5f0d but the verified source is
   bfb6a5b」判死——我为排队下一个 campaign 把 `~/wt-pilot` 快进了。要换提交就等它结束，或用另一个工作树。预检失败留下的
   `raw/<campaign-id>` 目录会让同 id 重发报「refusing to overwrite」，先看内容再删。
+- 带 build tag 的文件默认构建不编译：`provsql_live_dsn_test.go` 移到 `taskgate_integration` 后丢了 `bytes` 导入，主机 `go vet ./...`、
+  RQ1 容器、DB 套件全绿，只有链的 compose 验收（带该 tag）报 `[build failed]`，白跑 40 分钟。发链前 `go vet -tags taskgate_integration ./...`。
 
