@@ -304,11 +304,11 @@ tuple's bag of provenance monomials and rewrites or terminates violating
 queries, covering contributor thresholds, source combinations, grounding, and
 prompt-bound flows that BDG does not subsume; trajectory policy is its future
 work. BDG differs in temporal unit:
-after authorization and any flow check it persists Result, Dependency, and
-Outcome sets under one root and charges exact novelty across queries,
-retries, pages, supported rewrites, and descendants in one root-head
-transaction. DFC asks whether a flow is allowed; BDG asks whether another
-allowed flow fits the cumulative contract; their composition is not evaluated.
+after authorization and any flow check it persists the three sets under one
+root and charges exact novelty across queries, retries, pages, rewrites, and
+descendants in one root-head transaction; DFC asks whether a flow is allowed,
+BDG whether another allowed flow fits the cumulative contract (composition
+not evaluated).
 
 \textbf{Authorization, delegation, and agent controls.} Usage/history
 control, delegation, RLS/VPD, ABAC, and query-policy systems establish
@@ -1148,11 +1148,10 @@ that complete a total order are order-only.
 The Go prototype uses separate Control and Business PostgreSQL 16 databases.
 Its Catalog declares reporting Views, mandatory scopes, immutable
 publications, entity keys, operations, approval routes, and profiles;
-terminal Products bind source, schema, snapshot, ordinal artifacts, and
-digests, semantic-View Products carry the four-digest contract, and startup
-and per-query attestation verify these bindings. Each service instance is
-Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
-new approvals to $P_{e+1}$. MCP tools cover Product discovery, task
+Products bind source, schema, snapshot, ordinal artifacts, and digests, and
+startup and per-query attestation verify these bindings. Each service
+instance is Catalog-bound, so rollover routes old roots to retained $P_e$
+instances and new approvals to $P_{e+1}$. MCP tools cover Product discovery, task
 approval/execution/delegation, View rebind, budgets, results, and receipts,
 an external adapter signs Grants, and direct SQL is lowered to the same
 canonical plan or fails closed, so no path executes agent-authored text;
@@ -1453,10 +1452,9 @@ novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
 \FinalVFivePublicationConcurrencySpreadMaxPct\%); the retained pilot
-(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement. One
-residual freedom lies outside the mechanism: an Adapter could open several
-measurement windows and submit one; the protocol forbids that. RQ1--RQ3 use
-small fixtures;
+(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement. An
+Adapter could open several measurement windows and submit one; the protocol
+forbids that. RQ1--RQ3 use small fixtures;
 ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
 official); the archived V4 run used one index build; RQ5 sums three
 sequential warm child intervals behind an experiment controller. No result
