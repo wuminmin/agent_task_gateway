@@ -22,7 +22,7 @@ func TestCatalogDiscoveryToolsExposeSQLContract(t *testing.T) {
 	if summary["stable_relation_role"] != "expense_summary" || summary["sql_profile"] != catalogReportingSQLProfile {
 		t.Fatalf("list product omitted stable SQL identity: %#v", summary)
 	}
-	if got, ok := summary["allowed_aggregates"].([]string); !ok || !equalStrings(got, []string{"sum", "count", "min", "max"}) {
+	if got, ok := summary["allowed_aggregates"].([]string); !ok || !equalStrings(got, []string{"sum", "count", "min", "max", "avg"}) {
 		t.Fatalf("list allowed_aggregates = %#v", summary["allowed_aggregates"])
 	}
 	month := fieldNamed(t, summary["fields"], "month")

@@ -144,9 +144,11 @@ func (s *Service) getSQLCapabilities(_ context.Context, _ mcp.Principal, raw jso
 			"common_table_expressions":              false,
 			"set_operations":                        false,
 			"window_functions":                      false,
-			"having":                                false,
+			"having":                                true,
+			"count_distinct":                        true,
+			"avg_exact_numeric":                     true,
 			"select_distinct":                       false,
-			"implicit_star_projection":              false,
+			"implicit_star_projection":              true,
 			"positional_order_group_refs":           false,
 		},
 	}, nil
