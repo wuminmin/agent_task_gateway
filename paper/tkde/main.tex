@@ -530,17 +530,14 @@ where $\mathcal B=\operatorname{sort}\{(\nu,s)\}$ is the relation's snapshot
 bundle, $k_o$ is the canonical output-row entity key, $N_\pi(x)$ erases aliases
 and normalizes the supported expression, and
 $W:\facts_{base}\rightharpoonup\mathbb N^+$
-is a finite-support witness multiset (the empty support is allowed).  The product identity is not a caller-supplied
-name: it is exactly the namespace projection of $\mathcal B$.  The witness
-commitment $CW(W)$ length-prefixes the lexically sorted
-$(\operatorname{FactHash}(f),W(f))$ pairs; the empty multiset has a separate
-token. The durable key is
-$\mathrm{SHA256}(d_R\|\operatorname{Canon}(f))$, where $d_R$ is the
-release/dependency domain separator.
-Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every
-hash conflict; a same-hash, different-payload row aborts the transaction.
-Predicate atoms and composite outcomes use disjoint tagged kinds under the
-outcome domain separator $d_O$.
+is a finite-support witness multiset (the empty support is allowed); the
+product identity is the namespace projection of $\mathcal B$, never a
+caller-supplied name. $CW(W)$ length-prefixes the sorted
+$(\operatorname{FactHash}(f),W(f))$ pairs, the durable key is
+$\mathrm{SHA256}(d_R\|\operatorname{Canon}(f))$ under the release/dependency
+domain separator $d_R$, Control PostgreSQL stores $\operatorname{Canon}(f)$
+and aborts on a same-hash, different-payload row, and Outcome facts use
+disjoint tagged kinds under a separate separator $d_O$.
 
 Let $N(q)$ be the accepted query normal form, $h_N$ its SHA-256, $m$ the
 visible row count, $h_y$ the canonical result-observation commitment, and
@@ -1097,18 +1094,15 @@ mismatch takes the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
 \subsection{Receipts and Failure Semantics}
 
 A signed Ed25519 settlement receipt binds accounting evidence, result/object
-metadata and hashes, the expected \code{PENDING} intent, and registration audit;
-it exposes no raw values or FactIDs. Availability separately requires the
-hash-chained \code{QUERY_RESULT_CONSUMED} inclusion. The normal path
-co-commits the receipt; a recovered attestation may postdate settlement, but
-both authenticate only the same PENDING intent. Signed Grant/query View binding
-and a dedicated receipt domain prevent replay across that identity.
-
-Failures before connector invocation release reservations. Over-budget
-settlement creates no canonical object or AVAILABLE row; transient private
-staging remains unavailable. Ambiguous connector outcomes charge ordinary
-resources but no exposure without settlement. Terminal replay returns the first
-status, may resume PENDING promotion, and never repeats Business execution.
+metadata and hashes, the expected \code{PENDING} intent, and registration
+audit without exposing raw values or FactIDs; availability separately requires
+the hash-chained \code{QUERY_RESULT_CONSUMED} inclusion, a recovered
+attestation may postdate settlement but authenticates the same intent, and a
+dedicated receipt domain prevents replay across identities. Failures before
+connector invocation release reservations; over-budget settlement creates no
+canonical object or AVAILABLE row; ambiguous connector outcomes charge
+resources but no exposure; terminal replay returns the first status, may
+resume PENDING promotion, and never repeats Business execution.
 
 Withholding the buffer does not hide the decision bit. Whether settlement
 accepts a query reveals whether its data-dependent novel Effect fits the
@@ -1197,13 +1191,13 @@ union, not harm or DP accounting.
 \label{sec:system}
 
 The Go prototype uses separate Control and Business PostgreSQL 16 databases.
-Its Catalog declares reporting Views, mandatory scopes, immutable publications,
-entity keys, operations, approval routes, and profiles. Terminal Products bind
-source, schema, snapshot, ordinal artifacts, and digests; semantic-View Products
-carry the four-digest contract and must close on governed materializations.
-Startup and per-query attestation verify these bindings. Each service instance
-is Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
-new approvals to $P_{e+1}$; active tasks never change in place.
+Its Catalog declares reporting Views, mandatory scopes, immutable
+publications, entity keys, operations, approval routes, and profiles;
+terminal Products bind source, schema, snapshot, ordinal artifacts, and
+digests, semantic-View Products carry the four-digest contract, and startup
+and per-query attestation verify these bindings. Each service instance is
+Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
+new approvals to $P_{e+1}$.
 
 MCP tools cover Product discovery, task approval/execution/delegation, View
 rebind, budgets, results, and receipts; an external adapter signs Grants.
