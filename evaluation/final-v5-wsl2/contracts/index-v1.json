@@ -51,7 +51,7 @@
     {
       "kind": "catalog_candidate",
       "path": "catalog/benchmark-contract-v1.yaml",
-      "sha256": "2653fb61bc7e9af7504f000a89b4857dc1c5f28ab900fdf4dee1ce969b155e9c"
+      "sha256": "ce6d130263a9c343a2e8b297964a11401fe85c453622ba1dcd820560a9ae8253"
     },
     {
       "kind": "dataset_generator",

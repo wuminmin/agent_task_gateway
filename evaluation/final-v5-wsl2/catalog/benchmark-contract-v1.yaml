@@ -463,24 +463,24 @@ products:
     fields:
       - name: row_id
         type: bigint
-        description: Stable deterministic row identifier
+        description: Footprint ladder stable row identifier
       - name: category
         type: text
         collation: en_US.utf8
         collation_version: "2.36"
-        description: Deterministic category
+        description: Footprint ladder deterministic category
       - name: amount
         type: numeric
-        description: Deterministic amount
+        description: Footprint ladder deterministic amount
       - name: quantity
         type: bigint
-        description: Deterministic quantity
+        description: Footprint ladder deterministic quantity
       - name: unit_price
         type: numeric
-        description: Deterministic unit price
+        description: Footprint ladder deterministic unit price
       - name: tax_amount
         type: numeric
-        description: Deterministic signed tax amount
+        description: Footprint ladder deterministic signed tax amount
 
   - name: final_v5_footprint_bounded_result_heavy
     source: travel_demo
@@ -499,24 +499,24 @@ products:
     fields:
       - name: row_id
         type: bigint
-        description: Stable deterministic row identifier
+        description: Footprint ladder stable row identifier
       - name: category
         type: text
         collation: en_US.utf8
         collation_version: "2.36"
-        description: Deterministic category
+        description: Footprint ladder deterministic category
       - name: amount
         type: numeric
-        description: Deterministic amount
+        description: Footprint ladder deterministic amount
       - name: quantity
         type: bigint
-        description: Deterministic quantity
+        description: Footprint ladder deterministic quantity
       - name: unit_price
         type: numeric
-        description: Deterministic unit price
+        description: Footprint ladder deterministic unit price
       - name: tax_amount
         type: numeric
-        description: Deterministic signed tax amount
+        description: Footprint ladder deterministic signed tax amount
 
   - name: final_v5_result_heavy
     source: travel_demo
