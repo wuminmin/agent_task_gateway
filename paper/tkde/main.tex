@@ -1375,35 +1375,33 @@ is its only comparison there; the trace below adds a per-query control.
 \textbf{Adaptive trace against per-query control.} The RLS profile replays
 one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
 (receipt look-ups, pages, equivalent predicate spellings, repeated
-aggregations, and branches chosen from prior scalars) through three arms on
-one Product: PostgreSQL row-level security with a department policy and
-column grants, BDG with an unlimited ledger, and BDG bounded at
+aggregations, branches chosen from prior scalars) through three arms on one
+Product: PostgreSQL row-level security with a department policy and column
+grants, BDG with an unlimited ledger, and BDG bounded at
 $\lfloor 0.7\,U\rfloor$ of the trace's distinct facts
 $U=\FinalVFivePublicationRLSUnionRelease{}/\FinalVFivePublicationRLSUnionDependency{}/\FinalVFivePublicationRLSUnionOutcome{}$
 as counted by an independent trace-union oracle (budgets
 \FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{};
-\FinalVFivePublicationRLSPerCell{} samples per arm, identical in every sample).
+\FinalVFivePublicationRLSPerCell{} samples per arm, identical in every one).
 RLS answered all \FinalVFivePublicationRLSQueries{} queries
-(\FinalVFivePublicationRLSRowsRLS{} rows), since every query is individually
-legal; BDG-unlimited answered all of them and its final ledger equals the
-oracle's union exactly; BDG-bounded answered
-\FinalVFivePublicationRLSBoundedSuccessful{}, refused query
-\FinalVFivePublicationRLSBoundedRefusalIndex{}---the first whose oracle
-prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
+(\FinalVFivePublicationRLSRowsRLS{} rows), each individually legal;
+BDG-unlimited answered all of them and its final ledger equals the oracle's
+union; BDG-bounded answered \FinalVFivePublicationRLSBoundedSuccessful{},
+refused query \FinalVFivePublicationRLSBoundedRefusalIndex{}---the first
+whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
 \FinalVFivePublicationAttackThresholdRejectionCode{}, released nothing
 afterwards, and ended at \FinalVFivePublicationRLSBoundedLedger{}. A control
-step that targets a row outside the policy and a column outside the grant
-returns zero rows under both and is refused at the column (RLS
+step outside the policy row set and the column grant returns zero rows under
+both and is refused at the column (RLS
 \FinalVFivePublicationRLSControlErrorRLS{}, BDG
 \FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
-authorization rather than replacing it, and what RLS cannot express is
-exactly ``at most \FinalVFivePublicationRLSBudgetDependency{} distinct base
-facts''.
+authorization, and what RLS cannot express is exactly ``at most
+\FinalVFivePublicationRLSBudgetDependency{} distinct base facts''.
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.42\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.36\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
