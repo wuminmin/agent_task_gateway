@@ -908,8 +908,7 @@ composites, each page legal under any row limit, a repeat of the same pages
 is a zero-novelty replay, and a sweep of a second such Product is refused
 at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
 rows times aggregable fields bounds the \emph{distinct} base facts any
-aggregate sequence touches, not how many run (Section~\ref{sec:model}
-bounds settled and refused predicates). Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
+aggregate sequence touches, not how many run (the main text's threat model bounds settled and refused predicates). Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
 not selected is rejected (\code{ORDER_FIELD_NOT_SELECTED}), so
 \code{SELECT id ... ORDER BY salary} must release \code{salary}.
 
