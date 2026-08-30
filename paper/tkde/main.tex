@@ -160,7 +160,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.74\textwidth}{!}{%
+\resizebox{0.7\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -274,9 +274,9 @@ differential and fault-injection evidence.
 \subsection{Closest System Families}
 
 GAAP provides the closest cross-tool IFC contrast \cite{stanley2026gaap}: its
-persistent flow state spans steps, tasks, and services outside BDG's scope.
-BDG instead specializes in typed SQL facts, same-snapshot evidence, and exact
-profile-relative settlement per root.
+persistent flow state spans steps, tasks, and services outside BDG's scope,
+whereas BDG specializes in typed SQL facts, same-snapshot evidence, and exact
+settlement per root.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
 whether a history determines forbidden data, and simulatable auditing also
@@ -338,9 +338,9 @@ inference safety.
 \cite{tonnarelli2026dataproductmcp} and the assistant it builds on
 \cite{dietz2025automating} automate discovery, purpose review, and
 pre-execution contract guards over open-standard contracts
-\cite{bitol2025odcs}, per query and probabilistically; BDG is downstream and
-complementary, adding a deterministic task-scoped ledger settled before
-availability (composition not evaluated).
+\cite{bitol2025odcs}, per query and probabilistically; BDG is downstream,
+adding a deterministic task-scoped ledger settled before availability
+(composition not evaluated).
 
 \textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
 controls: BDG adds three-set FactID novelty and shared-root settlement after
@@ -1402,11 +1402,11 @@ general capture, not the systems against each other.
 
 All measurements ran on one WSL2 guest (Ubuntu 22.04.5) of a laptop-class
 Intel Core i9-13900HX (16 cores, 32 threads, 29~GiB visible), Docker 29.7.2,
-PostgreSQL 16.14 from a digest-pinned image, and Go 1.25.14.
-The repository at the cited commits, the evidence pack, and the retained raw
-samples (48 JSONL files, 591~MB) form the artifact [artifact DOI/URL]; a
-third party can re-verify every digest chain and recompute every macro from
-the raw samples but cannot re-hash the omitted HOT/COLD/sidecar payloads.
+PostgreSQL 16.14 from a digest-pinned image, and Go 1.25.14. The repository
+at the cited commits, the evidence pack, and the retained raw samples (48
+JSONL files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
+re-verify every digest chain and recompute every macro from the raw samples
+but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile,
