@@ -923,14 +923,13 @@ agree, so a family of page or threshold questions does not collapse wholesale.
 \section{Online Accounting}
 \label{sec:online}
 
-Terms used below: the \emph{hot artifact} is the in-memory
-entity-key-to-ordinal map and verified hashes of a publication, the
-\emph{cold} payloads are its content-addressed canonical Fact bytes, and the
-\emph{sidecar} is the PostgreSQL table that maps attested entity keys to
-ordinals; the \emph{root head} is the Control-database row holding a root
-family's three set digests and epoch, advanced only by compare-and-swap
-(\emph{CAS}); the \emph{receipt} is the signed settlement record of
-Section~\ref{sec:online}-D.
+Terms: a publication's \emph{hot artifact} holds its entity-key-to-ordinal
+map and verified hashes, its \emph{cold} payloads are the content-addressed
+canonical Fact bytes, and its \emph{sidecar} is the PostgreSQL table mapping
+attested entity keys to ordinals; the \emph{root head} is the Control row
+holding a root family's three set digests and epoch, advanced only by
+compare-and-swap (\emph{CAS}); the \emph{receipt} is the signed settlement
+record of Section~\ref{sec:online}-D.
 
 Formal semantics and the RQ1 oracle cover scan/select/project, group with
 four aggregates, inner equijoin, union-distinct, and page. Online lowering
@@ -1250,11 +1249,10 @@ refinement nor a formally verified system.
 
 \subsection{Questions and Reproducibility}
 
-RQ1 asks ground-truth Fact membership; RQ2 closed-fragment rewrite and charge
-invariance; RQ3 conservation under adaptive execution, delegation, and
-concurrency; RQ4 ordinal/bitmap full-path acceptance; and RQ5 daily publication
-and retained routing. RQ1--RQ3 regenerate digest-bound corpus
-\ExposureCorpusHash{}. Every call uses a complete signed profile; no
+RQ1 asks ground-truth Fact membership, RQ2 rewrite and charge invariance,
+RQ3 conservation under adaptive execution, delegation, and concurrency, RQ4
+ordinal/bitmap acceptance, and RQ5 daily publication and retained routing;
+RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}. Every call uses a complete signed profile; no
 representation or budget planner is evaluated. Medians and p95 are Type-7
 quantiles (linear interpolation between order statistics) over the stated
 samples. Passant is a semantic
