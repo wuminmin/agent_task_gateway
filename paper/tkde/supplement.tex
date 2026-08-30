@@ -13,7 +13,7 @@
 \pgfplotsset{compat=1.18}
 \usepackage[hidelinks]{hyperref}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\lbag}{\{\!\{}
 \newcommand{\rbag}{\}\!\}}
 \newcommand{\llbracket}{[\![}
@@ -935,12 +935,12 @@ Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 re
 \end{tabular}
 \end{table}
 
-The receipt uses \code{observation_\allowbreak sha256} and the component
-digests \code{release_set_\allowbreak sha256},
-\code{influence_set_\allowbreak sha256}, and
-\code{outcome_set_\allowbreak sha256}; it has no field named
-\code{candidate_\allowbreak digest}, \code{effect_\allowbreak digest}, or
-\code{profile_\allowbreak digest}.
+The receipt uses \code{observation_sha256} and the component
+digests \code{release_set_sha256},
+\code{influence_set_sha256}, and
+\code{outcome_set_sha256}; it has no field named
+\code{candidate_digest}, \code{effect_digest}, or
+\code{profile_digest}.
 Hash, binding, or audit mismatch fails closed. Residual quantities and channels
 remain outside the manifest: differential privacy, total/background knowledge,
 timing, uncharged refusal, information content of
