@@ -47,11 +47,12 @@ type ReleaseObservation struct {
 	// Runs are sorted and written by background goroutines so the caller's
 	// row path does not pay for the sort; mu guards runs and spillErr, spills
 	// waits for every in-flight run, and slots bounds them.
-	mu       sync.Mutex
-	runs     []*releaseRun
-	spillErr error
-	spills   sync.WaitGroup
-	slots    chan struct{}
+	mu        sync.Mutex
+	runs      []*releaseRun
+	spillErr  error
+	spills    sync.WaitGroup
+	slots     chan struct{}
+	finalizer bool
 }
 
 type releaseEntry struct {
@@ -185,10 +186,8 @@ func (o *ReleaseObservation) spillRun() error {
 	entries := o.resident
 	o.resident = nil
 	o.residentBytes = 0
-	o.mu.Lock()
-	first := o.runs == nil && o.spillErr == nil
-	o.mu.Unlock()
-	if first {
+	if !o.finalizer {
+		o.finalizer = true
 		runtime.SetFinalizer(o, (*ReleaseObservation).finalize)
 	}
 	o.slots <- struct{}{}

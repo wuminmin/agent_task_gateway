@@ -351,7 +351,7 @@ func TestOrdinalDerivationUnionShortRowFailsClosed(t *testing.T) {
 	fixture := newOrdinalDerivationFixture(t, compiled.OrdinalProgram, rows)
 	visible := scanVisibleResult(t, fixture.program, rows)
 	deriver := fixture.newDeriver(t, visible, fixture.indexes())
-	if err := deriver.Row(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "branch identity") {
+	if err := derivationError(deriver, nil); err == nil || !strings.Contains(err.Error(), "branch identity") {
 		t.Fatalf("short UNION provenance row error = %v", err)
 	}
 }
@@ -370,7 +370,7 @@ func TestOrdinalDerivationFailsClosedOnHandleBoundsAndManifest(t *testing.T) {
 		deriver := fixture.newDeriver(t, visible, fixture.indexes())
 		values := fixture.provenanceValues(t, ordinalProvenanceInput{row: 0, branch: -1,
 			handle: ordinal.RowHandle(fixture.artifact.Hot.RowCount() + 1)})
-		if err := deriver.Row(context.Background(), values); err == nil || !strings.Contains(err.Error(), "unknown row handle") {
+		if err := derivationError(deriver, values); err == nil || !strings.Contains(err.Error(), "unknown row handle") {
 			t.Fatalf("unknown handle error = %v", err)
 		}
 	})
@@ -387,7 +387,7 @@ func TestOrdinalDerivationFailsClosedOnHandleBoundsAndManifest(t *testing.T) {
 			t.Fatal("HOT index omits the remap target")
 		}
 		values := remap.provenanceValues(t, ordinalProvenanceInput{row: 0, branch: -1, handle: otherHandle})
-		if err := deriver.Row(context.Background(), values); err == nil ||
+		if err := derivationError(deriver, values); err == nil ||
 			!strings.Contains(err.Error(), "does not match its provenance entity key") {
 			t.Fatalf("remapped handle error = %v", err)
 		}
@@ -981,4 +981,15 @@ func compactUnionProduct() queryplan.Product {
 		SourceNamespace:   "travel.summary", Snapshot: "snapshot-v1", StableRole: "summary", StableEntityKey: []string{"id"},
 		SnapshotPublication: "summary-publication-v1", SidecarManifestDigest: strings.Repeat("c", 64),
 	}
+}
+
+// derivationError returns the failure the deriver reports for one provenance
+// row: at Row on the row-at-a-time paths, or at Finish once the pipelined
+// path prepares and commits its batch. Either way no effect is produced.
+func derivationError(deriver *ordinalDeriver, values []any) error {
+	if err := deriver.Row(context.Background(), values); err != nil {
+		return err
+	}
+	_, err := deriver.Finish()
+	return err
 }
