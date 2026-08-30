@@ -524,6 +524,7 @@ def _rls_stats(samples):
         steps = verification["steps"]
         entry = {
             "samples": len(cell_samples),
+            "drain_p50_ms": _quantile([float(sample["client_full_drain_ms"]) for sample in cell_samples], 0.5),
             "successful_queries": verification["successful_queries"],
             "first_rejection_index": verification.get("first_rejection_index"),
             "stop_reason": verification["stop_reason"],

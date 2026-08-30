@@ -1802,6 +1802,9 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationRLSBoundedLedger}}{{{'/'.join(str(v) for v in bounded['ledger'])}}}",
         rf"\newcommand{{\FinalVFivePublicationRLSControlErrorRLS}}{{\texttt{{{tex(rls['control']['rls']['authorization_error'])}}}}}",
         rf"\newcommand{{\FinalVFivePublicationRLSControlErrorBDG}}{{\texttt{{{tex(rls['control']['bounded']['authorization_error'])}}}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSDrainRLSMS}}{{{decimal(rls['arms']['rls']['drain_p50_ms'], 0)}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSDrainUnlimitedS}}{{{decimal(rls['arms']['unlimited']['drain_p50_ms'] / 1000, 2)}}}",
+        rf"\newcommand{{\FinalVFivePublicationRLSDrainBoundedS}}{{{decimal(rls['arms']['bounded']['drain_p50_ms'] / 1000, 2)}}}",
     ])
     # Counter arms derived from the sealed trace (admission is set arithmetic).
     arms = rls["counter_arms"]

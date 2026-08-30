@@ -847,6 +847,30 @@ Query, row, or DB time & Request and resource availability & Semantic novelty or
 \section{Clearance-Accounting Obligations and Evidence}
 \label{sec:supp-clearance-accounting}
 
+The main text's accounting obligations O1--O4 read as follows.
+
+\begin{enumerate}
+\item[\textbf{O1}] \textbf{Output coverage.} Every selected cell
+$(t,a)\in R\times V$ of a successful result satisfies
+$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (Eq.~\eqref{eq:observe});
+normalization may merge equal identities, so coverage is not row count.
+\item[\textbf{O2}] \textbf{Positive dependency coverage.} $\facts_D^\pi$
+is exactly the declared inductive footprint (retained predicate fields,
+join-key annotations, group keys, complete aggregate arguments), excluding
+rejected rows and non-output pages.
+\item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
+projection splits, complete page partitions, idempotent overlaps/retries, join
+support, and root-ledger delegation cannot reduce cumulative charge; arbitrary
+SQL equivalence is not covered.
+\item[\textbf{O4}] \textbf{Probe capacity.} Each success creates one composite
+and canonical predicate atoms; exact replay reuses them, while a changed
+canonical predicate component or normalized query/result observation changes the corresponding
+identity except for collision. Zero/empty results remain outcomes; a rejected
+attempt creates none and is charged only against the request budget.
+Cardinality is governance capacity, not entropy; one atom is not one bit of
+privacy loss.
+\end{enumerate}
+
 Fix an approved root $T=(P,S,B,C)$ whose contract binds versioned profile
 $\pi$. Let $K_X(T)$ denote the decoded Fact set in the corresponding committed
 root-family head---equivalently, its accounted set. We write

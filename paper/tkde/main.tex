@@ -259,9 +259,9 @@ zero-novelty semantic replay, and a rejection that leaks a threshold bit
 bounded by the request budget; (4) signed, monotonic delegation whose
 descendants share one root-family ledger, so fan-out cannot multiply
 exposure capacity while request budgets stay per task; and (5) algebraic
-theorems, an abstract settlement-safety property sanity-checked by small
-bounded TLA+ models, and executable Go/PostgreSQL differential and
-fault-injection evidence.
+propositions, a normal-form soundness theorem, an abstract settlement-safety
+property sanity-checked by two-fact TLA+ models, and executable
+Go/PostgreSQL differential, generated-plan, and fault-injection evidence.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -278,9 +278,9 @@ protects denial
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
 reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
-Statistical-database inference control studied trackers, query-set overlap,
-and cumulative auditing
-\cite{denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
+Statistical-database inference control studied trackers, query-set size and
+overlap, and cumulative auditing
+\cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness},
 and BDG's Dependency ledger is an exact, provenance-derived, delegation- and
 publication-bound engineering of that query-set-overlap lineage, which bounds
 how many settled predicates a task gets, not inference; PINQ's cumulative
@@ -310,9 +310,13 @@ descendants in one root-head transaction; DFC asks whether a flow is allowed,
 BDG whether another allowed flow fits the cumulative contract (composition
 not evaluated).
 
-\textbf{Authorization, delegation, and agent controls.} Usage/history
-control, delegation, RLS/VPD, ABAC, and query-policy systems establish
-ongoing authority, attenuation, quotas, and rows
+\textbf{Authorization, delegation, and agent controls.} Task-based and
+purpose-based authorization scope rights to an activity or a declared purpose
+\cite{thomas1997tbac,byun2008purpose}, attenuation-only delegation is the
+macaroon model \cite{birgisson2014macaroons}, query-rewriting fine-grained
+control \cite{rizvi2004extending} is the per-query comparator for the closed
+fragment, and usage/history control, RLS/VPD, ABAC, and query-policy systems
+establish ongoing authority, quotas, and rows
 \cite{park2004ucon,abadi2003history,li2003delegation,postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}; MCP authorization
 and delegation scope capability invocation
 \cite{mcp2025auth,mcp2025tools,south2025delegation}; AgentDojo evaluates
@@ -379,11 +383,18 @@ observable: a rejected attempt reveals that its novel effect exceeded the
 remaining budget and charges only one unit of the request budget
 (Section~\ref{sec:online}), so the threshold information an agent can extract
 through rejections is bounded by that budget, summed over the approved task
-tree, not by $B_X$. Four boundaries hold at this goal: it counts declared
-identities, not inference; the Catalog tie-break keys that complete a page
-order are the only order-only fields (every \code{ORDER BY} column must be
-selected, so ordered values are Released); every approved root and every
-publication epoch has fresh capacity; and the
+tree, not by $B_X$. Four extraction patterns motivate the three budgets and
+are the ones the evaluation exercises: sweeping a Product page by page,
+bounded by $B_R$ (Section~\ref{sec:calibration}); aggregates that read far
+more base facts than a purpose warrants, bounded by $B_D$ (the adaptive
+trace); probe ladders, bounded by $B_O$ (the corpus ladder); and delegation
+fan-out, bounded by the shared root ledger (the delegated child's refusal).
+Four boundaries hold at this goal: it counts declared identities, not
+inference; the Catalog tie-break keys that complete a page order are the
+only order-only fields (every \code{ORDER BY} column must be selected, so
+ordered values are Released); every approved root and every publication
+epoch has fresh capacity, so cumulative release across days is bounded by
+the approval workflow, not by BDG; and the
 settlement decision is two data-dependent counter channels. A rejected
 attempt is a chosen membership question over unaccounted facts answered by
 one bit, charged against $B_Q$ only and never $B_O$, so rejection capacity
@@ -633,27 +644,11 @@ Six obligations separate the assurance layers (O1--O4 semantic claims, O5
 models plus transaction tests, O6 binding); none alone proves the
 implementation.
 
-\begin{enumerate}
-\item[\textbf{O1}] \textbf{Output coverage.} Every selected cell
-$(t,a)\in R\times V$ of a successful result satisfies
-$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ (Eq.~\eqref{eq:observe});
-normalization may merge equal identities, so coverage is not row count.
-\item[\textbf{O2}] \textbf{Positive dependency coverage.} $\facts_D^\pi$
-is exactly the declared inductive footprint (retained predicate fields,
-join-key annotations, group keys, complete aggregate arguments), excluding
-rejected rows and non-output pages.
-\item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
-projection splits, complete page partitions, idempotent overlaps/retries, join
-support, and root-ledger delegation cannot reduce cumulative charge; arbitrary
-SQL equivalence is not covered.
-\item[\textbf{O4}] \textbf{Probe capacity.} Each success creates one composite
-and canonical predicate atoms; exact replay reuses them, while a changed
-canonical predicate component or normalized query/result observation changes the corresponding
-identity except for collision. Zero/empty results remain outcomes; a rejected
-attempt creates none and is charged only against the request budget.
-Cardinality is governance capacity, not entropy; one atom is not one bit of
-privacy loss.
-\end{enumerate}
+The four accounting obligations---O1 output coverage, O2 positive
+dependency coverage, O3 conservation under listed rewrites, splits, pages,
+retries, and delegation, and O4 probe capacity (a rejected attempt creates
+no atom and is charged only against the request budget)---are stated in the
+supplement; the safety obligation is stated here.
 
 \begin{property}[O5: No unaccounted governed release]
 \label{prop:no-unaccounted-release}
@@ -682,7 +677,7 @@ and artifact/receipt/availability evidence must identify the same settled
 observation and intent; any mismatch fails closed, and neither a receipt
 alone nor an availability event without settlement suffices.
 
-\begin{theorem}[Outcome separation and replay]
+\begin{proposition}[Outcome separation and replay]
 \label{thm:outcome-separation}
 For successful queries in one predicate context, exact replay and supported
 equivalent rewrites produce the same atom set and composite identity and hence
@@ -691,7 +686,7 @@ changes that atom except with a SHA-256 collision; changing the complete normal
 form or result observation changes the composite except with a collision.
 Consequently related probes reuse unchanged atoms but charge each novel atom
 and novel composite exactly once, including for zero/empty answers.
-\end{theorem}
+\end{proposition}
 \emph{Proof in the supplement.}
 
 \subsection{Closed Typed Query Language}
@@ -1203,7 +1198,7 @@ RQ3 conservation under adaptive execution, delegation, and concurrency, RQ4
 ordinal/bitmap acceptance, and RQ5 daily publication and retained routing
 (RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
 uses a complete signed profile. Medians and p95 are Type-7
-quantiles over the stated samples. Passant is a semantic
+(linear-interpolation) quantiles over the stated samples. Passant is a semantic
 comparator, not a latency baseline \cite{summers2026passant}; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
@@ -1278,14 +1273,9 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSOneReleaseFacts{} Facts
 (\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells cost
 more per Fact than S2, so Release materialization is at least as expensive
-per Fact as Dependency derivation. The archived V4 run (single deployment,
-recorded source hash, not publication-class) shows what ordinals buy: the
-ordinal companion cut the novel governed query by
-\RQFourVFourNovelReductionPct\% (\RQFourVFourLegacyNovelSpeedup$\times$)
-over legacy per-Fact hashing, with settlement
-\RQFourVFourSettleMedianMS{}~ms against streaming
-\RQFourVFourOrdinalStreamMedianMS{}~ms at \RQFourVFourOracleFacts{} Facts:
-derivation, not settlement, is the cost of exactness. A sub-phase pilot at the submission commit (one deployment per
+per Fact as Dependency derivation. Settlement is not where exactness is
+paid: the Scale profile below settles against a million-Fact history in
+\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot at the submission commit (one deployment per
 profile, one sample per cell, Gateway component timers retained; not
 publication-class) splits execute-and-derive: the companion SQL takes
 \FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
@@ -1390,8 +1380,10 @@ as counted by an independent trace-union oracle (budgets
 \FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{};
 \FinalVFivePublicationRLSPerCell{} samples per arm, identical in every one).
 RLS answered all \FinalVFivePublicationRLSQueries{} queries
-(\FinalVFivePublicationRLSRowsRLS{} rows); BDG-unlimited answered all and
-its final ledger equals the oracle's union; BDG-bounded answered
+(\FinalVFivePublicationRLSRowsRLS{} rows) in
+\FinalVFivePublicationRLSDrainRLSMS{}~ms; BDG-unlimited answered all in
+\FinalVFivePublicationRLSDrainUnlimitedS{}~s and its final ledger equals the
+oracle's union; BDG-bounded answered
 \FinalVFivePublicationRLSBoundedSuccessful{},
 refused query \FinalVFivePublicationRLSBoundedRefusalIndex{}---the first
 whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
