@@ -151,7 +151,7 @@ def _attack_sample(cell: str, corpus_sha256: str) -> dict:
     novel = mode == "novel"
     steps = []
     for index, (step_id, classification, role, route, actual, charged, code) in enumerate(ATTACK_STEPS[sequence], 1):
-        rejected = classification == "expected_rejection"
+        rejected = classification == "expected_rejection" and mode != "direct"
         observed = actual if mode != "direct" else (0, 0, 0)
         charge = charged if novel else (0, 0, 0)
         step = {"index": index, "variant_id": step_id, "classification": classification, "role": role,

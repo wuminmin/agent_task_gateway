@@ -335,6 +335,10 @@ def _attack_stats(samples, corpus):
         for step, corpus_step in zip(steps, corpus_steps):
             step["task_route"] = corpus_step.get("task_route", "root")
             step["threshold"] = corpus_step.get("threshold")
+            if mode == "direct":
+                # The direct arm runs the same SQL on ungoverned PostgreSQL:
+                # nothing is charged and nothing fails closed there.
+                continue
             if corpus_step["classification"] == "expected_rejection":
                 if not step["rejected"] or step["observed_error_code"] != corpus_step["expected_error_code"]:
                     raise PublicationEvidenceError(f"attack step {cell}/{step['variant_id']} did not fail closed as preregistered")
