@@ -838,30 +838,11 @@ annotation pair $\alpha_a=(S_a,W_a)$ that expands to support and witness, the
 normalized lineage expression, and the optional materialized release fact.
 E-Scan alone displays the fully expanded base-cell 6-tuple; every other rule
 constructs each output cell explicitly, so representation closure does not rely
-on prose. Table~\ref{tab:effect-summary} retains the review-relevant accounting
-choices; the complete inference rules, auxiliary functions, NULL/empty-input
-cases, and page bounds are in the supplementary material.
+on prose. The supplement's operator table summarizes each rule's output
+construction and positive-output dependency-footprint choice; the complete
+inference rules, auxiliary functions, NULL/empty-input cases, and page bounds
+are there as well.
 
-\begin{table*}[t]
-\centering
-\caption{Main-text summary of the big-step effect. ``Row annotation'' is
-always included in the dependency set of a selected output row.}
-\label{tab:effect-summary}
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{L{0.12\textwidth}L{0.39\textwidth}L{0.42\textwidth}}
-\toprule
-Operator & Output construction & Positive-output dependency-footprint rule \\
-\midrule
-Scan & Keyed PostgreSQL bag; base cells retain typed values & Singleton base-row and base-cell FactIDs \\
-Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every predicate field to retained row annotations; projection preserves them \\
-Inner join & Every matching child-row pair at one binary fold step under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
-Union-distinct & Classes under componentwise \code{IS NOT DISTINCT FROM} & Include every candidate and every distinctness field, including hidden fields; max-merge alternative witnesses \\
-\shortstack[l]{Group/\\aggregate} & One output per key class; global empty input yields one row & Include group-key inputs and every declared aggregate argument; \code{COUNT(*)} uses member rows, and NULL/non-extreme inputs remain dependencies \\
-Page & Stable total-order slice; annotations copied & Account selected output rows only; non-output rows, rank, and order-only fields are outside the profile \\
-\bottomrule
-\end{tabular}
-\end{table*}
 
 Union is conservatively bag-aware and becomes idempotent only when its complete
 typed tuples are proven duplicate-free. Grouping/distinct equivalence is
@@ -916,8 +897,8 @@ $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \emph{Proof in the supplement.}
 
 Group-key, union-distinct, and aggregate-input completeness statements and
-proofs are given in the supplement; Table~\ref{tab:effect-summary} states
-their main effect on selected output rows.
+proofs are given in the supplement together with their effect on selected
+output rows.
 
 \subsection{Conservation Properties}
 
