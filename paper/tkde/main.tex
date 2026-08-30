@@ -385,10 +385,9 @@ order are the only order-only fields (every \code{ORDER BY} column must be
 selected, so ordered values are Released); every approved root and every
 publication epoch has fresh capacity; and the
 settlement decision is two data-dependent counter channels. A rejected
-attempt is a chosen membership question over unaccounted facts (``does this
-predicate's footprint exceed what remains?'') answered by one bit, charged
-against $B_Q$ only and never against $B_O$, so rejection capacity is
-$\sum B_Q$ over the tree (Section~\ref{sec:online}); a settled response
+attempt is a chosen membership question over unaccounted facts answered by
+one bit, charged against $B_Q$ only and never $B_O$, so rejection capacity
+is $\sum B_Q$ over the tree (Section~\ref{sec:online}); a settled response
 returns the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
@@ -1093,12 +1092,12 @@ succeeded and satisfies $|K_X|\le B_X$ for all $X\in\{R,D,O\}$; the
 property is unchanged when $K_X$ is represented by dictionary bitmaps or the
 Merkle-radix set (Propositions~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
 \end{property}
-\emph{Argument.} Induct on successful swaps in their linearization order: the
+\emph{Argument.} Induct on successful swaps in linearization order: the
 initial head is empty, each successful swap extends the head by exactly the
 effect it computed against the head it read, and the bound check precedes
-the swap. Evidence that the implementation refines this system is the
-\code{ExposureLedger} model (Section~\ref{sec:formal}) and the Control-PG
-race and fault-injection tests; neither is a mechanized refinement.
+the swap; the \code{ExposureLedger} model (Section~\ref{sec:formal}) and
+the Control-PG race and fault-injection tests are correspondence evidence,
+not a mechanized refinement.
 
 \subsection{Budget Calibration}
 \label{sec:calibration}
@@ -1347,12 +1346,12 @@ execute-and-derive (supplement table).
 
 \textbf{Scripted decompositions.} The attack profile replays a frozen,
 digest-bound corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
-\FinalVFivePublicationAttackSequences{} scripted sequences that try to obtain
+\FinalVFivePublicationAttackSequences{} sequences that try to obtain
 governed Facts twice: pages and an overlap around a complete query (both
 orders), four spellings of one predicate, a range split and its union,
 replays, and a count-probe ladder with delegation
 (\FinalVFivePublicationAttackSamples{} samples, identical per-step charges
-in every sample of a cell). Each decomposition was charged exactly
+per cell). Each decomposition was charged exactly
 its complete query's Facts once
 (\FinalVFivePublicationAttackPaginationReleaseFacts{}/\FinalVFivePublicationAttackPaginationDependencyFacts{}
 Result/Dependency Facts for the six-step pagination sequence in either
@@ -1397,13 +1396,12 @@ budgets are compared by admission arithmetic over the oracle's per-query
 fact sets (derived from the sealed samples, not a separate run): a row
 budget of \FinalVFivePublicationCounterRowBudget{} and a query budget of
 \FinalVFivePublicationCounterSetAdmitted{}, calibrated to refuse at query
-\FinalVFivePublicationRLSBoundedRefusalIndex{}, admit the same queries and
-release the same \FinalVFivePublicationCounterSetReleased{} Facts as the set
-ledger in the trace's order, but replayed novelty-first they release the
-whole union (\FinalVFivePublicationPermutedRowReleased{}) while the set
-ledger still releases \FinalVFivePublicationPermutedSetReleased{}: a
-counter's release bound depends on query order, the set ledger's does not
-(supplement table).
+\FinalVFivePublicationRLSBoundedRefusalIndex{}, match the set ledger in the
+trace's order (\FinalVFivePublicationCounterSetReleased{} Facts released)
+but release the whole union (\FinalVFivePublicationPermutedRowReleased{})
+when the same queries run novelty-first, while the set ledger still
+releases \FinalVFivePublicationPermutedSetReleased{}: a counter's release
+bound depends on query order, the set ledger's does not (supplement table).
 
 \begin{figure}[t]
 \centering
@@ -1474,9 +1472,9 @@ is generalized to cold-cache, multi-node, or production-SLO behavior.
 \textbf{Semantic and subject scope.} Outcome atoms and composites are
 governance units, not bits; BDG omits rejected rows, non-output groups/pages,
 rank-only inputs, timing, correlations, background knowledge, and physical
-reads, and provides neither minimal causality nor differential privacy;
-Section~\ref{sec:model} states the refusal-bit, ledger-visibility, and
-fresh-capacity boundaries. \textbf{Query and identity scope.} Evidence uses
+reads, and provides neither minimal causality nor differential privacy
+(Section~\ref{sec:model} states the counter-channel and fresh-capacity
+boundaries). \textbf{Query and identity scope.} Evidence uses
 frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries, and it is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
