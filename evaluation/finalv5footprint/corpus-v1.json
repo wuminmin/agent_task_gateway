@@ -1,1 +1,308 @@
-{}
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-footprint-ladder-corpus-v1",
+  "source_namespace": "final_v5.result_heavy",
+  "snapshot": "final-v5-result-heavy-2026-v1",
+  "dataset_rows": 100000,
+  "bounded_max_dependency_facts": 400,
+  "bounded_max_release_facts": 16,
+  "bounded_max_outcome_facts": 16,
+  "rungs": [
+    {
+      "index": 1,
+      "id": "rung-01-100x1",
+      "rows": 100,
+      "columns": [
+        "amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "799819/2"
+      ],
+      "dependency": {
+        "cardinality": 400,
+        "set_sha256": "6ee77a68e338564727045d7a686322f386527ce393960d8648376dc928aa7a0e"
+      },
+      "release": {
+        "cardinality": 1,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": false
+    },
+    {
+      "index": 2,
+      "id": "rung-02-100x2",
+      "rows": 100,
+      "columns": [
+        "amount",
+        "quantity"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "799819/2",
+        "5050"
+      ],
+      "dependency": {
+        "cardinality": 500,
+        "set_sha256": "40ed7cf27908362505c7985e3ca96daaf7f263caa23395b501ecb7c6782e1481"
+      },
+      "release": {
+        "cardinality": 2,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 3,
+      "id": "rung-03-100x4",
+      "rows": 100,
+      "columns": [
+        "amount",
+        "quantity",
+        "unit_price",
+        "tax_amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "799819/2",
+        "5050",
+        "9577629/200",
+        "7511/5"
+      ],
+      "dependency": {
+        "cardinality": 700,
+        "set_sha256": "5014504d0cd81efdcdc201208806a0b1877b8dc0953f4fcc6ca1ad654a81a126"
+      },
+      "release": {
+        "cardinality": 4,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 4,
+      "id": "rung-04-1000x1",
+      "rows": 1000,
+      "columns": [
+        "amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 1000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "39634595"
+      ],
+      "dependency": {
+        "cardinality": 4000,
+        "set_sha256": "ef922d35b47184c8c563d81113395202ef9c31d81f1a28a2c1cecb9cd2590d5d"
+      },
+      "release": {
+        "cardinality": 1,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 5,
+      "id": "rung-05-1000x2",
+      "rows": 1000,
+      "columns": [
+        "amount",
+        "quantity"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 1000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "39634595",
+        "500500"
+      ],
+      "dependency": {
+        "cardinality": 5000,
+        "set_sha256": "2c155bb85fba5779be98d297a92603cd26e05f824b9702e8648ba9ca00575548"
+      },
+      "release": {
+        "cardinality": 2,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 6,
+      "id": "rung-06-1000x4",
+      "rows": 1000,
+      "columns": [
+        "amount",
+        "quantity",
+        "unit_price",
+        "tax_amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 1000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "39634595",
+        "500500",
+        "9733729/20",
+        "1518517/10"
+      ],
+      "dependency": {
+        "cardinality": 7000,
+        "set_sha256": "785d06890c02c2c431b98035f7e44613c0769b80f2ade805615e83ac7bb4a6f5"
+      },
+      "release": {
+        "cardinality": 4,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 7,
+      "id": "rung-07-10000x1",
+      "rows": 10000,
+      "columns": [
+        "amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 10000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "3959895950"
+      ],
+      "dependency": {
+        "cardinality": 40000,
+        "set_sha256": "7d96a1fb34c5330169737df525e8715029bd1c6adfef22fb5bde6c1cd394cf56"
+      },
+      "release": {
+        "cardinality": 1,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 8,
+      "id": "rung-08-10000x2",
+      "rows": 10000,
+      "columns": [
+        "amount",
+        "quantity"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 10000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "3959895950",
+        "50005000"
+      ],
+      "dependency": {
+        "cardinality": 50000,
+        "set_sha256": "1c4264f316c2fbb58fac04bb2aedf47eaa52e443993919bce513848325380d2c"
+      },
+      "release": {
+        "cardinality": 2,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 9,
+      "id": "rung-09-10000x4",
+      "rows": 10000,
+      "columns": [
+        "amount",
+        "quantity",
+        "unit_price",
+        "tax_amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 10000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "3959895950",
+        "50005000",
+        "9980729/2",
+        "151351867/10"
+      ],
+      "dependency": {
+        "cardinality": 70000,
+        "set_sha256": "687fda1120f5ad75fe35e19fdb4aab8090ab62619a7db6e7186a233aefda6e10"
+      },
+      "release": {
+        "cardinality": 4,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 10,
+      "id": "rung-10-100000x1",
+      "rows": 100000,
+      "columns": [
+        "amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "49529959500"
+      ],
+      "dependency": {
+        "cardinality": 400000,
+        "set_sha256": "d3a015979f7f1a8b3db4f6db4516c243cef0946403615d0f4351a23575d9ecff"
+      },
+      "release": {
+        "cardinality": 1,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 11,
+      "id": "rung-11-100000x2",
+      "rows": 100000,
+      "columns": [
+        "amount",
+        "quantity"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "49529959500",
+        "500050000"
+      ],
+      "dependency": {
+        "cardinality": 500000,
+        "set_sha256": "ad4f92dbbc7bd82898fa4268c3280cacbd631446e35b800561d3016117cc0909"
+      },
+      "release": {
+        "cardinality": 2,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    },
+    {
+      "index": 12,
+      "id": "rung-12-100000x4",
+      "rows": 100000,
+      "columns": [
+        "amount",
+        "quantity",
+        "unit_price",
+        "tax_amount"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount\nFROM final_v5_benchmark.result_heavy\nWHERE row_id \u003c= 100000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+      "expected_scalars": [
+        "49529959500",
+        "500050000",
+        "49993645",
+        "3858651367/10"
+      ],
+      "dependency": {
+        "cardinality": 700000,
+        "set_sha256": "61495236d3b93450cd578d0cede889d4a2476467e73ecbdbc3ed17969fdab4e6"
+      },
+      "release": {
+        "cardinality": 4,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 5,
+      "bounded_refused": true
+    }
+  ]
+}
