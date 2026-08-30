@@ -301,26 +301,22 @@ persistent flow state spans steps, tasks, and services outside BDG's scope.
 BDG instead specializes in typed SQL facts, same-snapshot evidence, and exact
 profile-relative settlement per root.
 
-\textbf{History and pricing.} Auditing reconstructs access or whether a history
-determines forbidden data; simulatable auditing also protects denial
-\cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable}.
-Query-pricing systems study determinacy, history, aggregation, and information
-gain \cite{koutris2012query,deep2017qirana,peng2025aria}. BDG instead charges
-declared facts and successful outcomes within one signed root and withholds
-delivery unless settlement succeeds; it models neither prior knowledge nor
-denial leakage.
-Unlike DP accounting and answer reuse
-\cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}, it releases
-exact answers and claims no $\epsilon$ guarantee.
-
-\textbf{Provenance.} Why/where/how provenance identifies witnesses, locations,
-and algebraic derivations
-\cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance};
-aggregation needs value-level treatment \cite{amsterdamer2011aggregate}.
-GProM and ProvSQL provide broader rewrite/circuit mechanisms
-\cite{arab2018gprom,senellart2018provsql,sen2026provsql}. BDG claims no new
-general provenance algebra; it co-generates typed effects and answers for a
-positive fragment, then settles cumulative novelty before release.
+\textbf{History, pricing, and provenance.} Auditing reconstructs access or
+whether a history determines forbidden data, and simulatable auditing also
+protects denial
+\cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable};
+query pricing studies determinacy, history, and information gain
+\cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
+reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
+BDG charges declared facts and successful outcomes within one signed root,
+withholds delivery unless settlement succeeds, releases exact answers, and
+models neither prior knowledge, denial leakage, nor $\epsilon$.
+Why/where/how provenance identifies witnesses, locations, and derivations
+\cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance,amsterdamer2011aggregate},
+and GProM and ProvSQL provide general rewrite/circuit mechanisms
+\cite{arab2018gprom,senellart2018provsql,sen2026provsql}; BDG claims no new
+provenance algebra but co-generates typed effects with answers for a positive
+fragment and settles cumulative novelty before release.
 
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
@@ -337,22 +333,19 @@ audit, receipt, and PENDING intent in one root-head transaction. DFC asks
 whether a flow is allowed; BDG asks whether another allowed flow fits the
 cumulative contract. Their composition is not evaluated here.
 
-\textbf{Authorization and delegation.} Usage/history control, delegation,
-RLS/VPD, ABAC/XACML, and query-policy systems establish ongoing authority,
-attenuation, quotas, operations, and rows
+\textbf{Authorization, delegation, and agent controls.} Usage/history
+control, delegation, RLS/VPD, ABAC, and query-policy systems establish
+ongoing authority, attenuation, quotas, and rows
 \cite{park2004ucon,abadi2003history,li2003delegation,chadwick2008permis,
-postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}.
-BDG assumes that boundary, then makes every descendant settle against one
-root ledger; distributed vouchers remain outside its centralized prototype.
-
-\textbf{Agent controls.} MCP authorization and delegation scope capability
-invocation \cite{mcp2025auth,mcp2025tools,south2025delegation}; AgentDojo
-evaluates model/tool behavior under prompt injection
-\cite{debenedetti2024agentdojo}. BDG treats the agent and generated SQL as
-untrusted, but neither sanitizes result strings nor tracks later prompt/tool
-flows. SafeNLIDB uses interaction history for model-side inference-risk
-assessment and SQL generation \cite{liu2026safenlidb}; it is not a deterministic
-database-side FactID ledger, while BDG claims no inference safety.
+postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}; MCP authorization
+and delegation scope capability invocation
+\cite{mcp2025auth,mcp2025tools,south2025delegation}, AgentDojo evaluates
+model behavior under prompt injection \cite{debenedetti2024agentdojo}, and
+SafeNLIDB assesses inference risk on the model side
+\cite{liu2026safenlidb}. BDG assumes the authorization boundary, makes every
+descendant settle against one root ledger, treats the agent and its SQL as
+untrusted, and claims neither result sanitization, prompt/tool flow tracking,
+nor inference safety.
 
 \textbf{Governed data products over MCP.} Data Product MCP
 \cite{tonnarelli2026dataproductmcp} and the access-request assistant it builds
@@ -994,19 +987,15 @@ aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
 builder, which emits the multi-way join operator (\code{JoinMany} in the
-implementation) and the deterministic binary SQL/effect fold. Accepted topology and parenthesization are otherwise
-unrestricted within the bound; unsupported joins, set trees, and pagination
-fail closed. Callers cannot supply roles, SQL fragments, FactIDs, or
-provenance.
-
-For semantic Views, one catalog snapshot checks exact definitions,
-type/collation interfaces, and dependency edges, expands safe acyclic Views to
-Catalog-mapped materialized leaves, and emits the same core. Four digests bind
-root definition, dependency closure, canonical plan, and public interface into
-the Grant and query. Recompilation plus a same-snapshot connector check detects
-drift and requires a new approval. Execution resolves stable outputs and
-least-privilege terminal scopes before reservation. Expansion guards and
-lowering rules are supplemental.
+implementation) and the deterministic binary SQL/effect fold; unsupported
+joins, set trees, and pagination fail closed, and callers cannot supply roles,
+SQL fragments, FactIDs, or provenance. For semantic Views, one catalog
+snapshot checks exact definitions, interfaces, and dependency edges, expands
+safe acyclic Views to Catalog-mapped materialized leaves, and emits the same
+core; four digests (root definition, dependency closure, canonical plan,
+public interface) bind into the Grant and query, recompilation plus a
+same-snapshot connector check detects drift and requires a new approval, and
+execution resolves least-privilege terminal scopes before reservation.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
 
