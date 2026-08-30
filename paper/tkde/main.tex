@@ -144,11 +144,10 @@ result exposure} identifies selected result values (wire label \emph{release});
 accounting can precede availability. The \emph{positive-output dependency
 footprint} identifies the base facts the declared rules read---neither minimal
 causes nor all physical reads, and not order-only fields---so a one-cell
-aggregate can expose large input.
-\emph{Query outcome} combines canonical predicate atoms with one normalized
-query/result composite. Existing set members add zero novelty: related
-thresholds reuse shared atoms but charge different literals/composites, while
-exact replay remains free.
+aggregate can expose large input. \emph{Query outcome} combines canonical
+predicate atoms with one normalized query/result composite. Existing members
+add zero novelty: related thresholds reuse shared atoms but charge different
+literals/composites, while exact replay remains free.
 
 The system follows a withhold-before-settlement discipline
 (\code{reserve -> replay lookup / execute+stream -> derive -> settle -> publish}):
@@ -268,8 +267,6 @@ per task and bound only that task's probing.
 sanity-checked by small bounded TLA+ models, and executable Go/PostgreSQL
 differential and fault-injection evidence.
 \end{enumerate}
-Section~\ref{sec:limits} states the closed-language, cross-root, denial,
-privacy, and deployment boundaries.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -327,16 +324,15 @@ ongoing authority, attenuation, quotas, and rows
 \cite{park2004ucon,abadi2003history,li2003delegation,chadwick2008permis,
 postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}; MCP authorization
 and delegation scope capability invocation
-\cite{mcp2025auth,mcp2025tools,south2025delegation}, AgentDojo evaluates
-model behavior under prompt injection \cite{debenedetti2024agentdojo}, and
-SafeNLIDB assesses inference risk on the model side
-\cite{liu2026safenlidb}. Provenance-based access control decides access from
-provenance \cite{park2012pbac}, and CaMeL confines an agent's data flows by
-capabilities at the tool layer \cite{debenedetti2025camel}; both decide
-admission, not cumulative release. BDG assumes the authorization boundary, makes every
-descendant settle against one root ledger, treats the agent and its SQL as
-untrusted, and claims neither result sanitization, prompt/tool flow tracking,
-nor inference safety.
+\cite{mcp2025auth,mcp2025tools,south2025delegation}; AgentDojo evaluates
+model behavior under prompt injection \cite{debenedetti2024agentdojo} and
+SafeNLIDB inference risk on the model side \cite{liu2026safenlidb};
+provenance-based access control \cite{park2012pbac} and CaMeL's tool-layer
+capabilities \cite{debenedetti2025camel} decide admission, not cumulative
+release. BDG assumes the authorization boundary, makes every descendant
+settle against one root ledger, treats the agent and its SQL as untrusted,
+and claims neither result sanitization, prompt/tool flow tracking, nor
+inference safety.
 
 \textbf{Governed data products over MCP.} Data Product MCP
 \cite{tonnarelli2026dataproductmcp} and the assistant it builds on
@@ -1451,16 +1447,14 @@ is generalized to cold-cache, multi-node, or production-SLO behavior.
 \textbf{Semantic and subject scope.} Outcome atoms and composites are
 governance units, not bits; BDG omits rejected rows, non-output groups/pages,
 rank-only inputs, timing, correlations, background knowledge, and physical
-reads, and provides neither minimal causality nor differential privacy.
-Refusal leaks a threshold bit charged only against the request budget, and
+reads, and provides neither minimal causality nor differential privacy;
+refusal leaks a threshold bit charged only against the request budget, and
 every approved root or publication has fresh capacity absent external
-principal/tenant policy.
-
-\textbf{Query and identity scope.} Evidence uses frozen, manifest-proven
-publications; the closed fragment fails closed on richer joins, sets,
-paging, negation, recursion, and subqueries; materialized Views are opaque
-leaves; stable keys and publications are trusted declarations; View drift is
-checked at request, approval, and execution.
+principal/tenant policy. \textbf{Query and identity scope.} Evidence uses
+frozen, manifest-proven publications; the closed fragment fails closed on
+richer joins, sets, paging, negation, recursion, and subqueries; materialized
+Views are opaque leaves; stable keys and publications are trusted
+declarations; View drift is checked at request, approval, and execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
@@ -1494,11 +1488,10 @@ or live-agent performance.
 Dependency, and Outcome sets within one publication-bound root family;
 theorems, bounded models, and executable tests support the scoped safety
 claim that no governed artifact becomes \code{AVAILABLE} before atomic
-root-family settlement (Section~\ref{sec:limits} states the scope).
-
-BDG is a task-to-data release layer for existing data estates, not another
-lake or agent framework: it makes an approved policy enforceable as
-autonomous querying unfolds, without deciding what that policy should be.
+root-family settlement (Section~\ref{sec:limits} states the scope). BDG is a
+task-to-data release layer for existing data estates, not another lake or
+agent framework: it makes an approved policy enforceable as autonomous
+querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
