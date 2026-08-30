@@ -1002,23 +1002,20 @@ lowering rules are supplemental.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
 
-The publication compiler turns each frozen snapshot into immutable per-row/per-field segments,
-sorting full Fact hashes and assigning 32-bit ordinals. A sidecar maps attested
-entity keys to ordinals; the hot artifact keeps this map and verified hashes,
-while canonical payloads remain content addressed and cold. One manifest binds
-snapshot, schemas, sidecar, dictionaries, versions, type/collation contracts,
-and digests; any collision or count/canonicality mismatch blocks publication.
-
-The online compiler emits visible SQL and an ordinal companion in one read-only
-\code{REPEATABLE READ} transaction. The visible
-result is buffered; the ordered companion retains every dependency required by
-join, union, group, and aggregate rules.
-
-The engine keeps current-group support, sparse extra multiplicities, and query
-bitmaps. A k-way hash merge reproduces the algebraic witness commitment;
-Release/dependency use segmented Roaring bitmaps, while Outcome hashes enter
-an exact Merkle radix set. Invalid handles, manifests, encodings, overflow, or
-truncation fail closed. The materialized algebra remains the oracle.
+The publication compiler turns each frozen snapshot into immutable
+per-row/per-field segments, sorting full Fact hashes and assigning 32-bit
+ordinals; a sidecar maps attested entity keys to ordinals, the hot artifact
+keeps that map and verified hashes, canonical payloads stay content addressed
+and cold, and one manifest binds snapshot, schemas, sidecar, dictionaries,
+versions, type/collation contracts, and digests, so any collision or
+canonicality mismatch blocks publication. Online, the compiler emits visible
+SQL and an ordinal companion in one read-only \code{REPEATABLE READ}
+transaction; the buffered companion retains every dependency the join, union,
+group, and aggregate rules require, a k-way hash merge reproduces the witness
+commitment, Release/Dependency use segmented Roaring bitmaps, and Outcome
+hashes enter an exact Merkle radix set. Invalid handles, manifests, encodings,
+overflow, or truncation fail closed; the materialized algebra remains the
+oracle.
 
 For each segment, publication defines a FactID--ordinal bijection $D_j$;
 portable Roaring compression changes representation, not membership
@@ -1153,22 +1150,15 @@ exposure capacity. A child that signs a lower exposure ceiling may add novel
 facts only while the shared family total remains within that ceiling; a
 zero-novelty replay remains admissible.
 
-This conservation scope stops at the root boundary. A second root task for the
-same principal has an independent ledger and therefore a fresh budget if a
-human approves it. The prototype has no principal-, tenant-, or organization-
-wide exposure ledger, so neither delegation monotonicity nor the theorem below
-prevents cross-root accumulation.
-
-The boundary also stops at a publication epoch. The ledger subject is the pair
-$(T,P_e)$, not a permanent model of the user's knowledge. A new $P_{e+1}$ is
-available only to a newly approved root with a new ledger; an existing root
-continues against $P_e$ through a retained version route (or fails closed if
-that route is unavailable), and its ledger is neither copied nor migrated. Because
-snapshot identity is part of FactID identity, unchanged business content may
-be accounted again after independent approval in $P_{e+1}$. This conservative
-choice deliberately avoids cross-publication deduplication. Such accounting
-would require a principal- or tenant-wide semantic identity and policy, outside
-the task-scoped guarantee.
+Conservation stops at the root and at the publication epoch. A second root for
+the same principal, or a root approved on $P_{e+1}$, has an independent ledger
+and a fresh budget; the prototype has no principal-, tenant-, or
+organization-wide ledger, an existing root continues against $P_e$ through a
+retained version route or fails closed, and, because snapshot identity is part
+of FactID identity, unchanged business content may be accounted again under
+$P_{e+1}$. Cross-root and cross-publication deduplication would require a
+principal- or tenant-wide semantic identity and policy outside the task-scoped
+guarantee.
 
 Because Definition~\ref{def:task-exposure} sums over the queries that
 settled, the identity below is not the content of the theorem; the content is
@@ -1437,22 +1427,20 @@ cold-cache, multi-node, or production-SLO behavior.
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic and subject scope.} Outcome atoms and composites are governance
-units, not bits or an inference decomposition. BDG omits rejected rows,
-non-output groups/pages, rank-only inputs, timing, correlations, background
-knowledge, and physical reads; it provides neither minimal causality nor
-differential privacy. Refusal leaks an uncharged threshold bit. Every approved
-root or publication has fresh capacity absent external principal/tenant policy;
-BDG does not deduplicate durable knowledge.
+\textbf{Semantic and subject scope.} Outcome atoms and composites are
+governance units, not bits; BDG omits rejected rows, non-output groups/pages,
+rank-only inputs, timing, correlations, background knowledge, and physical
+reads, and provides neither minimal causality nor differential privacy.
+Refusal leaks a threshold bit charged only against the request budget, and
+every approved root or publication has fresh capacity absent external
+principal/tenant policy.
 
 \textbf{Query and identity scope.} Evidence uses frozen, manifest-proven
-publications, not mutable transactional sources or active-root migration. The
-stated Product/join/union/View fragment is closed; richer joins, sets, paging,
-negation, recursion, and subqueries fail closed, while materialized Views are
-opaque leaves. Stable keys and publications remain trusted administrator
-declarations. View drift is checked at request, approval, and execution rather
-than continuously; rebind is not general equivalence or enterprise-scale
-discovery.
+publications, not mutable sources or active-root migration; the closed
+fragment fails closed on richer joins, sets, paging, negation, recursion, and
+subqueries, materialized Views are opaque leaves, stable keys and publications
+are trusted declarations, and View drift is checked at request, approval, and
+execution rather than continuously.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
 validates structural and version bindings for administrator-attested identities,
