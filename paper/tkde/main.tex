@@ -158,7 +158,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.62\textwidth}{!}{%
+\resizebox{0.58\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -238,9 +238,9 @@ Our unsubmitted SessionBound working manuscript, available as a preliminary
 preprint, introduced the task-scoped authorization substrate
 \cite{wu2026sessionbound}: a control plane that turns an approved task into a
 signed, budgeted, auditable database session with safe views, row scope,
-denied fields, operation limits, per-session counters, and receipts; it has
-not been accepted or submitted to TDSC. Everything that makes the budget a set
-rather than a counter is new here: the typed FactID semantics and closed
+denied fields, operation limits, per-session counters, and receipts (not
+accepted or submitted to TDSC). Everything that makes the budget a set rather
+than a counter is new here: the typed FactID semantics and closed
 algebra, the same-snapshot ordinal companion and bitmap/Merkle-radix ledgers,
 canonical Outcome atoms and composites, exact novelty with atomic
 three-budget settlement before \code{AVAILABLE}, root-family delegation
@@ -955,9 +955,8 @@ SQL and an ordinal companion in one read-only \code{REPEATABLE READ}
 transaction; the buffered companion retains every dependency the join, union,
 group, and aggregate rules require, a k-way hash merge reproduces the witness
 commitment, Release/Dependency use segmented Roaring bitmaps, and Outcome
-hashes enter an exact Merkle-radix set. Invalid handles, manifests, encodings,
-overflow, or truncation fail closed; the materialized algebra remains the
-oracle. For each segment, publication defines a FactID--ordinal bijection
+hashes enter an exact Merkle-radix set; invalid handles, manifests, encodings,
+overflow, or truncation fail closed. For each segment, publication defines a FactID--ordinal bijection
 $D_j$; portable Roaring compression changes representation, not membership
 \cite{chambi2016roaring}.
 
@@ -1096,15 +1095,15 @@ the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
 
-Conservation stops at the root and at the publication epoch. A second root for
-the same principal, or a root approved on $P_{e+1}$, has an independent ledger
-and a fresh budget, so two approved roots on one Product double its capacity; the prototype has no principal-, tenant-, or
-organization-wide ledger, an existing root continues against $P_e$ through a
-retained version route or fails closed, and, because snapshot identity is part
-of FactID identity, unchanged business content may be accounted again under
-$P_{e+1}$. Cross-root and cross-publication deduplication would require a
-principal- or tenant-wide semantic identity and policy outside the task-scoped
-guarantee.
+Conservation stops at the root and at the publication epoch: a second root
+for the same principal, or a root approved on $P_{e+1}$, has an independent
+ledger and a fresh budget, so two approved roots on one Product double its
+capacity; there is no principal-, tenant-, or organization-wide ledger, an
+existing root continues against $P_e$ through a retained route or fails
+closed, and because snapshot identity is part of FactID identity, unchanged
+content may be accounted again under $P_{e+1}$. Cross-root and
+cross-publication deduplication would need a tenant-wide semantic identity
+outside the task-scoped guarantee.
 
 Because Definition~\ref{def:task-exposure} sums over the queries that
 settled, $K_X(T)=E_X(T,Q)$ is not itself a theorem. The claim is a safety
@@ -1209,14 +1208,13 @@ configurations---the ledger model has one root and one child, two requests,
 two facts per dimension, limits $1/1/2$, and one replay
 (\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
 explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
-\ArtifactFormalStates{} states (bounds in the supplement). They are sanity
-checks that start after compilation and abstract away SQL, rows, hashes,
-signatures, networking, and ciphertext. Executable Go/PostgreSQL differential,
-concurrency, tamper, and fault-injection tests check implementation
-correspondence, including radix partitioning and object reuse; the
-supplement maps the layers and their gaps. We claim bounded model checking
-plus implementation evidence, not a mechanized refinement or a verified
-system.
+\ArtifactFormalStates{} states (bounds in the supplement); they start after
+compilation and abstract away SQL, rows, hashes, signatures, networking, and
+ciphertext. Executable Go/PostgreSQL differential, concurrency, tamper, and
+fault-injection tests check implementation correspondence, including radix
+partitioning and object reuse (the supplement maps the layers and gaps). We
+claim bounded model checking plus implementation evidence, not a mechanized
+refinement or a verified system.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1251,12 +1249,10 @@ requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, each deterministic and as a PostgreSQL race test)
 covers split, page, retry, snapshot identity, joins/unions, delegation, and
 races; RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
-across \RQFiveTransitions{} transitions, and the campaign's RQ5 cells
-rebuild, verify, and activate a \FinalVFivePublicationRQFiveRows{}-row
-publication in \FinalVFivePublicationRQFiveBuildS{}~s p50 (max
-\FinalVFivePublicationRQFiveBuildMaxS{}~s) and route a retained one in
-\FinalVFivePublicationRQFiveRouteS{}~s (\FinalVFivePublicationRQFiveSamplesPerCell{}
-samples each); Outcome regressions cover empty
+across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
+and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
+\FinalVFivePublicationRQFiveBuildS{}~s p50 and route a retained one in
+\FinalVFivePublicationRQFiveRouteS{}~s); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding; the supplement's broad-SQL
 stress test checks row equality only, and its evidence table labels the
 source state (regenerated, archived, or sealed campaign) of every line.
@@ -1391,7 +1387,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.33\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.3\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
@@ -1455,10 +1451,9 @@ and raw file. Across the three executions the per-execution
 novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
-\FinalVFivePublicationConcurrencySpreadMaxPct\%). The retained pilot runs
-(commit \FinalVFivePilotArtifactCommit{}) are non-publication mechanism
-evidence cited only in the supplement. One residual freedom lies outside the
-mechanism: an Adapter may open several measurement windows and submit only
+\FinalVFivePublicationConcurrencySpreadMaxPct\%); the retained pilot
+(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement. One
+residual freedom lies outside the mechanism: an Adapter may open several measurement windows and submit only
 one; the protocol forbids that, and every retained sample is the single
 window it allowed. RQ1--RQ3 use small fixtures;
 ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
@@ -1482,10 +1477,10 @@ declarations; View drift is checked at request, approval, and execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
-(RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per Fact
-(supplement phase table); a $10^9$-Fact Product would need hundreds
-of gigabytes and hours per build and per global aggregate, so the evaluated
-envelope is $10^5$--$10^6$-row reporting Products.
+(RQ5 Day~0, \RQFiveFacts{} Facts) and derivation microseconds per Fact; a
+$10^9$-Fact Product would need hundreds of gigabytes and hours per build and
+per global aggregate, so the evaluated envelope is $10^5$--$10^6$-row
+reporting Products.
 
 \textbf{Throughput scope.} Every settlement of a root family serializes on
 its head; same-root throughput falls from
