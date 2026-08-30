@@ -1466,6 +1466,9 @@ def main(argv: list[str] | None = None) -> None:
     # publication_eligible=false, so the manuscript names their class wherever
     # it uses them and never calls them a completed publication campaign.
     pilot_artifact = pilot["artifact"]
+    pilot_baseline = pilot["baseline"]
+    pilot_s_one = pilot_baseline["cell_medians"]["S1/SF10"]
+    pilot_s_two = pilot_baseline["cell_medians"]["S2/SF10"]
     # Sub-phase pilot (profile-campaign pilot with Gateway component_ms retained):
     # atomic component medians of the novel arm for the three discussed cells.
     # ordinal_stream = provenance_postgresql + ordinal_stream_consumer and
