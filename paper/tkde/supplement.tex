@@ -620,6 +620,36 @@ Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
 \end{tabular}
 \end{table}
 
+\section{Number-to-Evidence Map}
+\label{sec:number-map-supp}
+
+Table~\ref{tab:number-map-supp} maps every group of reported numbers to the
+commit it was measured at, the retained file it is recomputed from, and the
+command that regenerates it. Every macro in the manuscript is emitted by
+\code{paper/tkde/generate_evidence.py}, which fails closed when a file, digest,
+or commit binding disagrees.
+
+\begin{table}[h]
+\centering
+\caption{Reported number groups, their commits, retained files, and regeneration commands.}
+\label{tab:number-map-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.16\textwidth}L{0.17\textwidth}L{0.34\textwidth}L{0.26\textwidth}}
+\toprule
+Numbers & Commit & Retained file(s) & Regeneration \\
+\midrule
+RQ1--RQ3 (Table 2) & repository head & \code{evaluation/exposure/results.json}, \code{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
+RQ4 archived ordinal/bitmap & recorded in \code{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \code{evaluation/exposure-performance/results.json}, \code{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
+RQ5 publication and routing & repository head & \code{evaluation/daily-publication/evidence/}, \code{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
+V5 outcome-set regressions & \VFiveImplementationCommit{} & \code{evaluation/v5-outcome/evidence.json}, \code{raw/go-test.jsonl}, \code{compose-receipt.json} & \code{scripts/record-compose-e2e.sh} \\
+Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \code{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \code{campaign-evidence.json}, \code{deployments/*/raw/*.jsonl} & \code{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
+Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \code{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
+TLC (Table VI) & repository head & \code{formal/results/*.json}, \code{*.log} & \code{make formal} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Ordinal/Bitmap Refinement}
 
 For each immutable dictionary segment $j$, the publication compiler checks a

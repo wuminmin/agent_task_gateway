@@ -72,14 +72,16 @@ profile-defined effects: accounted result facts, conservative positive-output
 dependency facts, and canonical query outcomes. A visible query and its
 provenance companion share one PostgreSQL snapshot. Before release, BDG
 computes profile-relative exact set novelty against the root-family ledger and
-atomically settles all three budgets. No modeled artifact becomes retrievable before
-settlement; failed promotion remains recoverable without re-executing the
-business query. The admitted positive relational fragment supports connected
+atomically settles all three budgets, so within one root family on one
+publication epoch no more than the approved number of distinct facts of each
+kind can become retrievable; a rejected attempt reveals only a threshold bit
+bounded by the request budget. Failed promotion remains recoverable without
+re-executing the business query. The admitted positive relational fragment supports connected
 inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
 ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
 represent cumulative effects. Paper theorems, bounded model checking, and
-executable PostgreSQL differential and fault-injection tests validate the
-scoped semantics and protocol. BDG targets periodic governed reporting
+executable PostgreSQL differential and fault-injection tests support the
+scoped semantics and protocol without proving the implementation. BDG targets periodic governed reporting
 products and measures neither an agent's knowledge nor differential privacy.
 \end{abstract}
 
@@ -245,7 +247,7 @@ offline publication from this online path.
 \end{tikzpicture}
 }
 \caption{BDG uses publication-time ordinals for frozen Release/dependency
-facts and an exact Merkle radix set for Outcome atom/composite hashes.
+facts and an exact Merkle-radix set for Outcome atom/composite hashes.
 Root-family accounting is atomic; Parquet publication is recoverable and
 fail-closed between PENDING and AVAILABLE.
 A cache hit reuses only a committed
@@ -274,14 +276,16 @@ Dependency, and canonical-atom/composite Outcome sets in a restricted algebra.
 \item A same-snapshot ordinal companion for admitted one-Product, connected
 2--16-role equijoins, two-branch union, grouping, and aggregates; bounded nested
 Views flatten into this same core.
-\item Profile-relative exact novelty and atomic three-budget settlement,
-refined by immutable ordinal dictionaries, compressed bitmaps, and an exact
-Merkle-radix Outcome set; settlement precedes \code{AVAILABLE}, and semantic
-replay is zero-novelty.
+\item Profile-relative exact novelty and atomic three-budget settlement per
+root family and publication epoch, refined by immutable ordinal dictionaries,
+compressed bitmaps, and an exact Merkle-radix Outcome set; settlement precedes
+\code{AVAILABLE}, semantic replay is zero-novelty, and rejection leaks a
+threshold bit bounded by the request budget.
 \item Signed, monotonic delegation whose descendants share one root-family
 ledger, preventing task-tree fan-out from multiplying capacity.
-\item Separate algebraic theorems, bounded TLA+ safety models, and executable
-Go/PostgreSQL differential and fault-injection evidence.
+\item Algebraic theorems, an abstract settlement-safety property with bounded
+TLA+ models, and executable Go/PostgreSQL differential and fault-injection
+evidence.
 \end{enumerate}
 
 Section~\ref{sec:limits} makes the closed-language, cross-root, denial,
@@ -387,8 +391,8 @@ Explicit non-goal in this comparison \\
 does the next release fit the budget? & One signed, publication-bound root
 family; descendants share its persistent ledger & One three-dimensional
 root-head CAS co-commits ledger, audit, receipt, and PENDING intent; availability
-is recoverable & Closed read-only reporting fragment: SPJG, JoinMany, bounded
-Union/View DAGs & No per-query DFC resolution, writes, prompt/cross-tool IFC,
+is recoverable & Closed read-only reporting fragment: SPJG, multi-way
+equijoin, bounded Union/View DAGs & No per-query DFC resolution, writes, prompt/cross-tool IFC,
 DP, or inference control \\
 DFC/Passant \cite{summers2026dataflow,summers2026passant} & Aggregate policy
 predicate over a bag of provenance monomials: is this flow compliant? &
@@ -428,13 +432,21 @@ deterministic DB-side effects, atomic settlement, or formal DP guarantee \\
 \section{Exposure Model}
 \label{sec:model}
 
-Agents, their plans, and delegated calls are untrusted. The model assumes
+\textbf{Adversary and goal.} The agent, its plans, retries, pages, rewrites,
+and delegated calls are untrusted and may be adaptive. The security goal is
+bounded governed release: within one approved root family on one publication
+epoch, no more than $B_X$ distinct FactIDs of each kind become
+\code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
+The goal is per root and per epoch, and the settlement decision itself is
+observable: a rejected attempt reveals that its novel effect exceeded the
+remaining budget and charges only one unit of the request budget
+(Section~\ref{sec:online}), so the threshold information an agent can extract
+through rejections is bounded by that budget, not by $B_X$. The model assumes
 trusted identity, organizational-attribute, and approval assertions; Catalog
 and Exposure-Profile authors and the immutable publication pipeline;
 PostgreSQL execution and snapshot semantics; enforcement and Control services;
 cryptographic and key-management configuration; and object-store access
-control. Section~\ref{sec:system} states the associated failure and governance
-boundary.
+control.
 
 \subsection{Publication Epochs and Task Binding}
 
@@ -568,7 +580,7 @@ $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
 \end{equation}
 Thus repeated literals and supported rewrites reuse atom identities, while the
 composite commits to the complete normalized query, exact result observation,
-and the complete atom set. The Merkle radix set stores $M_O(q)$; Control
+and the complete atom set. The Merkle-radix set stores $M_O(q)$; Control
 PostgreSQL stores each canonical Fact payload and fails closed on a same-hash,
 different-payload collision. Empty results and scalar zero remain explicit.
 The signed grant bounds raw literal occurrences, unique atoms, one atom
@@ -690,8 +702,10 @@ stated aliases and join parenthesizations, not arbitrary SQL equivalence.
 \item[\textbf{O4}] \textbf{Probe capacity.} Each success creates one composite
 and canonical predicate atoms; exact replay reuses them, while a changed
 canonical predicate component or normalized query/result observation changes the corresponding
-identity except for collision. Zero/empty results remain outcomes. Cardinality
-is governance capacity, not entropy; one atom is not one bit of privacy loss.
+identity except for collision. Zero/empty results remain outcomes; a rejected
+attempt creates none and is charged only against the request budget.
+Cardinality is governance capacity, not entropy; one atom is not one bit of
+privacy loss.
 \end{enumerate}
 
 \begin{property}[O5: No unaccounted governed release]
@@ -979,8 +993,8 @@ aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
 \subsection{Canonical Join and Semantic-View Lowering}
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
-builder, which emits existing \code{JoinMany} and the deterministic binary
-SQL/effect fold. Accepted topology and parenthesization are otherwise
+builder, which emits the multi-way join operator (\code{JoinMany} in the
+implementation) and the deterministic binary SQL/effect fold. Accepted topology and parenthesization are otherwise
 unrestricted within the bound; unsupported joins, set trees, and pagination
 fail closed. Callers cannot supply roles, SQL fragments, FactIDs, or
 provenance.
@@ -1007,7 +1021,7 @@ SQL and an ordinal companion in one read-only \code{REPEATABLE READ}
 transaction; the buffered companion retains every dependency the join, union,
 group, and aggregate rules require, a k-way hash merge reproduces the witness
 commitment, Release/Dependency use segmented Roaring bitmaps, and Outcome
-hashes enter an exact Merkle radix set. Invalid handles, manifests, encodings,
+hashes enter an exact Merkle-radix set. Invalid handles, manifests, encodings,
 overflow, or truncation fail closed; the materialized algebra remains the
 oracle.
 
@@ -1138,9 +1152,11 @@ All descendants resolve to one root ledger. If a parent and child request the
 same fact, only the first successful settlement accounts it. Revoking the root
 blocks new descendant queries, while an already terminal request ID remains
 readable. Consequently, creating workers or task nodes cannot create fresh
-exposure capacity. A child that signs a lower exposure ceiling may add novel
-facts only while the shared family total remains within that ceiling; a
-zero-novelty replay remains admissible.
+exposure capacity. Settlement checks the settling task's own signed ceiling
+against the shared family total, so a child that signs a lower ceiling may add
+novel facts only while the family total stays within it, and a child whose
+ceiling is already below the family total can settle only zero-novelty
+replays; this is intended, since a narrower child must not widen the family.
 
 Conservation stops at the root and at the publication epoch. A second root for
 the same principal, or a root approved on $P_{e+1}$, has an independent ledger
@@ -1153,34 +1169,30 @@ principal- or tenant-wide semantic identity and policy outside the task-scoped
 guarantee.
 
 Because Definition~\ref{def:task-exposure} sums over the queries that
-settled, the identity below is not the content of the theorem; the content is
-that the physically committed head, under concurrent settlement, retries, and
-pre-commit failures, never diverges from that union and never exceeds a bound,
-and that the bitmap and radix representations
-(Theorems~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement})
-decode to it.
+settled, $K_X(T)=E_X(T,Q)$ is not itself a theorem. The claim is a safety
+property of the following abstract settlement system. A root state is
+$(K,e)$: three decoded sets and an epoch. A settlement transaction for
+$q$ reads $(K,e)$, computes $\Delta_X=\facts_X(q,S)\setminus K_X$, and
+attempts one compare-and-swap that publishes $(K\cup\facts(q,S),e+1)$ only if
+the swap sees epoch $e$ and $|K_X|+|\Delta_X|\le B_X$ for all $X$; a swap
+that sees $e'\neq e$ rereads and recomputes; a rejected or failed attempt
+publishes nothing. Transactions of a root family, including every
+descendant, interleave arbitrarily but each swap is atomic.
 
-\begin{theorem}[Atomic root-family budget safety]
+\begin{property}[Atomic root-family budget safety]
 \label{thm:root-family-safety}
-For an approved task $T=(P,S,B,C)$ and any committed query history $Q$,
-including concurrent, retried, and failed attempts, each $X\in\{R,D,O\}$ in
-the decoded root head satisfies
-\[
- K_X(T)=E_X(T,Q),\qquad |K_X(T)|\le B_X,
-\]
-whether $K_X$ is materialized as FactID rows or represented by immutable
-dictionary bitmaps and the Merkle-radix set.
-\end{theorem}
-\emph{Proof sketch.} Induct on committed settlements. The initial head and
-$E(T,\langle\rangle)$ are empty. For the next successful query, exact set
-difference computes novelty against the inductive head; one transaction checks
-all three cardinalities and one CAS publishes
-$K_X(T)\leftarrow K_X(T)\cup E_X(T,q)$. A conflicting transaction retries from
-the newly published head, and a rejected or failed attempt changes no head.
-Every descendant resolves to this same head. Thus the committed head equals the
-componentwise union in Eq.~\eqref{eq:task-exposure}, and the pre-commit checks
-preserve every component bound. The representation-refinement details are in
-the supplement.
+In every execution of this system, every committed head equals the
+componentwise union of the effects of exactly the queries whose swap
+succeeded and satisfies $|K_X|\le B_X$ for all $X\in\{R,D,O\}$; the
+property is unchanged when $K_X$ is represented by dictionary bitmaps or the
+Merkle-radix set (Theorems~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
+\end{property}
+\emph{Argument.} Induct on successful swaps in their linearization order: the
+initial head is empty, each successful swap extends the head by exactly the
+effect it computed against the head it read, and the bound check precedes
+the swap. Evidence that the implementation refines this system is the
+\code{ExposureLedger} model (Section~\ref{sec:formal}) and the Control-PG
+race and fault-injection tests; neither is a mechanized refinement.
 
 \textbf{Catalog-issued capacity.} The supplement's calibration table separates
 profile units from resource guards and from quantities they do not estimate.
@@ -1252,8 +1264,9 @@ remains a DFC responsibility.
 \label{sec:formal}
 
 Paper theorems establish representation-independent Fact identity,
-deterministic effects, exact novelty, and root-family conservation for the
-closed algebra; they do not prove the parser or implementation. Four separate
+deterministic effects, and exact novelty for the closed algebra, and
+Property~\ref{thm:root-family-safety} states root-family conservation over an
+abstract settlement system; none proves the parser or implementation. Four separate
 bounded TLC models \cite{lamport2002specifying} check abstract root settlement,
 FactSet/bitmap correspondence, exact Outcome-set settlement with collision
 fail-closed safety, and PENDING/AVAILABLE recovery. Their configurations are
@@ -1281,7 +1294,9 @@ invariance; RQ3 conservation under adaptive execution, delegation, and
 concurrency; RQ4 ordinal/bitmap full-path acceptance; and RQ5 daily publication
 and retained routing. RQ1--RQ3 regenerate digest-bound corpus
 \ExposureCorpusHash{}. Every call uses a complete signed profile; no
-representation or budget planner is evaluated. Passant is a semantic
+representation or budget planner is evaluated. Medians and p95 are Type-7
+quantiles (linear interpolation between order statistics) over the stated
+samples. Passant is a semantic
 comparator, not a latency
 baseline \cite{summers2026passant}: its per-query rewrite excludes BDG's
 cumulative ledger, Parquet, receipt, and promotion path.
@@ -1319,7 +1334,18 @@ binding. Detailed fixtures and logs are supplemental; the supplement's
 broad-SQL result-equivalence stress test checks row equality only and is not
 FactSet evidence.
 
-The frozen publication campaign (\FinalVFivePublicationCampaign{}, commit
+The Baseline workloads are: S1, a two-column projection of the frozen
+50,000-order corpus under an order-key threshold (SF1 selects 5,000 orders,
+SF10 all 50,000); S2, the orders--lineitem equijoin grouped to three rows;
+S3, a one-column projection over 1,000--45,000 rows of the 414,000-row
+exposure-scale Product, where every retained row carries five Dependency
+facts; S4, the depth-4 semantic-View form of S2/SF1; S5, a two-branch
+union-distinct with S1's shape; and S6, result-heavy releases of
+100--100,000 rows with 4 or 16 columns. Modes are direct (raw PostgreSQL),
+novel (first governed execution), and the replays. ``Publication-class'' is
+the frozen protocol's campaign class, as opposed to pilot runs, which are
+never publication-eligible. The frozen publication campaign
+(\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationCommit{}) executed all \FinalVFivePublicationTotalCells{}
 frozen cells---\FinalVFivePublicationProfileCells{} profile cells across
 \FinalVFivePublicationDeployments{} fresh deployments of
@@ -1372,7 +1398,9 @@ bound, and throughput across independent roots is not measured.
 \begin{table}[t]
 \centering
 \caption{Gateway phase medians of the novel governed query (ms) from the
-publication campaign; phases are non-overlapping and sum to the server total.}
+publication campaign. Each sample's six phases are non-overlapping and sum to
+its server total; the columns are per-phase medians over 90 samples, so they
+need not add up to the median total.}
 \label{tab:phase-breakdown}
 \scriptsize
 \setlength{\tabcolsep}{2.5pt}
@@ -1438,6 +1466,12 @@ fragment fails closed on richer joins, sets, paging, negation, recursion, and
 subqueries, materialized Views are opaque leaves, stable keys and publications
 are trusted declarations, and View drift is checked at request, approval, and
 execution rather than continuously.
+
+\textbf{Throughput scope.} Every settlement of a root family, including
+zero-novelty ones, serializes on that family's head; the measured ceiling is
+\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} contending
+requests per second per root on one host, and throughput across independent
+roots is not measured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
 validates structural and version bindings for administrator-attested identities,
