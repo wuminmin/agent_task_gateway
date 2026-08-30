@@ -705,11 +705,11 @@ Let $\mathsf{AVAILABLE}(q)$ mean that $q$'s canonical artifact has reached the
  \ \wedge\ |\accounted_T^X|\leq B_X.
 \]
 \end{property}
-Execution and private staging are not release. Settlement may leave an artifact
-\code{PENDING}, so the converse is false; rejection cannot create
-\code{AVAILABLE}. Evidence combines separate bounded
-\code{ArtifactPublication.tla}/\code{ExposureLedger.tla} safety with Control-PG
-fault-injection, receipt, and availability tests, not a mechanized composition.
+Execution and private staging are not release; settlement may leave an
+artifact \code{PENDING}, so the converse is false, and rejection cannot
+create \code{AVAILABLE}. Evidence combines the bounded artifact and ledger
+models with Control-PG fault-injection, receipt, and availability tests, not
+a mechanized composition.
 
 \textbf{O6: Profile binding.} $C$ binds effect/normal-form profiles,
 type/collation, View contract, replay identity, and result handling;
@@ -1197,12 +1197,11 @@ Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
 new approvals to $P_{e+1}$.
 
 MCP tools cover Product discovery, task approval/execution/delegation, View
-rebind, budgets, results, and receipts, and an external adapter signs Grants;
-direct SQL is lowered to the same canonical plan under every grant and fails
-closed otherwise, so no path executes agent-authored text. Control PostgreSQL
-persists versioned set metadata, the root head, observations, and monotonic
-View bindings; results use AES-GCM, audits a hash chain, and high-cardinality
-work an isolated semaphore and encrypted spill path.
+rebind, budgets, results, and receipts, an external adapter signs Grants, and
+direct SQL is lowered to the same canonical plan or fails closed, so no path
+executes agent-authored text; Control PostgreSQL persists set metadata, the
+root head, observations, and View bindings, results use AES-GCM, and audits
+form a hash chain.
 
 Reference-safe retention and reclamation are specified in the supplement;
 stored ledger identities are never silently reinterpreted.
