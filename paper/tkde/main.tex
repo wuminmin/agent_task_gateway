@@ -1110,19 +1110,17 @@ These declarations are neither risk scores nor optimization targets: 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used.
 
-\textbf{Worked policy.} The campaign's bounded trace profile
-(Section~\ref{sec:attack-provsql}) binds every exposure dimension before
-any counter: for ``review this department's receipts'' it grants
+\textbf{Worked policy.} The campaign's bounded trace profile binds every
+exposure dimension before any counter: for ``review this department's
+receipts'' it grants
 $B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$
 next to a request budget of 110 and a row budget of 1,000, so on the
 \FinalVFivePublicationRLSQueries{}-query trace the counters admit
 everything (\FinalVFivePublicationRLSRowsRLS{} rows in
 \FinalVFivePublicationRLSQueries{} queries) while the Dependency budget
 refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}, the first
-equivalent predicate that reads new base facts; a row counter tight enough to
-stop there (\FinalVFivePublicationRLSRowsBounded{} rows) would also stop
-look-ups that read nothing new, and a query counter charges pages and
-replays the ledger settles at zero. The ladder shows $B_O$ binding
+equivalent predicate that reads new base facts (Section~\ref{sec:attack-provsql}
+compares counters). The ladder shows $B_O$ binding
 (\FinalVFivePublicationAttackThresholdCeiling{} atoms and composites refuse
 the third count probe), and $B_R$ binds in the sweep case: under the
 campaign's default low route ($B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$,
@@ -1238,13 +1236,13 @@ and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
 probes, replay, radix tamper, and digest binding, and the supplement's
 evidence table labels the source state of every line.
 
-The core workloads (the campaign's \emph{Baseline} profile): S1, a two-column projection of the frozen
-50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
-all); S2, the orders--lineitem equijoin grouped to three rows; S3, a
-one-column projection over 1,000--45,000 rows of the 414,000-row
-exposure-scale Product (five Dependency facts per row); S4, the depth-4
-semantic-View form of S2/SF1; S5, a two-branch union-distinct of S1's shape;
-S6, result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes
+The core workloads (the campaign's \emph{Baseline} profile): S1, a
+two-column projection of the frozen 50,000-order corpus under an order-key
+threshold (SF1: 5,000 orders; SF10: all); S2, the orders--lineitem equijoin
+grouped to three rows; S3, a one-column projection over 1,000--45,000 rows
+of the 414,000-row exposure-scale Product; S4, the depth-4 semantic-View
+form of S2/SF1; S5, a two-branch union-distinct of S1's shape; S6,
+result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes
 are direct (the same SQL against PostgreSQL without BDG), novel (the first
 governed execution), and the replays; ``publication-class'' is the frozen
 protocol's campaign class (pilot runs are never eligible). The frozen
@@ -1374,9 +1372,9 @@ as counted by an independent trace-union oracle (budgets
 \FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{};
 \FinalVFivePublicationRLSPerCell{} samples per arm, identical in every one).
 RLS answered all \FinalVFivePublicationRLSQueries{} queries
-(\FinalVFivePublicationRLSRowsRLS{} rows), each individually legal;
-BDG-unlimited answered all of them and its final ledger equals the oracle's
-union; BDG-bounded answered \FinalVFivePublicationRLSBoundedSuccessful{},
+(\FinalVFivePublicationRLSRowsRLS{} rows); BDG-unlimited answered all and
+its final ledger equals the oracle's union; BDG-bounded answered
+\FinalVFivePublicationRLSBoundedSuccessful{},
 refused query \FinalVFivePublicationRLSBoundedRefusalIndex{}---the first
 whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
 \FinalVFivePublicationAttackThresholdRejectionCode{}, released nothing
@@ -1387,19 +1385,17 @@ both and is refused at the column (RLS
 \FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
 authorization, and what RLS cannot express is exactly ``at most
 \FinalVFivePublicationRLSBudgetDependency{} distinct base facts''. Counter
-budgets are compared on the same trace by admission arithmetic over the
-oracle's per-query fact sets (derived from the sealed samples, not a
-separate run): a cumulative row budget of
-\FinalVFivePublicationCounterRowBudget{} and a query budget of
-\FinalVFivePublicationCounterSetAdmitted{}, both calibrated to refuse at
-query \FinalVFivePublicationRLSBoundedRefusalIndex{}, admit the same
-queries and release the same \FinalVFivePublicationCounterSetReleased{}
-Facts as the set ledger in the trace's order; replayed novelty-first, the
-set ledger still releases \FinalVFivePublicationPermutedSetReleased{}, the
-row budget \FinalVFivePublicationPermutedRowReleased{} and the query budget
-\FinalVFivePublicationPermutedQueryReleased{}---the whole union. A counter's
-release bound depends on the order of the same queries; the set ledger's
-does not (supplement table).
+budgets are compared by admission arithmetic over the oracle's per-query
+fact sets (derived from the sealed samples, not a separate run): a row
+budget of \FinalVFivePublicationCounterRowBudget{} and a query budget of
+\FinalVFivePublicationCounterSetAdmitted{}, calibrated to refuse at query
+\FinalVFivePublicationRLSBoundedRefusalIndex{}, admit the same queries and
+release the same \FinalVFivePublicationCounterSetReleased{} Facts as the set
+ledger in the trace's order, but replayed novelty-first they release the
+whole union (\FinalVFivePublicationPermutedRowReleased{}) while the set
+ledger still releases \FinalVFivePublicationPermutedSetReleased{}: a
+counter's release bound depends on query order, the set ledger's does not
+(supplement table).
 
 \begin{figure}[t]
 \centering
