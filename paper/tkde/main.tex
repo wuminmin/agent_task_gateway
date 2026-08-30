@@ -1467,8 +1467,12 @@ reporting-Product fragment, not ad-hoc analytics: the production lowerer
 admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
 even after rewriting comma joins to explicit joins, stopping first at
 subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
-(\TPCHArithmeticQueries{}), and multi-product \code{LIMIT} (supplement
-table). Materialized Views are opaque leaves; stable keys and publications
+(\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
+\SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
+reporting queries (four-source star joins with a grouped \code{SUM} lower;
+derived measures such as \code{lo_revenue - lo_supplycost} inside an
+aggregate, \code{OR} filters, and ordering by an aggregate alias do not;
+supplement tables). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 

@@ -1129,7 +1129,7 @@ def validate_v5_outcome_evidence(evidence_mode: str = "draft") -> dict:
         manifest.get("sha256") == v5_source_manifest_digest(files),
         "V5 implementation source-set digest is stale",
     )
-    result["family_property"] = validate_v5_raw_execution(result.get("raw_execution", {}))
+    family_property = validate_v5_raw_execution(result.get("raw_execution", {}))
     require(
         result.get("deterministic_set") == {
             "members": 10000, "permutation_deterministic": True,
@@ -1151,7 +1151,9 @@ def validate_v5_outcome_evidence(evidence_mode: str = "draft") -> dict:
         },
         "V5 outcome evidence counters or asserted properties are invalid",
     )
-    return result
+    annotated = dict(result)
+    annotated["family_property"] = family_property
+    return annotated
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -1980,6 +1982,38 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\TPCHArithmeticQueries}}{{{explicit['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED', 0) + explicit['by_reason'].get('SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED', 0)}}}",
         rf"\newcommand{{\TPCHResultsDigest}}{{\texttt{{{hashlib.sha256(tpch_path.read_bytes()).hexdigest()[:12]}}}}}",
         r"\newcommand{\TPCHReasonTableBody}{%" + "\n" + "\n".join(reason_rows) + "%\n}",
+    ])
+    # SSB lowerability: the 13 Star Schema Benchmark reporting queries, as
+    # written (comma joins) and after explicit-JOIN normalization.
+    ssb_path = ROOT / "evaluation/ssblowerability/results.json"
+    ssb = json.loads(ssb_path.read_text(encoding="utf-8"))
+    ssb_passes = {item["variant"]: item for item in ssb["passes"]}
+    if set(ssb_passes) != {"as-written", "explicit-join"} or any(item["queries"] != 13 for item in ssb_passes.values()):
+        raise SystemExit("evaluation/ssblowerability/results.json does not carry both 13-query passes")
+    ssb_labels = {
+        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": "arithmetic inside an aggregate",
+        "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": "OR disjunction in WHERE",
+        "SQL_NOT_LOWERABLE/QUERYPLAN_VALIDATION_FAILED": "ORDER BY on an aggregate alias",
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": "BETWEEN over text literals",
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": "comma join (no explicit JOIN ON)",
+    }
+    ssb_explicit = ssb_passes["explicit-join"]
+    ssb_rows = []
+    for key, count in sorted(ssb_explicit["by_reason"].items(), key=lambda kv: (-kv[1], kv[0])):
+        queries = ", ".join(r["query"].upper().replace("_", ".") for r in ssb_explicit["results"] if (r.get("code", "") + "/" + r.get("reason", "")) == key)
+        ssb_rows.append(" & ".join([ssb_labels.get(key, tex(key)), tex(key.split("/")[-1]), str(count), queries]) + r" \\")
+    ssb_lowered = ", ".join(r["query"].upper().replace("_", ".") for r in ssb_explicit["results"] if r["lowerable"])
+    lines.extend([
+        rf"\newcommand{{\SSBQueries}}{{{ssb_explicit['queries']}}}",
+        rf"\newcommand{{\SSBLowerableAsWritten}}{{{ssb_passes['as-written']['lowerable']}}}",
+        rf"\newcommand{{\SSBLowerableExplicitJoin}}{{{ssb_explicit['lowerable']}}}",
+        rf"\newcommand{{\SSBLoweredQueries}}{{{ssb_lowered}}}",
+        rf"\newcommand{{\SSBCommaJoinQueries}}{{{ssb_passes['as-written']['by_reason'].get('SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\SSBArithmeticQueries}}{{{ssb_explicit['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\SSBDisjunctionQueries}}{{{ssb_explicit['by_reason'].get('SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\SSBOrderByQueries}}{{{ssb_explicit['by_reason'].get('SQL_NOT_LOWERABLE/QUERYPLAN_VALIDATION_FAILED', 0)}}}",
+        rf"\newcommand{{\SSBResultsDigest}}{{\texttt{{{hashlib.sha256(ssb_path.read_bytes()).hexdigest()[:12]}}}}}",
+        r"\newcommand{\SSBReasonTableBody}{%" + "\n" + "\n".join(ssb_rows) + "%\n}",
     ])
     # Generated-plan differential campaign (evaluation/generatedalgebra).
     generated_path = ROOT / "evaluation/generatedalgebra/results.json"

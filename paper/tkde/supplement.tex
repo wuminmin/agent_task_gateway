@@ -697,6 +697,7 @@ Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepa
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
 Generated-plan campaign (Section~\ref{sec:generated-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
 TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
+SSB lowerability (Section~\ref{sec:ssb-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/ssblowerability/results.json} (digest \SSBResultsDigest{}) & \code{make eval-ssb-lowerability} \\
 TLC (Table VI) & tracked at \EvidenceChainCommit{} & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
@@ -1872,6 +1873,45 @@ normalization.}
 Construct & Reason code & Queries & TPC-H \\
 \midrule
 \TPCHReasonTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{SSB Lowerability: a Star-Schema Reporting Workload}
+\label{sec:ssb-lowerability-supp}
+
+The same procedure was applied to a reporting/BI workload: the
+\SSBQueries{} Star Schema Benchmark queries (Q1.1--Q4.3, hand transcribed;
+SSB-derived, not an official run) against a synthetic five-table star
+Catalog (\code{lineorder}, \code{customer}, \code{supplier}, \code{part},
+\code{dwdate}) exposing every column with the four admitted aggregates
+(\filepath{evaluation/ssblowerability}, results digest \SSBResultsDigest{}).
+As written, \SSBLowerableAsWritten{} of \SSBQueries{} lower
+(\SSBCommaJoinQueries{} stop at the comma-join FROM shape); after explicit
+\code{JOIN ... ON} normalization, \SSBLowerableExplicitJoin{} lower
+(\SSBLoweredQueries{}: four-source star joins with a grouped \code{SUM}),
+so multi-source star joins are inside the fragment at the lowerer.
+Table~\ref{tab:ssb-lowerability} names the first rejection of the others:
+arithmetic inside the aggregate (\code{lo_extendedprice * lo_discount},
+\code{lo_revenue - lo_supplycost}; \SSBArithmeticQueries{} queries), an
+\code{OR} disjunction in \code{WHERE} (\SSBDisjunctionQueries{}),
+\code{ORDER BY} on an aggregate alias (\SSBOrderByQueries{}), and
+\code{BETWEEN} over text literals. Derived measures would have to be
+published as Product columns (or admitted as typed arithmetic, which changes
+the Dependency rule) for the profit and discounted-revenue queries to lower;
+this is a boundary statement, not a deficiency the paper claims to close.
+
+\begin{table}[t]
+\centering
+\caption{First rejection reason of each SSB query after explicit-join
+normalization.}
+\label{tab:ssb-lowerability}
+\small
+\begin{tabular}{llrl}
+\toprule
+Construct & Reason code & Queries & SSB \\
+\midrule
+\SSBReasonTableBody
 \bottomrule
 \end{tabular}
 \end{table}
