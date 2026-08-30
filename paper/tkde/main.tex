@@ -159,7 +159,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.4\textwidth}{!}{%
+\resizebox{0.36\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -1399,7 +1399,7 @@ counter's release bound depends on query order, the set ledger's does not
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.19\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.17\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
@@ -1452,9 +1452,8 @@ novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
 \FinalVFivePublicationConcurrencySpreadMaxPct\%); the retained pilot
-(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement. An
-Adapter could open several measurement windows and submit one; the protocol
-forbids that. RQ1--RQ3 use small fixtures;
+(\FinalVFivePilotArtifactCommit{}) is cited only in the supplement.
+RQ1--RQ3 use small fixtures;
 ordinal/bitmap evidence is warm, single-host, and TPC-H-derived (not
 official); the archived V4 run used one index build; RQ5 sums three
 sequential warm child intervals behind an experiment controller. No result
