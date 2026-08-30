@@ -159,7 +159,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.44\textwidth}{!}{%
+\resizebox{0.4\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -300,9 +300,8 @@ cumulative novelty before release.
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
 Passant formalizes optimizer-invariant aggregate predicates over each output
-tuple's bag of provenance monomials, rewrites or terminates violating queries,
-and constrains writes through source, sink, and required-source policies,
-covering contributor thresholds, source combinations, grounding, and
+tuple's bag of provenance monomials and rewrites or terminates violating
+queries, covering contributor thresholds, source combinations, grounding, and
 prompt-bound flows that BDG does not subsume; trajectory policy is its future
 work. BDG differs in temporal unit:
 after authorization and any flow check it persists Result, Dependency, and
@@ -916,19 +915,17 @@ least-privilege terminal scopes before reservation.
 
 The publication compiler turns each frozen snapshot into immutable
 per-row/per-field segments, sorting full Fact hashes and assigning 32-bit
-ordinals; a sidecar maps attested entity keys to ordinals, the hot artifact
-keeps that map and verified hashes, canonical payloads stay content addressed
-and cold, and one manifest binds snapshot, schemas, sidecar, dictionaries,
-versions, type/collation contracts, and digests, so any collision or
-canonicality mismatch blocks publication. Online, the compiler emits visible
-SQL and an ordinal companion in one read-only \code{REPEATABLE READ}
-transaction; the buffered companion retains every dependency the join, union,
-group, and aggregate rules require, a k-way hash merge reproduces the witness
-commitment, Release/Dependency use segmented Roaring bitmaps, and Outcome
-hashes enter an exact Merkle-radix set; invalid handles, manifests, encodings,
-overflow, or truncation fail closed. For each segment, publication defines a FactID--ordinal bijection
-$D_j$; portable Roaring compression changes representation, not membership
-\cite{chambi2016roaring}.
+ordinals (a FactID--ordinal bijection $D_j$ per segment; Roaring compression
+changes representation, not membership \cite{chambi2016roaring}); a sidecar
+maps attested entity keys to ordinals, payloads stay content addressed and
+cold, and one manifest binds snapshot, schemas, sidecar, dictionaries, and
+digests, so any collision or canonicality mismatch blocks publication.
+Online, visible SQL and the ordinal companion run in one read-only
+\code{REPEATABLE READ} transaction; the companion retains every dependency
+the rules require, a k-way hash merge reproduces the witness commitment,
+Release/Dependency use segmented Roaring bitmaps, Outcome hashes enter an
+exact Merkle-radix set, and invalid handles, manifests, encodings, overflow,
+or truncation fail closed.
 
 \begin{proposition}[Exact bitmap refinement]
 \label{thm:bitmap-refinement}
@@ -1339,15 +1336,13 @@ per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
 batched settlement could relax the bound, and multi-root throughput is not
-measured. Ledger growth: the Scale profile settles one candidate of $10^4$,
-$10^5$, or \FinalVFivePublicationScaleMillionHistory{} Dependency Facts
-against a pre-seeded history of the same size at 0--100\% overlap
-(\FinalVFivePublicationScaleCells{} cells,
-\FinalVFivePublicationScaleSamples{} samples, every charge equal to the
-independent oracle's union minus history); settlement p50 grows from
+measured. Ledger growth (Scale profile, \FinalVFivePublicationScaleCells{}
+cells, \FinalVFivePublicationScaleSamples{} samples, every charge equal to
+the independent oracle's union minus history): settling one candidate against
+a same-size history grows settlement p50 from
 \FinalVFivePublicationScaleSettleTenKMS{}~ms at $10^4$ to
-\FinalVFivePublicationScaleSettleMillionMS{}~ms against the
-\FinalVFivePublicationScaleMillionHistory{}-Fact history within a
+\FinalVFivePublicationScaleSettleMillionMS{}~ms at
+\FinalVFivePublicationScaleMillionHistory{} Dependency Facts, within a
 \FinalVFivePublicationScaleMillionDrainMS{}~ms response dominated by
 execute-and-derive (supplement table).
 
@@ -1406,7 +1401,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.21\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.19\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
@@ -1430,26 +1425,16 @@ query whose prefix crosses a budget; the trace stops there.}
 \end{figure}
 
 
-\textbf{Provenance-capture cost.} The ProvSQL profile pairs, on the same
-host, byte-identical grouped SQL (an orders--lineitem equijoin over the first
-1,000--45,000 orders, grouped into three rows, joined to a fresh
-provenance-tracked nonce row per execution so every circuit is novel) on
-pinned PostgreSQL~16.14, on ProvSQL~1.11.0's complete typed drain
-(rewriting, aggregate-token and persistent circuit construction; no semiring
-evaluation), and on BDG's full governed path
-(\FinalVFivePublicationProvSQLPerCell{} samples per cell; supplement table).
-At 45k orders the medians are
+\textbf{Provenance-capture cost.} The ProvSQL profile (supplement) pairs
+byte-identical grouped SQL on pinned PostgreSQL~16.14, ProvSQL~1.11.0's
+complete typed drain, and BDG's full governed path: at 45k orders
 \FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms,
 \FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s, and
 \FinalVFivePublicationProvSQLFortyFiveKBDGS{}~s over
-\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{} Dependency Facts;
-across the scales, typed exact-set derivation plus settlement lies between
-ungoverned execution and general circuit capture
-(\FinalVFivePublicationProvSQLBDGOverPostgreSQLMin{}--\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax{}$\times$
-the former). The boundary is asymmetric by construction
-(ProvSQL builds a reusable circuit and does no accounting; BDG derives only
-the declared Facts and settles them), so the comparison prices exactness
-against general capture rather than ranking the systems.
+\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{} Dependency Facts,
+so typed exact-set derivation plus settlement lies between ungoverned
+execution and general circuit capture; the boundary is asymmetric by
+construction and does not rank the systems.
 
 \subsection{Reproducibility Boundary}
 
@@ -1462,10 +1447,9 @@ re-verify every digest chain and recompute every macro from the raw samples
 but cannot re-hash the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
-isolated deployments on one host, three independent executions per profile,
-no state carried between them; the supplement's evidence table labels the
-source state of every other line and maps each number group to its commit
-and raw file. Across the three executions the per-execution
+isolated deployments on one host, three independent executions per profile;
+the supplement's evidence table maps each number group to its commit and raw
+file. Across the three executions the per-execution
 novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
