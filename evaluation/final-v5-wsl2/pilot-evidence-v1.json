@@ -47,7 +47,8 @@
       "campaign_evidence_sha256": "3e50129289a20c6fe238900f129571fdf28c75b010e58d228487948aac6891d6",
       "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
       "measured_samples": 46,
-      "note": "Sub-phase amendment: analytics-orders, analytics-orders-lineitem, result-heavy, one deployment each, one measured sample per cell, adapter retaining the Gateway component_ms map. Pilot class; not publication evidence."
+      "note": "Sub-phase amendment: analytics-orders, analytics-orders-lineitem, result-heavy, one deployment each, one measured sample per cell, adapter retaining the Gateway component_ms map. Pilot class; not publication evidence. Superseded: measured before the derivation optimization (P8 d1); retained for provenance, not pooled.",
+      "superseded_by": "subphase-pilot-08"
     },
     {
       "id": "subphase-pilot-07",
@@ -57,7 +58,28 @@
       "campaign_evidence_sha256": "0153fe56f946abce0ead723670bf29c1153cb3656e2f9fde35c9cc995db69eb8",
       "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
       "measured_samples": 138,
-      "note": "Sub-phase amendment repeated: analytics-orders, analytics-orders-lineitem, result-heavy, three deployments each, one measured sample per cell per deployment, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-06 for the sub-phase medians. Pilot class; not publication evidence."
+      "note": "Sub-phase amendment repeated: analytics-orders, analytics-orders-lineitem, result-heavy, three deployments each, one measured sample per cell per deployment, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-06 for the sub-phase medians. Pilot class; not publication evidence. Superseded: measured before the derivation optimization (P8 d1); retained for provenance, not pooled.",
+      "superseded_by": "subphase-pilot-08"
+    },
+    {
+      "id": "subphase-pilot-08",
+      "family": "subphase",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/subphase-pilot-08",
+      "campaign_evidence_sha256": "b31010e4cc6306feb76c85cbaa2cc8f50f8dd1b2d59713ab1675a2a4698778ac",
+      "submission_commit": "bfb6a5bd89fab4a8a1da3067b59950ce3b7221f7",
+      "measured_samples": 54,
+      "note": "Sub-phase re-measurement after the derivation optimization (P8 d1): result-heavy profile, three deployments, one measured sample per cell per deployment, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-10 for the sub-phase medians. Pilot class; not publication evidence."
+    },
+    {
+      "id": "subphase-pilot-10",
+      "family": "subphase",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/subphase-pilot-10",
+      "campaign_evidence_sha256": "3a8bd4f2609732daf37f6126a7755f2ec3f00907936b9f9def5dd936e6c7351a",
+      "submission_commit": "bfb6a5bd89fab4a8a1da3067b59950ce3b7221f7",
+      "measured_samples": 28,
+      "note": "Sub-phase re-measurement after the derivation optimization (P8 d1): analytics-orders and analytics-orders-lineitem profiles, one deployment each, one measured sample per cell, adapter retaining the Gateway component_ms map. Pooled with subphase-pilot-08. Pilot class; not publication evidence."
     },
     {
       "id": "provsql-leaf-pilot-04",
