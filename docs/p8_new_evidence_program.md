@@ -49,3 +49,16 @@
   阶梯实现的冻结面：RLS 校验器的「frozen primary matrix」需按 v1.12 扩展（新 workload id + 预注册步数 + 语料包）；
   新 Product 属作者已于 2026-08-30 批准的新证据程序范围，逐项记台账。
 
+## 契约 v1.12 变更面清单（2026-08-31 勘定；每个新工作负载/Product 都要走全）
+1. **语料包**：`evaluation/finalv5<name>`（仿 finalv5rls：embed 冻结 JSON、CorpusID/CorpusSHA256、Steps/预期计费、Load 校验）。
+2. **Product/目录**：master `evaluation/final-v5-wsl2/catalog/benchmark-contract-v1.yaml`（被 `contracts/index-v1.json` hash-locked→重钉+
+   contract_release 升 v1.12，`supersedes_contract_release` 链上）+ live `config/catalog.yaml`（新 Product/预算 profile；会再次使 Dataset
+   Binding 失效——Phase 3 前作者一次重签统一覆盖）。
+3. **profile 生成**：`config/profiles/workloads-v1.yaml`（声明 experiment→workload→products）→ `go run ./evaluation/cmd/final-v5-profile`
+   重生成 profile catalog/registry.json/hot-artifacts/coverage/attestations（registry `contract_release` 同步 v1.12）。
+4. **冻结协议**：`evaluation/final-v5-wsl2/protocol/workloads-v1.yaml`（发表格矩阵）+ `protocol-v1.yaml` replicate contracts；
+   两文件 sha 重钉进全部 example 配置（protocol/workload/acceptance/statistics 四摘要）。
+5. **adapter**：`evaluation/cmd/final-v5-adapter/`（新 workload 分支 + capability.go 的 publicationRequirements 矩阵）。
+6. **校验器**：`evaluation/internal/experiment/`（frozen primary matrix 扩展 + 预注册步数/预期计费 + schema 若有新字段则 v1/v3 同步）。
+7. **发链前**：`go vet -tags taskgate_integration ./...`；DB 套件；生成器 13 单测；再 v5 链。
+
