@@ -1405,13 +1405,8 @@ per-execution novel medians of a Baseline cell differ by at most
 \FinalVFivePublicationNovelSpreadMaxPct\% of the pooled median (direct:
 \FinalVFivePublicationDirectSpreadMaxPct\%; concurrency rounds:
 \FinalVFivePublicationConcurrencySpreadMaxPct\%); the supplement lists every
-cell's per-execution medians. The earlier retained pilot runs
-(\FinalVFivePilotArtifactSamples{} artifact samples over
-\FinalVFivePilotArtifactCells{} result-heavy cells across
-\FinalVFivePilotArtifactDeployments{} deployments of commit
-\FinalVFivePilotArtifactCommit{}, plus one Baseline deployment) remain
-non-publication mechanism evidence and are cited only as such in the
-supplement. One residual freedom lies outside the mechanism: an Adapter may
+cell's per-execution medians. The earlier retained pilot runs (commit \FinalVFivePilotArtifactCommit{})
+remain non-publication mechanism evidence cited only in the supplement. One residual freedom lies outside the mechanism: an Adapter may
 open several measurement windows (independent client sessions) and submit
 only one; the experiment protocol, not the Gateway, forbids that, and every retained sample here is the single window the
 protocol allowed.
@@ -1462,11 +1457,10 @@ sustained contention, distributed behavior, or live-agent performance.
 \section{Conclusion}
 
 \system provides profile-relative exact accounting of modeled Result,
-Dependency, and Outcome sets within one publication-bound root family. Paper
-theorems, separate bounded TLA+ models, and executable tests support the scoped
-safety claim: no governed artifact becomes \code{AVAILABLE} before atomic
-root-family settlement, although a settled artifact may remain \code{PENDING}.
-Section~\ref{sec:limits} states what remains outside scope.
+Dependency, and Outcome sets within one publication-bound root family;
+theorems, bounded models, and executable tests support the scoped safety
+claim that no governed artifact becomes \code{AVAILABLE} before atomic
+root-family settlement (Section~\ref{sec:limits} states the scope).
 
 BDG is a task-to-data release layer for existing enterprise data estates,
 not another lake or agent framework: it turns governed data at rest into
