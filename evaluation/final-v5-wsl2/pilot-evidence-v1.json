@@ -38,6 +38,16 @@
       "samples_sha256": "dfcab4e88daf181ece3df8c6428257c14c0010483e8c4f0200df57b10e8bec19",
       "submission_commit": "372ef816a7267483fc2837eeb31dfa5ee02019ad",
       "measured_samples": 55
+    },
+    {
+      "id": "subphase-pilot-06",
+      "family": "subphase",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/subphase-pilot-06",
+      "campaign_evidence_sha256": "3e50129289a20c6fe238900f129571fdf28c75b010e58d228487948aac6891d6",
+      "submission_commit": "a9a0d9362c2bcc3c3eb88fb38d5ea21021fe2e82",
+      "measured_samples": 46,
+      "note": "Sub-phase amendment: analytics-orders, analytics-orders-lineitem, result-heavy, one deployment each, one measured sample per cell, adapter retaining the Gateway component_ms map. Pilot class; not publication evidence."
     }
   ]
 }
