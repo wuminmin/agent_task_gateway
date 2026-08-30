@@ -1484,7 +1484,7 @@
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "0adc50ff11d69838ce560fe6a57a4b76d45350e28f6044e47cc85e45ea48f648",
+      "artifact_sha256": "0b85fb70d9154a53ebd10adafcc0c8694fccf71f68691584389d4892b0e405ee",
       "executed": 5,
       "passed": 5,
       "failed": 0
@@ -1514,7 +1514,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 285928,
+            "ns_per_op": 296849,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1522,7 +1522,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 3365569,
+            "ns_per_op": 3479301,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1530,7 +1530,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 34409608,
+            "ns_per_op": 33847906,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1538,7 +1538,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 355575114,
+            "ns_per_op": 371604985,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1552,31 +1552,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 3309,
+            "ns_per_op": 3576,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 12060,
+            "ns_per_op": 12504,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 28703,
+            "ns_per_op": 30137,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 71662,
+            "ns_per_op": 81008,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 220416,
+            "ns_per_op": 235759,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1588,25 +1588,25 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 35113,
+            "ns_per_op": 34041,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 259790,
+            "ns_per_op": 281117,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 3054748,
+            "ns_per_op": 3008396,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 34193100,
+            "ns_per_op": 34324112,
             "novel_charge": 10000,
             "replay_charge": 0
           }
