@@ -661,14 +661,14 @@ or commit binding disagrees.
 \toprule
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
-RQ1--RQ3 (Table 2) & repository head & \code{evaluation/exposure/results.json}, \code{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
-RQ4 archived ordinal/bitmap & recorded in \code{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \code{evaluation/exposure-performance/results.json}, \code{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
-RQ5 publication and routing & repository head & \code{evaluation/daily-publication/evidence/}, \code{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
-V5 outcome-set regressions & \VFiveImplementationCommit{} & \code{evaluation/v5-outcome/evidence.json}, \code{raw/go-test.jsonl}, \code{compose-receipt.json} & \code{scripts/record-compose-e2e.sh} \\
-Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \code{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \code{campaign-evidence.json}, \code{deployments/*/raw/*.jsonl} & \code{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
-Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \code{deployments/*/raw/*.jsonl} plus \code{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
-Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \code{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
-TLC (Table VI) & repository head & \code{formal/results/*.json}, \code{*.log} & \code{make formal} \\
+RQ1--RQ3 (Table 2) & repository head & \path{evaluation/exposure/results.json}, \path{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
+RQ4 archived ordinal/bitmap & recorded in \path{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \path{evaluation/exposure-performance/results.json}, \path{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
+RQ5 publication and routing & repository head & \path{evaluation/daily-publication/evidence/}, \path{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
+V5 outcome-set regressions & \VFiveImplementationCommit{} & \path{evaluation/v5-outcome/evidence.json}, \path{raw/go-test.jsonl}, \path{compose-receipt.json} & \path{scripts/record-compose-e2e.sh} \\
+Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \path{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \path{campaign-evidence.json}, \path{deployments/*/raw/*.jsonl} & \path{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
+Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \path{deployments/*/raw/*.jsonl} plus \path{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
+Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \path{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
+TLC (Table VI) & repository head & \path{formal/results/*.json}, \path{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
 \end{table}
