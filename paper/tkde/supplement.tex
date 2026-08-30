@@ -663,9 +663,9 @@ or commit binding disagrees.
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
 RQ1--RQ3 (Table 2) & repository head & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
-RQ4 archived ordinal/bitmap & recorded in \filepath{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-performance}, \code{-scale}, \code{-storage} \\
+RQ4 archived ordinal/bitmap & recorded in \filepath{evaluation/exposure-performance/evidence/legacy-rq4-source.json} & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-} \code{performance}, \code{-scale}, \code{-storage} \\
 RQ5 publication and routing & repository head & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
-V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \filepath{scripts/record-compose-e2e.sh} \\
+V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
@@ -1237,7 +1237,7 @@ Width & Mode & Rounds & Drain p50 & Drain p95 & Req./s \\
 \label{sec:attack-publication-supp}
 
 The attack profile of campaign \FinalVFivePublicationCampaign{} replays the
-frozen corpus \code{evaluation/finalv5attack/corpus-v1.json} (SHA-256 prefix
+frozen corpus \filepath{evaluation/finalv5attack/corpus-v1.json} (SHA-256 prefix
 \FinalVFivePublicationAttackCorpusDigest{}, bound into every retained sample)
 against a fresh root task per sample: \FinalVFivePublicationAttackCells{}
 cells---\FinalVFivePublicationAttackSequences{} sequences, each in a direct
