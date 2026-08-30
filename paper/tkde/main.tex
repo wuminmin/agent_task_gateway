@@ -1386,7 +1386,20 @@ both and is refused at the column (RLS
 \FinalVFivePublicationRLSControlErrorRLS{}, BDG
 \FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
 authorization, and what RLS cannot express is exactly ``at most
-\FinalVFivePublicationRLSBudgetDependency{} distinct base facts''.
+\FinalVFivePublicationRLSBudgetDependency{} distinct base facts''. Counter
+budgets are compared on the same trace by admission arithmetic over the
+oracle's per-query fact sets (derived from the sealed samples, not a
+separate run): a cumulative row budget of
+\FinalVFivePublicationCounterRowBudget{} and a query budget of
+\FinalVFivePublicationCounterSetAdmitted{}, both calibrated to refuse at
+query \FinalVFivePublicationRLSBoundedRefusalIndex{}, admit the same
+queries and release the same \FinalVFivePublicationCounterSetReleased{}
+Facts as the set ledger in the trace's order; replayed novelty-first, the
+set ledger still releases \FinalVFivePublicationPermutedSetReleased{}, the
+row budget \FinalVFivePublicationPermutedRowReleased{} and the query budget
+\FinalVFivePublicationPermutedQueryReleased{}---the whole union. A counter's
+release bound depends on the order of the same queries; the set ledger's
+does not (supplement table).
 
 \begin{figure}[t]
 \centering
