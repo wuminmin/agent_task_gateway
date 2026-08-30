@@ -12,11 +12,17 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"sync"
 
 	"taskbound.local/agent-data-gateway/internal/encryptedspool"
 )
 
-const releaseObservationSpoolMagic = "TGROBS1"
+const (
+	releaseObservationSpoolMagic = "TGROBS1"
+	// releaseObservationSpillSlots bounds the runs being sorted and written in
+	// the background; each holds at most one residency threshold of payloads.
+	releaseObservationSpillSlots = 4
+)
 
 // ReleaseObservation accumulates one query's V2 release set for
 // ReleaseOutcomeDigest without retaining decoded FactIDs. Each fact is kept as
@@ -34,10 +40,18 @@ type ReleaseObservation struct {
 	baseDir       string
 	resident      []releaseEntry
 	residentBytes int64
-	runs          []*releaseRun
 	total         int
 	closed        bool
 	err           error
+
+	// Runs are sorted and written by background goroutines so the caller's
+	// row path does not pay for the sort; mu guards runs and spillErr, spills
+	// waits for every in-flight run, and slots bounds them.
+	mu       sync.Mutex
+	runs     []*releaseRun
+	spillErr error
+	spills   sync.WaitGroup
+	slots    chan struct{}
 }
 
 type releaseEntry struct {
@@ -65,7 +79,15 @@ func NewReleaseObservation() *ReleaseObservation {
 }
 
 func newReleaseObservation(threshold int64, baseDir string, chunkSize int) *ReleaseObservation {
-	return &ReleaseObservation{threshold: threshold, baseDir: baseDir, chunkSize: chunkSize}
+	return &ReleaseObservation{threshold: threshold, baseDir: baseDir, chunkSize: chunkSize,
+		slots: make(chan struct{}, releaseObservationSpillSlots)}
+}
+
+// spillError reports the first background run failure, if any.
+func (o *ReleaseObservation) spillError() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.spillErr
 }
 
 // Add hashes the fact once and records it.
@@ -95,6 +117,10 @@ func (o *ReleaseObservation) AddCanonical(fact FactID, payload []byte, hash [32]
 	if o.err != nil {
 		return o.err
 	}
+	if err := o.spillError(); err != nil {
+		o.err = err
+		return err
+	}
 	if !fact.IsV2() {
 		return fmt.Errorf("%w: outcome release set contains a non-V2 fact", ErrInvalid)
 	}
@@ -122,7 +148,15 @@ func (o *ReleaseObservation) Len() int {
 }
 
 // Spilled reports whether at least one run reached the encrypted spool.
-func (o *ReleaseObservation) Spilled() bool { return o != nil && len(o.runs) != 0 }
+func (o *ReleaseObservation) Spilled() bool {
+	if o == nil {
+		return false
+	}
+	o.spills.Wait()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.runs) != 0
+}
 
 // sortRun orders entries by hash, keeping insertion order among equal hashes,
 // and collapses equal hashes to their first payload; an equal hash with a
@@ -143,29 +177,59 @@ func sortRun(entries []releaseEntry) ([]releaseEntry, error) {
 	return unique, nil
 }
 
+// spillRun hands the resident entries to a background goroutine that sorts
+// them and writes one run; the caller continues with an empty resident set.
+// A sort collision or write failure surfaces at the next AddCanonical or at
+// Digest, before any digest is produced.
 func (o *ReleaseObservation) spillRun() error {
-	sorted, err := sortRun(o.resident)
+	entries := o.resident
+	o.resident = nil
+	o.residentBytes = 0
+	o.mu.Lock()
+	first := o.runs == nil && o.spillErr == nil
+	o.mu.Unlock()
+	if first {
+		runtime.SetFinalizer(o, (*ReleaseObservation).finalize)
+	}
+	o.slots <- struct{}{}
+	o.spills.Add(1)
+	go func() {
+		defer o.spills.Done()
+		defer func() { <-o.slots }()
+		run, err := writeReleaseRun(entries, o.baseDir, o.chunkSize)
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if err != nil {
+			if o.spillErr == nil {
+				o.spillErr = err
+			}
+			return
+		}
+		o.runs = append(o.runs, run)
+	}()
+	return nil
+}
+
+// writeReleaseRun sorts entries and writes them as one encrypted run.
+func writeReleaseRun(entries []releaseEntry, baseDir string, chunkSize int) (*releaseRun, error) {
+	sorted, err := sortRun(entries)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runID := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, runID); err != nil {
-		return fmt.Errorf("create release observation run identity: %w", err)
+		return nil, fmt.Errorf("create release observation run identity: %w", err)
 	}
 	aad := append([]byte("taskgate-release-observation-v1\x00"), runID...)
 	spool, err := encryptedspool.New(encryptedspool.Config{
-		BaseDir: o.baseDir, DirectoryPrefix: ".taskgate-release-observation-", FileName: "release.spool",
-		Magic: releaseObservationSpoolMagic, AAD: aad, Threshold: 1, ChunkSize: o.chunkSize,
+		BaseDir: baseDir, DirectoryPrefix: ".taskgate-release-observation-", FileName: "release.spool",
+		Magic: releaseObservationSpoolMagic, AAD: aad, Threshold: 1, ChunkSize: chunkSize,
 		UnlinkImmediately: true,
 	})
 	if err != nil {
-		return err
-	}
-	if len(o.runs) == 0 {
-		runtime.SetFinalizer(o, (*ReleaseObservation).finalize)
+		return nil, err
 	}
 	run := &releaseRun{spool: spool, count: len(sorted)}
-	o.runs = append(o.runs, run)
 	// Record: 32-byte hash, 4-byte payload length, payload. The hash is stored
 	// so readers need not re-hash; the spool's AEAD chunks authenticate it.
 	var header [sha256.Size + 4]byte
@@ -173,16 +237,16 @@ func (o *ReleaseObservation) spillRun() error {
 		copy(header[:sha256.Size], entry.hash[:])
 		binary.BigEndian.PutUint32(header[sha256.Size:], uint32(len(entry.payload)))
 		if _, err := spool.Write(header[:]); err != nil {
-			return fmt.Errorf("write encrypted release observation record: %w", err)
+			_ = spool.Close()
+			return nil, fmt.Errorf("write encrypted release observation record: %w", err)
 		}
 		if _, err := spool.Write(entry.payload); err != nil {
-			return fmt.Errorf("write encrypted release observation record: %w", err)
+			_ = spool.Close()
+			return nil, fmt.Errorf("write encrypted release observation record: %w", err)
 		}
 		zeroBytes(entry.payload)
 	}
-	o.resident = nil
-	o.residentBytes = 0
-	return nil
+	return run, nil
 }
 
 // Digest returns the ReleaseOutcomeDigest of every recorded fact.
@@ -198,6 +262,11 @@ func (o *ReleaseObservation) Digest(visibleRows int64) (string, error) {
 	}
 	if visibleRows < 0 {
 		return "", fmt.Errorf("%w: visible row count cannot be negative", ErrInvalid)
+	}
+	o.spills.Wait()
+	if err := o.spillError(); err != nil {
+		o.err = err
+		return "", err
 	}
 	sorted, err := sortRun(o.resident)
 	if err != nil {
@@ -300,7 +369,7 @@ func (c *releaseCursor) close() error {
 // merge visits every distinct payload in ascending hash order across all
 // runs and the resident slice. Equal hashes must carry equal payloads.
 func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err error) {
-	cursors := make([]*releaseCursor, 0, len(o.runs)+1)
+	cursors := make([]*releaseCursor, 0, releaseObservationSpillSlots+1)
 	defer func() {
 		for _, cursor := range cursors {
 			if closeErr := cursor.close(); closeErr != nil && err == nil {
@@ -308,7 +377,10 @@ func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err erro
 			}
 		}
 	}()
-	for _, run := range o.runs {
+	o.mu.Lock()
+	runs := append([]*releaseRun(nil), o.runs...)
+	o.mu.Unlock()
+	for _, run := range runs {
 		reader, err := run.spool.Snapshot()
 		if err != nil {
 			return fmt.Errorf("open encrypted release observation: %w", err)
@@ -366,13 +438,17 @@ func (o *ReleaseObservation) Close() error {
 	}
 	o.closed = true
 	runtime.SetFinalizer(o, nil)
+	o.spills.Wait()
+	o.mu.Lock()
+	runs := o.runs
+	o.runs = nil
+	o.mu.Unlock()
 	var err error
-	for _, run := range o.runs {
+	for _, run := range runs {
 		if closeErr := run.spool.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
 	}
-	o.runs = nil
 	for _, entry := range o.resident {
 		zeroBytes(entry.payload)
 	}

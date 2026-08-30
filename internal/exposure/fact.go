@@ -916,6 +916,25 @@ func canonicalInteger(value any) (string, error) {
 }
 
 func validateIntegerRange(sqlType, value string) error {
+	// Fast path: a value strconv accepts as int64 is in bigint range, and the
+	// narrower ranges are plain comparisons. Anything strconv rejects (syntax
+	// or overflow) takes the exact big.Int path below with unchanged verdicts.
+	if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+		switch sqlType {
+		case "smallint":
+			if parsed < math.MinInt16 || parsed > math.MaxInt16 {
+				return fmt.Errorf("%w: integer is outside PostgreSQL %s range", ErrInvalid, sqlType)
+			}
+			return nil
+		case "integer":
+			if parsed < math.MinInt32 || parsed > math.MaxInt32 {
+				return fmt.Errorf("%w: integer is outside PostgreSQL %s range", ErrInvalid, sqlType)
+			}
+			return nil
+		default:
+			return nil
+		}
+	}
 	integer, ok := new(big.Int).SetString(value, 10)
 	if !ok {
 		return fmt.Errorf("%w: invalid integer", ErrInvalid)

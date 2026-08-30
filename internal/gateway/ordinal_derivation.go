@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
@@ -106,6 +109,11 @@ type ordinalDeriver struct {
 	derived   exposure.FactSet
 	observed  *exposure.ReleaseObservation
 	builders  map[string]map[string]*exposure.BaseCellFactBuilder
+	// pipelined marks the plain ungrouped path (no grouping, no UNION
+	// DISTINCT), whose rows are prepared in parallel batches and committed
+	// in arrival order; pending holds the rows of the open batch.
+	pipelined bool
+	pending   [][]any
 	finished  bool
 	effect    ordinalEffect
 }
@@ -335,6 +343,7 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 		program: program, indexes: indexes, multi: multi, visible: visible, visiblePos: visiblePos,
 		planDigest: planDigest, bundle: bundle,
 		grouped:     len(program.Groups) != 0 || len(program.Aggregates) != 0,
+		pipelined:   len(program.Groups) == 0 && len(program.Aggregates) == 0 && program.Kind != "union_distinct",
 		leafFields:  make(map[string][]string, len(program.Sources)),
 		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
 		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(),
@@ -457,6 +466,13 @@ func (d *ordinalDeriver) Row(_ context.Context, values []any) error {
 	if d == nil || d.provenance == nil || d.finished {
 		return errors.New("ordinal provenance row arrived outside an active stream")
 	}
+	if d.pipelined {
+		d.pending = append(d.pending, append([]any(nil), values...))
+		if len(d.pending) >= ordinalPipelineBatchRows {
+			return d.flushPending()
+		}
+		return nil
+	}
 	member, err := d.buildMember(values)
 	if err != nil {
 		return err
@@ -465,6 +481,100 @@ func (d *ordinalDeriver) Row(_ context.Context, values []any) error {
 		return d.acceptUnionCandidate(member)
 	}
 	return d.acceptMember(member)
+}
+
+const (
+	// ordinalPipelineBatchRows is the number of provenance rows prepared per
+	// parallel batch on the plain ungrouped path.
+	ordinalPipelineBatchRows = 512
+	// ordinalPipelineWorkers caps the goroutines preparing one batch.
+	ordinalPipelineWorkers = 8
+)
+
+// ordinalPreparedRow is one provenance row after its pure, order-independent
+// work: member construction, outer-field witness merge, visible-value
+// comparison, base-fact construction and ordinal verification, and derived
+// fact construction. Committing it (bitmap adds, observation, dynamic set)
+// happens sequentially in arrival order, so the effect is identical to the
+// row-at-a-time path.
+type ordinalPreparedRow struct {
+	member ordinalMember
+	cells  []ordinalPreparedCell
+	err    error
+}
+
+type ordinalPreparedCell struct {
+	witness ordinalWitness
+	hasBase bool
+	baseRef ordinal.FactRef
+	fact    exposure.FactID
+	payload []byte
+	hash    [32]byte
+}
+
+// flushPending prepares the open batch in parallel and commits it in order.
+func (d *ordinalDeriver) flushPending() error {
+	rows := d.pending
+	d.pending = nil
+	if len(rows) == 0 {
+		return nil
+	}
+	prepared := make([]ordinalPreparedRow, len(rows))
+	base := d.visibleIndex
+	workers := min(runtime.GOMAXPROCS(0), ordinalPipelineWorkers, len(rows))
+	var next atomic.Int64
+	var wait sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for {
+				index := int(next.Add(1)) - 1
+				if index >= len(rows) {
+					return
+				}
+				prepared[index] = d.prepareRow(rows[index], base+index)
+			}
+		}()
+	}
+	wait.Wait()
+	for index := range prepared {
+		if err := d.commitRow(&prepared[index]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// prepareRow performs the row's order-independent work against read-only
+// deriver state. visiblePosition is the row's index in the visible result.
+func (d *ordinalDeriver) prepareRow(values []any, visiblePosition int) ordinalPreparedRow {
+	member, err := d.buildMember(values)
+	if err != nil {
+		return ordinalPreparedRow{err: err}
+	}
+	member, err = d.mergeOuterFields(member)
+	if err != nil {
+		return ordinalPreparedRow{err: err}
+	}
+	if visiblePosition >= len(d.visible.Rows) {
+		return ordinalPreparedRow{err: errors.New("provenance contains more rows than the visible result")}
+	}
+	cells, err := d.prepareUngrouped(member, ordinalVisibleRow{values: d.visible.Rows[visiblePosition]})
+	if err != nil {
+		return ordinalPreparedRow{err: err}
+	}
+	return ordinalPreparedRow{member: member, cells: cells}
+}
+
+// commitRow applies one prepared row's effects in arrival order.
+func (d *ordinalDeriver) commitRow(row *ordinalPreparedRow) error {
+	if row.err != nil {
+		return row.err
+	}
+	d.memberCount++
+	d.visibleIndex++
+	return d.commitUngrouped(row.member, row.cells)
 }
 
 func (d *ordinalDeriver) buildMember(values []any) (ordinalMember, error) {
@@ -666,6 +776,12 @@ func (d *ordinalDeriver) sourceEntityKey(source queryplan.OrdinalSource, values 
 }
 
 func (d *ordinalDeriver) memberGroupKey(member ordinalMember) (string, error) {
+	if d.pipelined {
+		// Only the grouped and UNION DISTINCT paths read member.groupKey; the
+		// pipelined path prepares rows in parallel and must not touch the
+		// shared one-entry key cache.
+		return "", nil
+	}
 	components := make([]string, 0, len(d.program.Groups))
 	for _, group := range d.program.Groups {
 		cell, present := member.cells[group.Field.FieldID]
@@ -786,24 +902,34 @@ func (d *ordinalDeriver) flushUnion() error {
 }
 
 func (d *ordinalDeriver) acceptMember(member ordinalMember) error {
-	row := member.row
-	for _, fieldID := range d.outerFields {
-		cell, present := member.cells[fieldID]
-		if !present {
-			return fmt.Errorf("outer dependency field %q is unavailable", fieldID)
-		}
-		combined, err := addOrdinalWitness(row, cell.witness)
-		if err != nil {
-			return err
-		}
-		row = combined
+	member, err := d.mergeOuterFields(member)
+	if err != nil {
+		return err
 	}
-	member.row = row
 	d.memberCount++
 	if !d.grouped {
 		return d.acceptUngrouped(member)
 	}
 	return d.acceptGrouped(member)
+}
+
+// mergeOuterFields folds the outer-predicate cell witnesses into the row
+// witness; it touches only the member.
+func (d *ordinalDeriver) mergeOuterFields(member ordinalMember) (ordinalMember, error) {
+	row := member.row
+	for _, fieldID := range d.outerFields {
+		cell, present := member.cells[fieldID]
+		if !present {
+			return ordinalMember{}, fmt.Errorf("outer dependency field %q is unavailable", fieldID)
+		}
+		combined, err := addOrdinalWitness(row, cell.witness)
+		if err != nil {
+			return ordinalMember{}, err
+		}
+		row = combined
+	}
+	member.row = row
+	return member, nil
 }
 
 func uniqueOrdinalPredicateFields(predicates []queryplan.OrdinalPredicateSpec) []string {
@@ -841,79 +967,102 @@ func (d *ordinalDeriver) acceptUngrouped(member ordinalMember) error {
 }
 
 func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalVisibleRow) error {
-	if err := member.row.addSupport(d.influence); err != nil {
+	cells, err := d.prepareUngrouped(member, visible)
+	if err != nil {
 		return err
 	}
+	return d.commitUngrouped(member, cells)
+}
+
+// prepareUngrouped matches every visible output to its provenance cell and
+// builds the release facts without touching deriver state.
+func (d *ordinalDeriver) prepareUngrouped(member ordinalMember, visible ordinalVisibleRow) ([]ordinalPreparedCell, error) {
+	cells := make([]ordinalPreparedCell, 0, len(d.program.Visible))
 	for _, output := range d.program.Visible {
 		if output.Kind != "field" {
-			return errors.New("ungrouped ordinal output unexpectedly contains an aggregate")
+			return nil, errors.New("ungrouped ordinal output unexpectedly contains an aggregate")
 		}
 		position, present := d.visiblePos[output.ResultAlias]
 		cell, cellPresent := member.cells[output.FieldID]
 		if !present || position >= len(visible.values) || !cellPresent {
-			return fmt.Errorf("visible field %q cannot be matched to provenance", output.OutputID)
+			return nil, fmt.Errorf("visible field %q cannot be matched to provenance", output.OutputID)
 		}
-		var baseFact exposure.FactID
-		var basePayload []byte
-		var baseHash [32]byte
+		prepared := ordinalPreparedCell{witness: cell.witness, hasBase: cell.hasBase, baseRef: cell.baseRef}
 		if cell.hasBase && cell.builder != nil && cell.builder.TypeName() == output.SQLType {
 			// The builder already canonicalized the provenance value under the
 			// output's canonical type; compare the visible value against it
 			// instead of canonicalizing the provenance value a second time.
 			fact, payload, hash, err := cell.builder.Fact(cell.entityKey, cell.value)
 			if err != nil {
-				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+				return nil, fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
 			}
 			visibleCanonical, err := exposure.CanonicalSQLValue(output.SQLType, visible.values[position])
 			if err != nil {
-				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+				return nil, fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
 			}
 			if visibleCanonical != fact.CanonicalValue {
-				return fmt.Errorf("visible/provenance value mismatch for %q: canonical values differ", output.OutputID)
+				return nil, fmt.Errorf("visible/provenance value mismatch for %q: canonical values differ", output.OutputID)
 			}
-			baseFact, basePayload, baseHash = fact, payload, hash
+			prepared.fact, prepared.payload, prepared.hash = fact, payload, hash
 		} else {
 			if err := sameCanonicalValue(output.SQLType, visible.values[position], cell.value); err != nil {
-				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+				return nil, fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
 			}
 			if cell.hasBase {
 				fact, payload, hash, err := cell.baseFactPayload()
 				if err != nil {
-					return err
+					return nil, err
 				}
-				baseFact, basePayload, baseHash = fact, payload, hash
+				prepared.fact, prepared.payload, prepared.hash = fact, payload, hash
 			}
 		}
+		if cell.hasBase {
+			if err := d.verifyBaseFact(cell.baseRef, prepared.hash); err != nil {
+				return nil, err
+			}
+		} else {
+			witness, err := cell.witness.freeze()
+			if err != nil {
+				return nil, err
+			}
+			commitment, err := ordinalWitnessCommitment(witness, d.multi)
+			if err != nil {
+				return nil, err
+			}
+			fact, err := exposure.NewDerivedFactV2(d.bundle, member.key, output.CanonicalExpression,
+				output.SQLType, visible.values[position], commitment)
+			if err != nil {
+				return nil, err
+			}
+			prepared.fact = fact
+		}
+		cells = append(cells, prepared)
+	}
+	return cells, nil
+}
+
+// commitUngrouped applies a prepared row: row and cell support into the
+// Dependency bitmap, base facts into the Result bitmap and the observation,
+// derived facts into the dynamic set.
+func (d *ordinalDeriver) commitUngrouped(member ordinalMember, cells []ordinalPreparedCell) error {
+	if err := member.row.addSupport(d.influence); err != nil {
+		return err
+	}
+	for index := range cells {
+		cell := &cells[index]
 		if err := cell.witness.addSupport(d.influence); err != nil {
 			return err
 		}
 		if cell.hasBase {
-			fact, payload, hash := baseFact, basePayload, baseHash
-			if err := d.verifyBaseFact(cell.baseRef, hash); err != nil {
-				return err
-			}
 			if err := d.release.Add(cell.baseRef); err != nil {
 				return err
 			}
-			if err := d.observed.AddCanonical(fact, payload, hash); err != nil {
+			if err := d.observed.AddCanonical(cell.fact, cell.payload, cell.hash); err != nil {
 				return err
 			}
 			continue
 		}
-		witness, err := cell.witness.freeze()
-		if err != nil {
-			return err
-		}
-		commitment, err := ordinalWitnessCommitment(witness, d.multi)
-		if err != nil {
-			return err
-		}
-		fact, err := exposure.NewDerivedFactV2(d.bundle, member.key, output.CanonicalExpression,
-			output.SQLType, visible.values[position], commitment)
-		if err != nil {
-			return err
-		}
-		if err := d.addDerived(fact); err != nil {
+		if err := d.addDerived(cell.fact); err != nil {
 			return err
 		}
 	}
@@ -1085,6 +1234,9 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	}
 	defer d.derived.Close()
 	defer d.observed.Close()
+	if err := d.flushPending(); err != nil {
+		return ordinalEffect{}, err
+	}
 	if err := d.flushUnion(); err != nil {
 		return ordinalEffect{}, err
 	}
