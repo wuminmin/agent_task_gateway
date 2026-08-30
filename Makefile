@@ -57,6 +57,9 @@ eval-tpch-lowerability:
 eval-ssb-lowerability:
 	go run ./evaluation/cmd/ssb-lowerability
 
+eval-agent-workload-lowerability:
+	go run ./evaluation/cmd/agent-workload-lowerability
+
 eval-generated-algebra:
 	go run ./evaluation/cmd/generated-algebra
 

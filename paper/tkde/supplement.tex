@@ -1531,42 +1531,13 @@ controls return zero rows and refuse at the column (RLS
 \FinalVFivePublicationRLSControlErrorRLS{}, BDG
 \FinalVFivePublicationRLSControlErrorBDG{}).
 
-Counter arms are derived from the same sealed samples by admission
-arithmetic: each query's Release/Dependency/Outcome facts as counted by the
-independent oracle (\code{oracle_trace}) and its rows are replayed under a
-cumulative row budget and a query-count budget calibrated to refuse at the
-same query as the exposure budgets (\FinalVFivePublicationCounterRowBudget{}
-rows; \FinalVFivePublicationRLSBoundedSuccessful{} queries), and the set
-ledger is continued past its first refusal (the campaign arm stops there).
-Of the \FinalVFivePublicationRLSQueries{} queries,
-\FinalVFivePublicationTraceZeroNoveltyQueries{} add no fact to the running
-union. Table~\ref{tab:counter-arms-supp} reports the arms in the trace's
-order and in a novelty-first order (novel queries first, ascending rows):
-the counters that coincide with the set ledger in one order release the
-whole union in the other, while the set ledger's release never exceeds its
-budgets in any order, which is the property the paper claims for it.
-
-\begin{table}[t]
-\centering
-\caption{Counter arms on the adaptive trace (derived, not run): budget,
-queries admitted, first refusal, refused queries that add no fact to the
-full-trace union (``non-novel'') versus refused queries that do, and facts
-released (Release/Dependency/Outcome) in the trace's order; then facts
-released under a novelty-first order. The set ledger refuses a zero-novelty
-query only when it repeats the facts of the refused query 37, which never
-entered the ledger.}
-\label{tab:counter-arms-supp}
-\small
-\begin{tabular}{lrrrrrl}
-\toprule
-Arm & Budget & Admitted & Refused at & Non-novel refused & Novel refused & Released \\
-\midrule
-\FinalVFivePublicationCounterArmTableBody
-\midrule
-\multicolumn{7}{l}{Novelty-first order: set ledger \FinalVFivePublicationPermutedSetReleased{} (\FinalVFivePublicationPermutedSetAdmitted{} admitted); row budget \FinalVFivePublicationPermutedRowReleased{} (\FinalVFivePublicationPermutedRowAdmitted{}); query budget \FinalVFivePublicationPermutedQueryReleased{} (\FinalVFivePublicationPermutedQueryAdmitted{}).} \\
-\bottomrule
-\end{tabular}
-\end{table}
+No counter-based arm was executed. As an analytical remark only: a
+cumulative row or query counter admits a prefix of the trace whose length
+depends on the order in which the same queries arrive, so the facts it
+releases before refusing are order-dependent, whereas the set ledger's
+release is bounded by $B_R/B_D/B_O$ in every order. The manuscript does not
+report derived counter budgets because any budget chosen from this trace's
+own union would be calibrated on the data it is compared with.
 
 \begin{table}[t]
 \centering

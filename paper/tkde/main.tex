@@ -80,11 +80,12 @@ differential privacy. Immutable ordinals, compressed bitmaps, and a
 Merkle-radix set make novelty exact at $10^6$ facts; propositions, bounded
 model checking, and executable PostgreSQL tests support the semantics and
 protocol. A sealed single-host campaign (\FinalVFivePublicationMeasuredSamples{}
-samples) charges every scripted decomposition exactly once, refuses an
-adaptive trace where a per-query control cannot, and settles against a
-million-fact history in \FinalVFivePublicationScaleSettleMillionMS{}~ms at
-\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
-the direct query.
+samples) charges every scripted decomposition exactly once and keeps an
+adaptive trace within order-independent set budgets; a governed novel query
+costs \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
+its direct execution, and the settlement transaction alone takes
+\FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
+history.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -982,9 +983,13 @@ without repeating Business execution.
 Withholding the buffer does not hide the decision bit: a rejected attempt
 returns only the code \code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count,
 or row), so the agent learns one inequality and nothing else; rejection
-charges no exposure---in particular no Outcome atom---and is settled as a
-failed query that consumes one unit of the request budget $B_Q$ and its
-observed rows and database time, so $B_Q$ is an exposure parameter, not a
+charges no exposure---in particular no Outcome atom---and is recorded as a
+failed query (contributing no set, Definition~\ref{def:task-exposure}) that
+consumes one unit of the request budget $B_Q$ together with the rows and
+database time it \emph{reserved} at admission, not the observed count; the
+client receives only the code \code{EXPOSURE_BUDGET_EXHAUSTED}, and the
+dimension named in the evaluation tables is the oracle's projection, not a
+response field. So $B_Q$ is an exposure parameter, not a
 resource guard ($B_Q=110$ next to $B_O=18$ in Section~\ref{sec:delegation}
 allows six rejected questions per settled predicate).
 
@@ -999,8 +1004,12 @@ of $B_R$, $B_D$, and $B_O$. Each successful novel query additionally
 returns its charge $|\Delta_X|$, the size of its footprint outside the
 ledger; at most $B_O$ such counts exist per root family.
 \end{proposition}
-The bound is on comparisons, not on what a comparison reveals about
-unreleased facts, and it grows with the approved task tree because request
+The bound is on the response payload: execution and derivation precede
+settlement (Section~\ref{sec:online}), so a refused query's latency is
+proportional to the footprint that was not released, a timing channel the
+model omits (Section~\ref{sec:limits}). The bound counts comparisons, not
+what a comparison reveals about unreleased facts, and it grows with the
+approved task tree because request
 budgets, unlike exposure budgets, are not pooled at the root; charging
 Outcome atoms on rejection would fold this capacity into $B_O$ at the cost of
 penalizing legitimate near-boundary queries, and is not implemented. The
@@ -1157,7 +1166,7 @@ maps layers and gaps); among them a randomized root-family test settles
 \VFiveFamilyPropertySeeds{} random delegation trees (up to
 \VFiveFamilyPropertyMaxTasks{} tasks) in sequential steps and concurrent
 bursts against the live Control store, checking after every step that the
-committed head equals an independent plain-set union in all three
+committed head equals a separately kept plain-set union in all three
 dimensions and never exceeds its limits, that each sequential charge is
 exactly the novelty, and that each of the \VFiveFamilyPropertyRefused{}
 refusals exceeds a limit even against the final union. We claim bounded
@@ -1185,7 +1194,10 @@ RQ1's oracle (\RQOnePassed{}/\RQOneCases{} cases) is a separate
 implementation over \RQOneRows{} rows that imports no production policy
 code; the campaign's oracle package is likewise a separate implementation
 of the FactID wire contract, written by us from the same specification (so
-agreement is implementation-to-specification, not a third party's reading),
+agreement is implementation-to-specification, not a third party's reading;
+such oracles cannot detect specification errors or a shared misreading of
+PostgreSQL semantics, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
+cases are regression evidence, not statistical evidence),
 whose import boundary excludes
 every production package (enforced by a dependency test), fixes the
 expected Fact cardinalities of all
@@ -1207,14 +1219,16 @@ requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 split, page, retry, snapshot identity, joins/unions, delegation, and races;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
-and activate a \FinalVFivePublicationRQFiveRows{}-row publication in
-\FinalVFivePublicationRQFiveBuildS{}~s p50); Outcome regressions cover empty
+a \FinalVFivePublicationRQFiveRows{}-row publication in
+\FinalVFivePublicationRQFiveBuildS{}~s p50 for the build phase; activation
+adds about one second, \RQFiveDayZeroActivateMedianS{}~s in the tracked RQ5
+run); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
 cases, a generated-plan campaign (\GeneratedPlans{} random plans over
 \GeneratedFixtures{} random fixtures of
 \GeneratedRowsMin{}--\GeneratedRowsMax{} rows: three-valued selections,
 projections, two-source equijoins, grouped and global aggregates, pages)
-compares the production algebra with an independent reference evaluator
+compares the production algebra with a separate reference evaluator
 written from the operator rules: \GeneratedMismatches{} set mismatches and
 \GeneratedHashMismatches{} hash disagreements over
 \GeneratedReleaseFacts{} Result and \GeneratedDependencyFacts{} Dependency
@@ -1260,7 +1274,7 @@ paid: the Scale profile below settles against a million-Fact history in
 \FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot at the submission commit (four deployments per
 profile, \FinalVFiveSubphaseSamplesSTwoSFTen{} samples per cell, Gateway
 component timers retained; not publication-class) splits
-execute-and-derive: the companion SQL takes
+execute-and-derive: the visible and companion SQL together take
 \FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
 at S1/SF1, S2/SF10, S6/100k-x16, while Go-side ordinal consumption and
 witness merging take
@@ -1321,7 +1335,7 @@ tree's settlement throughput is bounded by that head; per-dimension or
 batched settlement could relax the bound, and multi-root throughput is not
 measured. Ledger growth (Scale profile, \FinalVFivePublicationScaleCells{}
 cells, \FinalVFivePublicationScaleSamples{} samples, every charge equal to
-the independent oracle's union minus history): settling one candidate against
+the oracle's union minus history): settling one candidate against
 a same-size history grows settlement p50 from
 \FinalVFivePublicationScaleSettleTenKMS{}~ms at $10^4$ to
 \FinalVFivePublicationScaleSettleMillionMS{}~ms at
@@ -1363,7 +1377,7 @@ Product: PostgreSQL row-level security with a department policy and column
 grants, BDG with an unlimited ledger, and BDG bounded at
 $\lfloor 0.7\,U\rfloor$ of the trace's distinct facts
 $U=\FinalVFivePublicationRLSUnionRelease{}/\FinalVFivePublicationRLSUnionDependency{}/\FinalVFivePublicationRLSUnionOutcome{}$
-as counted by an independent trace-union oracle (budgets
+as counted by a separate trace-union oracle (budgets
 \FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{};
 \FinalVFivePublicationRLSPerCell{} samples per arm, identical in every one).
 RLS answered all \FinalVFivePublicationRLSQueries{} queries
@@ -1380,18 +1394,12 @@ step outside the policy row set and the column grant returns zero rows under
 both and is refused at the column (RLS
 \FinalVFivePublicationRLSControlErrorRLS{}, BDG
 \FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
-authorization, and what RLS cannot express is exactly ``at most
-\FinalVFivePublicationRLSBudgetDependency{} distinct base facts''. Counter
-budgets are compared by admission arithmetic over the oracle's per-query
-fact sets (derived from the sealed samples, not a separate run): a row
-budget of \FinalVFivePublicationCounterRowBudget{} and a query budget of
-\FinalVFivePublicationCounterSetAdmitted{}, calibrated to refuse at query
-\FinalVFivePublicationRLSBoundedRefusalIndex{}, match the set ledger in the
-trace's order (\FinalVFivePublicationCounterSetReleased{} Facts released)
-but release the whole union (\FinalVFivePublicationPermutedRowReleased{})
-when the same queries run novelty-first, while the set ledger still
-releases \FinalVFivePublicationPermutedSetReleased{}: a counter's release
-bound depends on query order, the set ledger's does not (supplement table).
+authorization; that RLS admits all \FinalVFivePublicationRLSQueries{}
+queries is definitional (it has no cumulative budget), so the comparison
+shows where a set budget binds, not that a per-query control fails a test
+it could pass. No counter-based arm was run; the analytical remark is that
+a row or query counter's release bound depends on the order in which the
+same queries arrive, whereas the set ledger's does not (supplement).
 
 \begin{figure}[t]
 \centering
@@ -1412,7 +1420,7 @@ bound depends on query order, the set ledger's does not (supplement table).
 \end{axis}
 \end{tikzpicture}
 \caption{Distinct governed facts obtained by the adaptive trace by query
-index (independent trace-union oracle; solid) against the bounded arm's
+index (separate trace-union oracle; solid) against the bounded arm's
 budgets (dashed); BDG-bounded refuses at the first query whose prefix
 crosses a budget, where the trace stops.}
 \label{fig:rls-trace}
