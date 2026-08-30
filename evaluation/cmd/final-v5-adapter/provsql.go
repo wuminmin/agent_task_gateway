@@ -396,7 +396,19 @@ SELECT gate::text FROM walk WHERE provsql.get_gate_type(gate) = 'input'`, roots)
 		keys    []any
 	}
 	var mapped []baseRow
-	mappedRows, err := conn.Query(ctx, `SELECT 0, orderkey::bigint, NULL::integer FROM final_v5_provsql.orders WHERE provsql = ANY($1::uuid[])
+	// ProvSQL's planner hook appends a provenance column to every SELECT over
+	// a provenance-enabled relation; the mapping below reads the base rows'
+	// key columns as plain SQL, so the hook is switched off for this
+	// transaction only (the circuit itself is untouched).
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return link, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL provsql.active = off"); err != nil {
+		return link, err
+	}
+	mappedRows, err := tx.Query(ctx, `SELECT 0, orderkey::bigint, NULL::integer FROM final_v5_provsql.orders WHERE provsql = ANY($1::uuid[])
 UNION ALL SELECT 1, orderkey::bigint, linenumber::integer FROM final_v5_provsql.lineitem WHERE provsql = ANY($1::uuid[])
 UNION ALL SELECT 2, nonce_id::bigint, NULL::integer FROM final_v5_provsql.nonce WHERE provsql = ANY($1::uuid[])`, inputs)
 	if err != nil {
@@ -428,6 +440,9 @@ UNION ALL SELECT 2, nonce_id::bigint, NULL::integer FROM final_v5_provsql.nonce 
 	}
 	mappedRows.Close()
 	if err := mappedRows.Err(); err != nil {
+		return link, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return link, err
 	}
 	link.UnmappedInputGates = link.InputGates - int64(len(mapped))
