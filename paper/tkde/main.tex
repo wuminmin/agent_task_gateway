@@ -1086,28 +1086,16 @@ These declarations are neither risk scores nor optimization targets: 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used.
 
-\textbf{Worked policy.} The campaign's bounded trace profile binds every
-exposure dimension before any counter: for ``review this department's
-receipts'' it grants
+\textbf{Worked policy.} For ``review this department's receipts'' the
+campaign's bounded trace profile binds
 $B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$
-next to a request budget of 110 and a row budget of 1,000, so on the
-\FinalVFivePublicationRLSQueries{}-query trace the counters admit
-everything (\FinalVFivePublicationRLSRowsRLS{} rows in
-\FinalVFivePublicationRLSQueries{} queries) while the Dependency budget
-refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}, the first
-equivalent predicate that reads new base facts. The ladder shows $B_O$
-binding (\FinalVFivePublicationAttackThresholdCeiling{} atoms and
-composites refuse the third count probe); $B_R$ binds in the sweep case:
-under the default low route ($B_R=2{,}000{,}000$, $B_O=B_Q=128$) paging a
-$10^5\times16$ Product in 100 pages releases $1.6\times10^6$ Facts and 100
-composites, each page legal under any row limit, a repeat of the same pages
-is a zero-novelty replay, and a sweep of a second such Product is refused
-at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
-rows times aggregable fields bounds the \emph{distinct} base facts any
-aggregate sequence touches, not how many run (Section~\ref{sec:model}
-bounds settled and refused predicates). Ranking a hidden field is not admitted: an \code{ORDER BY} column that is
-not selected is rejected (\code{ORDER_FIELD_NOT_SELECTED}), so
-\code{SELECT id ... ORDER BY salary} must release \code{salary}.
+next to a request budget of 110 and a row budget of 1,000; the counters
+admit the whole trace while $B_D$ refuses at query
+\FinalVFivePublicationRLSBoundedRefusalIndex{}. The supplement works the
+same policy through the count-probe ladder ($B_O$ binds), a page sweep of
+a $10^5\times16$ Product ($B_R$ binds on a second such Product; a repeat of
+the same pages is a zero-novelty replay), and the rule that
+\code{ORDER BY} columns must be selected.
 
 \section{System Realization}
 \label{sec:system}
