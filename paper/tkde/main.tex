@@ -346,7 +346,10 @@ exercised by the evaluation: sweeping a Product page by page, bounded by
 $B_R$ (budget arithmetic in Section~\ref{sec:calibration}, not a measured
 cell); aggregates that read far more base facts
 than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
-ladders, bounded by $B_O$ (the corpus ladder); and delegation fan-out,
+ladders, whose count of distinct settled predicates $B_O$ bounds but whose
+recovery it does not (the corpus ladder refuses at $B_O=5$; under the
+default $B_O=128$ a binary search recovers a 64-bit cell in 64 settled
+probes, and $B_Q$ adds 128 refusal bits per task); and delegation fan-out,
 bounded by the shared root ledger (the delegated child's refusal). Four
 boundaries hold at this goal: it counts declared identities, not inference;
 only the Catalog tie-break keys of a page order are order-only (every
@@ -1091,19 +1094,19 @@ permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
 Section~\ref{sec:introduction} dismisses it charges a repeated outcome once
-and bounds no release size, which $B_R$ and $B_D$ do, so it is sized for a
-purpose's pagination volume plus the predicates it needs.
-
-\textbf{Worked policy.} For ``review this department's receipts'' the
-campaign's bounded trace profile binds
-$B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$
-next to a request budget of 110 and a row budget of 1,000; the counters
-admit the whole trace while $B_D$ refuses at query
-\FinalVFivePublicationRLSBoundedRefusalIndex{}. The supplement works the
-same policy through the count-probe ladder ($B_O$ binds), a page sweep of
-a $10^5\times16$ Product ($B_R$ binds on a second such Product; a repeat of
-the same pages is a zero-novelty replay), and the rule that
-\code{ORDER BY} columns must be selected.
+and bounds no release size, which $B_R$ and $B_D$ do. A data owner derives
+the profile from the purpose and the Product: $B_R$ is the detail rows the
+purpose may release times their fields; $B_D$ is the largest admitted
+aggregate shape's footprint (rows times argument fields), which for a
+purpose needing one full-Product aggregate equals the Product's fact count,
+so $B_D$ then bounds nothing within that Product and protects only against
+reading further Products or columns; $B_O$ is the expected pages plus
+distinct predicates; $B_Q$ a small multiple of $B_O$. The supplement works
+the campaign's bounded profile
+($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
+$B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}
+while row and query counters admit everything), the count-probe ladder, and
+a page sweep; it is a toy department, not a realistic-scale calibration.
 
 \section{System Realization}
 \label{sec:system}
