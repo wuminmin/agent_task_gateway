@@ -104,13 +104,13 @@ authorization and any DFC check, BDG asks whether the next allowed execution
 fits the root's cumulative contract.
 
 Query count ignores answer size, row count makes a one-row aggregate over
-millions of source rows look cheap, and bytes depend on encoding. Query
+millions of source rows look cheap, and bytes depend on encoding; query
 pricing develops anti-arbitrage objectives
 \cite{koutris2012query,deep2017qirana,peng2025aria} and provenance explains
-where results came from \cite{green2007provenance,amsterdamer2011aggregate};
-BDG asks how human authorization can create a stateful release budget
-conserved across adaptive querying and delegation, without inspecting an
-LLM. Enterprise operational analytics
+where results came from \cite{green2007provenance,amsterdamer2011aggregate},
+whereas BDG asks how human authorization can create a stateful release
+budget conserved across adaptive querying and delegation. Enterprise
+operational analytics
 commonly serves scheduled ETL outputs rather than OLTP primaries; BDG compiles
 each completed cut into an immutable publication, new roots may bind the next
 cut, and unfinished roots stay on the prior one through version routing or
@@ -328,8 +328,7 @@ inference safety.
 \begin{table*}[t]
 \centering
 \caption{Representative control boundaries from the cited artifacts (modeled
-or paper-reported scopes, not a feature score); each system's SQL/tool
-boundary and non-goals relative to BDG are stated in the text.}
+or paper-reported scopes, not a feature score).}
 \label{tab:system-comparison}
 \scriptsize
 \setlength{\tabcolsep}{2pt}
@@ -1104,10 +1103,9 @@ race and fault-injection tests; neither is a mechanized refinement.
 \textbf{Catalog-issued capacity.} The supplement's calibration table separates
 profile units from resource guards and from quantities they do not estimate;
 $B_Q$ belongs with the exposure units because it bounds rejected probes.
-These human-governed declarations are neither risk scores nor optimization
-targets: 1,000 permits 1,000 declared units, the bound profile must remain
-acceptable when fully used, and unit weights enable exact set union, not harm
-or DP accounting.
+These declarations are neither risk scores nor optimization targets: 1,000
+permits 1,000 declared units, and the bound profile must remain acceptable
+when fully used.
 
 \textbf{Worked policy.} The campaign's bounded trace profile
 (Section~\ref{sec:attack-provsql}) binds every exposure dimension before
@@ -1190,13 +1188,12 @@ configurations---the ledger model has one root and one child, two requests,
 two facts per dimension, limits $1/1/2$, and one replay
 (\ExposureFormalStates{} states, depth \ExposureFormalDepth{}); the others
 explore \BitmapFormalStates{}, \OutcomeFormalStates{}, and
-\ArtifactFormalStates{} states (bounds in the supplement); they start after
-compilation and abstract away SQL, rows, hashes, signatures, networking, and
-ciphertext. Executable Go/PostgreSQL differential, concurrency, tamper, and
-fault-injection tests check implementation correspondence, including radix
-partitioning and object reuse (the supplement maps the layers and gaps). We
-claim bounded model checking plus implementation evidence, not a mechanized
-refinement or a verified system.
+\ArtifactFormalStates{} states (bounds in the supplement); they are sanity
+checks of the specification that abstract away SQL, rows, hashes, signatures,
+networking, and ciphertext. Executable Go/PostgreSQL differential,
+concurrency, tamper, and fault-injection tests check implementation
+correspondence (the supplement maps the layers and gaps); we claim bounded
+model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1205,9 +1202,9 @@ refinement or a verified system.
 
 RQ1 asks ground-truth Fact membership, RQ2 rewrite and charge invariance,
 RQ3 conservation under adaptive execution, delegation, and concurrency, RQ4
-ordinal/bitmap acceptance, and RQ5 daily publication and retained routing;
-RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}. Every call uses a complete signed profile; no
-representation or budget planner is evaluated. Medians and p95 are Type-7
+ordinal/bitmap acceptance, and RQ5 daily publication and retained routing
+(RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
+uses a complete signed profile. Medians and p95 are Type-7
 quantiles over the stated samples. Passant is a semantic
 comparator, not a latency baseline \cite{summers2026passant}; ProvSQL
 provenance capture is the same-host cost reference
@@ -1430,12 +1427,12 @@ construction and does not rank the systems.
 \subsection{Reproducibility Boundary}
 
 All measurements ran on one WSL2 guest (Ubuntu 22.04.5) of a laptop-class
-Intel Core i9-13900HX (16 cores, 32 threads, 29~GiB visible), Docker 29.7.2,
-PostgreSQL 16.14 from a digest-pinned image, and Go 1.25.14. The repository
-at the cited commits, the evidence pack, and the retained raw samples (48
-JSONL files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
-re-verify every digest chain and recompute every macro from the raw samples
-but cannot re-hash the omitted HOT/COLD/sidecar payloads.
+Intel Core i9-13900HX (16 cores, 29~GiB visible), Docker 29.7.2, PostgreSQL
+16.14 from a digest-pinned image, and Go 1.25.14. The repository at the
+cited commits, the evidence pack, and the retained raw samples (48 JSONL
+files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
+re-verify every digest chain and recompute every macro but cannot re-hash
+the omitted HOT/COLD/sidecar payloads.
 Every campaign number above is publication-class: one submission commit
 (\FinalVFivePublicationCommit{}), \FinalVFivePublicationDeployments{} fresh
 isolated deployments on one host, three independent executions per profile;
