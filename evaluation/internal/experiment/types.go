@@ -1264,7 +1264,7 @@ type AttackStepEvidence struct {
 	ResultIDHash           string                        `json:"result_id_hash,omitempty"`
 	RowCount               int64                         `json:"row_count"`
 	ColumnCount            int                           `json:"column_count"`
-	ClientMS               float64              `json:"client_ms,omitempty"`
+	ClientMS               float64                       `json:"client_ms,omitempty"`
 	ResultSHA256           string                        `json:"result_sha256,omitempty"`
 	ScalarInt64            *int64                        `json:"scalar_int64,omitempty"`
 	RowSHA256              []string                      `json:"row_sha256,omitempty"`
