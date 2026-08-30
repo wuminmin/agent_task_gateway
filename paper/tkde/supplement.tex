@@ -1031,9 +1031,9 @@ semantic replay median in the table exceeds its cell's direct median.
 
 \begin{table}[t]
 \centering
-\caption{Retained Baseline pilot, per cell. Medians in milliseconds over
-\FinalVFivePilotBaselinePerCell{} samples. Overhead is novel over direct. Not
-publication evidence.}
+\caption{Retained Baseline pilot, per cell, in milliseconds
+(\FinalVFivePilotBaselinePerCell{} measured sample per cell after warmups).
+Overhead is novel over direct. Not publication evidence.}
 \label{tab:baseline-pilot}
 \small
 \begin{tabular}{lrrrrrrrr}
@@ -1148,7 +1148,9 @@ is waiting on it, then releases the whole round at once; in
 if the production Outcome set reported at least one CAS conflict.
 Table~\ref{tab:concurrency-publication} reports round drain time per cell
 over \FinalVFivePublicationConcurrencyRounds{} rounds; requests per second is
-the width over the median drain. All rounds ran on one host against one
+the width over the median drain. The conditioning discarded nothing: the
+sealed sample files retain every generated round, 30 passing rounds per cell
+in each of the three deployments and no invalid round. All rounds ran on one host against one
 enforcement instance.
 
 \begin{table}[t]
