@@ -728,11 +728,11 @@ or commit binding disagrees.
 \toprule
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
-RQ1--RQ3 (Table 2) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
+RQ1--RQ3 (Table~\ref{tab:soundness-evidence-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
 RQ4 archived ordinal/bitmap & recorded in \filepath{evidence/} \filepath{legacy-rq4-source.json} under the results directory & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-} \code{performance}, \code{-scale}, \code{-storage} \\
 RQ5 publication and routing & tracked at \EvidenceChainCommit{} & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
 V5 outcome-set regressions and randomized root-family sequences & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
-Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
+Publication campaign (main Table~1; Tables~\ref{tab:baseline-publication}, \ref{tab:phase-breakdown}, \ref{tab:concurrency-publication}, \ref{tab:scale-publication}) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/subphase-pilot-06} & pilot; not publication evidence \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
@@ -2005,10 +2005,36 @@ Table~\ref{tab:agent-workload} names the first rejection of the others;
 (\AgentWorkloadStarQueries{}), \code{AVG} or a scalar function such as
 \code{to_char} in the projection (\AgentWorkloadFunctionQueries{}), and
 arithmetic in the projection (\AgentWorkloadArithmeticQueries{}) account for
-most. \code{SELECT *} and \code{HAVING} are rewritable by the agent from the
-rejection message (the lowerer names the construct); \code{AVG}, projection
-arithmetic, and \code{OR} would extend the fragment and its Dependency
-rule. The questions were written by the authors; the SQL was not.
+most. Table~\ref{tab:constructs-supp} classifies the rejected constructs:
+those whose Dependency rule already exists in the fragment (engineering
+gaps) and those that would need a new rule (fundamental to the accounting).
+The questions were written by the authors; the SQL was not; no rewrite loop
+was run.
+
+\begin{table}[t]
+\centering
+\caption{Rejected constructs across the TPC-H, SSB, and agent-written
+workloads: whether admitting them is an engineering gap (existing
+Dependency rule applies) or needs a new rule.}
+\label{tab:constructs-supp}
+\small
+\begin{tabular}{llp{0.55\columnwidth}}
+\toprule
+Construct & Class & Dependency rule \\
+\midrule
+\code{HAVING} & engineering & post-group Select over group rows; same footprint as Select \\
+\code{SELECT *} & engineering & the Product's column list; Release facts per column \\
+\code{AVG} (exact numeric) & engineering & argument column, as SUM/COUNT; floating types excluded by canonicalization \\
+\code{COUNT(DISTINCT)} & engineering & argument column, as COUNT \\
+scalar functions in projections & engineering (per function) & the argument columns; only attested deterministic functions \\
+arithmetic in projections/aggregates & new rule & derived cells: Release identity of an expression over several columns \\
+\code{OR} in \code{WHERE} & new rule & disjunctive witnesses: predicate-cell facts per satisfied disjunct \\
+\code{BETWEEN} over text & new rule & collation-dependent range atoms \\
+outer joins & new rule & null-extended rows have no matching witness \\
+subqueries, \code{LIMIT} over joins & new rule & nested effects and multi-product page order \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{table}[t]
 \centering

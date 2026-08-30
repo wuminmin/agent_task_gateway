@@ -73,11 +73,12 @@ guarantee is bounded \emph{release}: within one root family and publication
 epoch no more than the approved number of distinct declared facts of each
 kind becomes available, whatever admitted sequence the agent issues; it does
 not bound inference from answered or refused predicates. Accounting is exact
-with respect to the declared rules, checked against same-team oracles, over
-a closed reporting fragment (connected equijoins, grouping, bounded unions,
-nested Views; SQL an off-the-shelf LLM writes for
-\AgentWorkloadQueries{} reporting questions lowers unedited in
-\AgentWorkloadLowerablePct\% of cases). Immutable ordinals, compressed
+with respect to the declared rules and, lacking an external oracle,
+verified only for consistency with our own oracles; it covers a closed
+reporting fragment (connected equijoins, grouping, bounded unions, nested
+Views) whose coverage of agent-written reporting SQL is limited
+(\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
+statements lower unedited). Immutable ordinals, compressed
 bitmaps, and a Merkle-radix set make novelty exact at $10^6$ facts. A sealed
 single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
@@ -99,7 +100,8 @@ budget, positive-output dependency footprint, query-outcome accounting
 \IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
 An adaptive agent adds, ``How much policy-defined exposure has this task
 acquired?'' Within one approved task, an agent may split projections, overlap
-pages, retry, rewrite, and delegate while individual queries remain legal,
+pages, retry, rewrite, and delegate (each child grant human-approved)
+while individual queries remain legal,
 and per-query authorization and row limits do not state the root family's
 distinct cumulative exposure; BDG accounts that contract-defined quantity,
 not the agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
@@ -366,8 +368,14 @@ task tree, not $B_X$ (Section~\ref{sec:online}): under the default route
 refusals; a settled response returns
 the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
-successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
-B_X\rceil$ bits of query-set-overlap information; returning only the
+successful novel queries reveals $|\Delta_X|$, up to $3\lceil\log_2
+B_X\rceil$ bits of query-set-overlap information across the three
+dimensions; a third, timing channel exists because execution precedes
+settlement, so a refused query's latency grows with the footprint it did
+not release (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
+per Dependency Fact in the sub-phase pilot), and
+Proposition~\ref{prop:probing-bound} bounds the response payload only;
+returning only the
 remaining budget would be a planning convenience, not a smaller channel
 (remaining equals prior remaining minus charge). The model
 trusts identity, attribute, and approval assertions; Catalog and
@@ -1023,8 +1031,10 @@ claim.
 
 \subsection{Root-Family Conservation}
 
-A child authorization signs both \code{root_task_id} and
-\code{parent_task_id}. Its human subject, catalog, datasource, schema, and
+Every child grant is a human-approved authorization (the prototype's only
+approval mode is manual), so autonomous delegation is not supported and
+conservation is evaluated for human-approved trees. A child authorization
+signs both \code{root_task_id} and \code{parent_task_id}. Its human subject, catalog, datasource, schema, and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
 all budget dimensions may only narrow; every execution revalidates the signed
 parent grant and active ancestor chain; View-bound descendants inherit the
@@ -1084,7 +1094,11 @@ profile units from resource guards and from quantities they do not estimate;
 $B_Q$ belongs with the exposure units because it bounds rejected probes.
 These declarations are neither risk scores nor optimization targets: 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
-when fully used.
+when fully used. $B_O$ bounds distinct successful queries (every page
+settles one composite) plus distinct predicate atoms: unlike the counters
+Section~\ref{sec:introduction} dismisses it charges a repeated outcome once
+and bounds no release size, which $B_R$ and $B_D$ do, so it is sized for a
+purpose's pagination volume plus the predicates it needs.
 
 \textbf{Worked policy.} For ``review this department's receipts'' the
 campaign's bounded trace profile binds
@@ -1172,8 +1186,7 @@ archived V4 run is reported only in the supplement), and RQ5 daily
 publication and retained routing
 (RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
 uses a complete signed profile. Medians and p95 are Type-7
-(linear-interpolation) quantiles over the stated samples. Passant is a semantic
-comparator, not a latency baseline \cite{summers2026passant}; ProvSQL
+(linear-interpolation) quantiles over the stated samples; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
 
@@ -1184,7 +1197,8 @@ code; the campaign's oracle package is likewise a separate implementation
 of the FactID wire contract, written by us from the same specification (so
 agreement is implementation-to-specification, not a third party's reading;
 such oracles cannot detect specification errors or a shared misreading of
-PostgreSQL semantics, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
+PostgreSQL semantics, so we claim consistency with our oracle rather than
+independent validation, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
 cases are regression evidence, not statistical evidence),
 whose import boundary excludes
 every production package (enforced by a dependency test), fixes the
@@ -1278,7 +1292,8 @@ not interactive ones (supplement table).
 \centering
 \caption{Core workloads per cell: rows, Release/Dependency Facts, medians
 (ms) of direct, novel, semantic and idempotent replay over
-\FinalVFivePublicationBaselinePerCell{} samples; overhead is novel/direct.}
+\FinalVFivePublicationBaselinePerCell{} samples; overhead is novel/direct;
+--: the protocol defines no such replay cell for that workload.}
 \label{tab:baseline-main}
 \scriptsize
 \setlength{\tabcolsep}{1.4pt}
@@ -1322,15 +1337,29 @@ per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
 batched settlement could relax the bound, and multi-root throughput is not
-measured. Ledger growth (Scale profile, \FinalVFivePublicationScaleCells{}
-cells, \FinalVFivePublicationScaleSamples{} samples, every charge equal to
-the oracle's union minus history): settling one candidate against
-a same-size history grows settlement p50 from
-\FinalVFivePublicationScaleSettleTenKMS{}~ms at $10^4$ to
-\FinalVFivePublicationScaleSettleMillionMS{}~ms at
-\FinalVFivePublicationScaleMillionHistory{} Dependency Facts, within a
-\FinalVFivePublicationScaleMillionDrainMS{}~ms response dominated by
-execute-and-derive (supplement table).
+measured. Table~\ref{tab:scale-main} answers RQ4 with the Scale profile
+(\FinalVFivePublicationScaleCells{} cells,
+\FinalVFivePublicationScaleSamples{} samples, every charge equal to the
+oracle's union minus history): settlement against a same-size history is
+sub-second at a million Facts and the response is dominated by
+execute-and-derive (per-cell table in the supplement).
+
+\begin{table}[t]
+\centering
+\caption{Scale profile (RQ4): settlement transaction p50 and full response
+p50 (ms) when one candidate settles against a pre-seeded Dependency history
+of the same size.}
+\label{tab:scale-main}
+\small
+\begin{tabular}{lrrr}
+\toprule
+History (Facts) & Settle, 0\% overlap & Settle, 100\% overlap & Response \\
+\midrule
+$10^4$ & \FinalVFivePublicationScaleSettleTenKMS{} & -- & -- \\
+\FinalVFivePublicationScaleMillionHistory{} & \FinalVFivePublicationScaleSettleMillionMS{} & \FinalVFivePublicationScaleSettleMillionFullOverlapMS{} & \FinalVFivePublicationScaleMillionDrainMS{} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
@@ -1480,7 +1509,12 @@ supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%),
 stopping first at \code{HAVING}, \code{SELECT *}, \code{AVG} or scalar
-functions, and projection arithmetic (supplement). Materialized Views are opaque leaves; stable keys and publications
+functions, and projection arithmetic; of these, \code{HAVING},
+\code{SELECT *}, and exact-typed \code{AVG} are engineering gaps whose
+Dependency rule already exists (Select's, the column list's, SUM/COUNT's),
+whereas arithmetic in projections, \code{OR}, and outer joins need new
+rules (derived cells, disjunctive witnesses, null-extended rows;
+supplement table). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 
