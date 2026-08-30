@@ -53,11 +53,7 @@
 \title{\systemname: Task-Scoped Clearance and Cumulative Exposure
 Accounting for AI Agents}
 
-\author{Anonymous Author(s)%
-\thanks{The artifact includes a controlled local PostgreSQL performance
-campaign and a three-scale, representative two-source TPC-H-derived
-Join--Group campaign. Results remain single-host evidence; the latter is not
-an official TPC-H run and neither campaign claims production generality.}}
+\author{Anonymous Author(s)}
 \date{}
 
 \begin{document}
@@ -117,7 +113,7 @@ or depending on an agent-specific planner. Enterprise operational analytics
 commonly serves scheduled ETL outputs rather than OLTP primaries; BDG compiles
 each completed cut into an immutable publication, new roots may bind the next
 cut, and unfinished roots stay on the prior one through version routing or
-fail closed, so BDG addresses adaptive disclosure within one reporting epoch,
+fail closed, so BDG bounds the governed release of declared facts within one reporting epoch,
 not freshness over a changing database.
 
 Large enterprises already operate lakes or warehouses, reporting marts, Data
@@ -406,7 +402,18 @@ observable: a rejected attempt reveals that its novel effect exceeded the
 remaining budget and charges only one unit of the request budget
 (Section~\ref{sec:online}), so the threshold information an agent can extract
 through rejections is bounded by that budget, summed over the approved task
-tree, not by $B_X$. The model assumes
+tree, not by $B_X$. Four boundaries hold at this goal, not only in
+Section~\ref{sec:limits}: the goal counts declared identities, not
+inference (a ladder of distinct probes is bounded by $B_O$, not by what a
+probe reveals); order-only fields are outside this profile; every approved
+root and every publication epoch has fresh capacity; and each rejection
+reveals one threshold bit. The agent also sees its own ledger: a settled
+response returns the per-dimension charge and the root ledger's used and
+limit counters (\code{exposure}, \code{exposure_budget}), so each successful
+query additionally reveals $|\Delta_X|$---for an aggregate, how many hidden
+base facts it newly touched. That count is deliberate, since an agent must
+plan against its budget, and at most $B_O$ novel queries can obtain one; it
+is part of the model, not a channel outside it. The model assumes
 trusted identity, organizational-attribute, and approval assertions; Catalog
 and Exposure-Profile authors and the immutable publication pipeline;
 PostgreSQL execution and snapshot semantics; enforcement and Control services;
@@ -1091,7 +1098,11 @@ All descendants resolve to one root ledger: if a parent and child request the
 same fact, only the first successful settlement accounts it, revoking the
 root blocks new descendant queries while a terminal request ID stays
 readable, and creating workers or task nodes cannot create fresh exposure
-capacity. Settlement checks the settling task's own signed ceiling against
+capacity; every child grant is itself a human-approved authorization on the
+Catalog's approval route (the prototype's only mode is manual approval), so
+the tree's size, and with it the summed request budget of
+Proposition~\ref{prop:probing-bound}, is set by approvals, not by the agent.
+Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
@@ -1155,9 +1166,9 @@ limit; $B_O$ must exceed the distinct queries, pages included, a purpose
 needs. $B_O$ bounds how many \emph{distinct} predicates a task may probe (a
 ladder \code{amount > t} is charged one atom and one composite per step),
 not what a probe reveals: a binary search on one hidden value fits within
-$B_O=128$, exactly the limit inference control identifies
-(Section~\ref{sec:related}); Section~\ref{sec:attack-provsql} shows such a
-ladder refused at its ceiling. One sequence it does not block:
+$B_O=128$; bounding how many probes run, not what a probe reveals, is the
+limit inference control identifies (Section~\ref{sec:related}), and
+Section~\ref{sec:attack-provsql} shows such a ladder refused at its ceiling. One sequence it does not block:
 \code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals the salary
 ordering while charging no dependency on \code{salary}, because order-only
 fields are outside this profile (Section~\ref{sec:model}); charging sort keys
@@ -1256,7 +1267,7 @@ probes, replay, radix tamper, and digest binding; the supplement's broad-SQL
 stress test checks row equality only, and its evidence table labels the
 source state (regenerated, archived, or sealed campaign) of every line.
 
-The Baseline workloads: S1, a two-column projection of the frozen
+The core workloads (the campaign's \emph{Baseline} profile): S1, a two-column projection of the frozen
 50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
 all); S2, the orders--lineitem equijoin grouped to three rows; S3, a
 one-column projection over 1,000--45,000 rows of the 414,000-row
