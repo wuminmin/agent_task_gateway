@@ -667,7 +667,7 @@ RQ4 archived ordinal/bitmap & recorded in \filepath{evaluation/exposure-performa
 RQ5 publication and routing & repository head & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
 V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
-Attack corpus and ProvSQL pairing (Sections~\ref{sec:attack-publication-supp}, \ref{sec:provsql-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
+Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
 TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
@@ -1329,6 +1329,85 @@ median complete-drain time per system, and ratios.}
 Scale & Rows & Dep.\ Facts & PostgreSQL (ms) & ProvSQL (s) & BDG (s) & ProvSQL/PG & BDG/PG & ProvSQL/BDG \\
 \midrule
 \FinalVFivePublicationProvSQLTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Publication Campaign: Adaptive Trace versus Row-Level Security}
+\label{sec:rls-publication-supp}
+
+The RLS profile of campaign \FinalVFivePublicationCampaign{} replays the
+frozen \FinalVFivePublicationRLSQueries{}-query adaptive trace of
+\filepath{evaluation/finalv5rls/corpus-v1.json} (six receipt look-ups, 30
+pages, 30 equivalent predicate spellings, 30 repeated aggregations, and four
+branches chosen from prior scalars) through three arms on the same
+\code{expense_detail} Product: PostgreSQL row-level security (a permissive
+department policy with \code{FORCE ROW LEVEL SECURITY} and column grants for a
+non-owner, non-superuser role), BDG with an unlimited exposure ledger, and BDG
+bounded at $\lfloor 0.7\,U\rfloor$ of the trace's distinct facts, where
+$U$ is computed before any bounded run by the corpus package's trace-union
+oracle. That package deliberately imports no production Gateway, Control,
+exposure, Catalog, lowering, or query-plan code. Each arm ran
+\FinalVFivePublicationRLSPerCell{} times over three deployments
+(\FinalVFivePublicationRLSSamples{} samples with the policy-denied control),
+every sample of an arm recording the same per-step outcome; the generator
+requires the unlimited arm's final ledger to equal the oracle union and the
+bounded arm to refuse at the first prefix whose oracle cardinality exceeds a
+budget and to release nothing afterwards. Table~\ref{tab:rls-arms-supp}
+summarizes the arms; Fig.~\ref{fig:rls-trace} in the main text plots the
+oracle's prefix cardinalities. The policy-denied control targets a receipt
+outside the policy department together with a column outside the grant: both
+controls return zero rows and refuse at the column (RLS
+\FinalVFivePublicationRLSControlErrorRLS{}, BDG
+\FinalVFivePublicationRLSControlErrorBDG{}).
+
+\begin{table}[t]
+\centering
+\caption{Adaptive trace, per arm: queries answered, first refusal, rows
+returned, final ledger (Release/Dependency/Outcome), and stop reason. Oracle
+union $U=\FinalVFivePublicationRLSUnionRelease{}/\FinalVFivePublicationRLSUnionDependency{}/\FinalVFivePublicationRLSUnionOutcome{}$;
+bounded budgets $\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$.}
+\label{tab:rls-arms-supp}
+\small
+\begin{tabular}{lrrrll}
+\toprule
+Arm & Answered & Refused at & Rows & Ledger & Stop reason \\
+\midrule
+\FinalVFivePublicationRLSArmTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Publication Campaign: Dependency-History Scale}
+\label{sec:scale-publication-supp}
+
+The Scale profile settles one candidate query whose Dependency set has
+$10^4$, $10^5$, or \FinalVFivePublicationScaleMillionHistory{} Facts against a
+root ledger pre-seeded with a history of the same size, at four overlaps
+between candidate and history, in a novel arm and a semantic-replay arm
+(\FinalVFivePublicationScaleCells{} cells,
+\FinalVFivePublicationScaleSamples{} samples). The independent oracle states
+each cell's candidate, history, and union cardinalities; every sample's
+observed candidate and Outcome cardinalities equal the oracle's and its
+charged Dependency Facts equal union minus history (zero on replay).
+Table~\ref{tab:scale-publication} reports medians. Settlement time grows
+with the history and shrinks slightly with overlap (fewer new ordinals to
+persist); execute-and-derive, which streams and encodes the candidate,
+dominates the response at every size.
+
+\begin{table}[t]
+\centering
+\caption{Dependency-history Scale cells: history size, candidate overlap,
+charged Dependency Facts, and medians (ms) of execute-and-derive, Control
+settlement, and full client drain for the novel arm, plus the semantic-replay
+drain.}
+\label{tab:scale-publication}
+\small
+\begin{tabular}{rrrrrrr}
+\toprule
+History & Overlap & Charged $D$ & Exec.+derive & Settle & Novel drain & Replay drain \\
+\midrule
+\FinalVFivePublicationScaleTableBody
 \bottomrule
 \end{tabular}
 \end{table}

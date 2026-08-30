@@ -1238,8 +1238,12 @@ provenance capture is the same-host cost reference
 
 RQ1's oracle (\RQOnePassed{}/\RQOneCases{} cases) is a separate
 implementation over \RQOneRows{} rows that imports no production policy
-code, the only code-independent check; the \RQFourVFourOracleFacts{}-Fact
-RQ4 check (\RQFourVFourReleaseFacts{} Release, \RQFourVFourInfluenceFacts{}
+code; the campaign's oracle package is likewise an independent
+re-implementation of the FactID wire contract whose import boundary excludes
+every production package (enforced by a dependency test) and fixes the
+expected Fact cardinalities of all
+\FinalVFivePublicationIndependentOracleSamples{} Scale and trace samples,
+whereas the \RQFourVFourOracleFacts{}-Fact RQ4 check (\RQFourVFourReleaseFacts{} Release, \RQFourVFourInfluenceFacts{}
 Dependency, \RQFourVFourOutcomeFacts{} Outcome; \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{}
 gates) re-derives every hash, payload, and witness offline but shares the
 FactID encoder, so it is only derivation-independent. RQ2
@@ -1248,7 +1252,12 @@ requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, each deterministic and as a PostgreSQL race test)
 covers split, page, retry, snapshot identity, joins/unions, delegation, and
 races; RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
-across \RQFiveTransitions{} transitions; Outcome regressions cover empty
+across \RQFiveTransitions{} transitions, and the campaign's RQ5 cells
+rebuild, verify, and activate a \FinalVFivePublicationRQFiveRows{}-row
+publication in \FinalVFivePublicationRQFiveBuildS{}~s p50 (max
+\FinalVFivePublicationRQFiveBuildMaxS{}~s) and route a retained one in
+\FinalVFivePublicationRQFiveRouteS{}~s (\FinalVFivePublicationRQFiveSamplesPerCell{}
+samples each); Outcome regressions cover empty
 probes, replay, radix tamper, and digest binding; the supplement's broad-SQL
 stress test checks row equality only, and its evidence table labels the
 source state (regenerated, archived, or sealed campaign) of every line.
@@ -1316,7 +1325,20 @@ per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
 batched settlement could relax the bound, and multi-root throughput is not
-measured.
+measured. Ledger growth is measured by the Scale profile, which settles one
+candidate of $10^4$, $10^5$, or \FinalVFivePublicationScaleMillionHistory{}
+Dependency Facts against a pre-seeded history of the same size at
+0--100\% overlap (\FinalVFivePublicationScaleCells{} cells,
+\FinalVFivePublicationScaleSamples{} samples; the independent oracle fixes
+each cell's candidate, history, and union cardinalities, and every sample's
+charge equals union minus history): settlement p50 grows from
+\FinalVFivePublicationScaleSettleTenKMS{}~ms at $10^4$ to
+\FinalVFivePublicationScaleSettleMillionMS{}~ms against the
+\FinalVFivePublicationScaleMillionHistory{}-Fact history
+(\FinalVFivePublicationScaleSettleMillionFullOverlapMS{}~ms when the
+candidate is fully covered), within a
+\FinalVFivePublicationScaleMillionDrainMS{}~ms response dominated by
+execute-and-derive; the supplement tabulates every cell.
 
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
@@ -1348,7 +1370,61 @@ nothing and returning no count, so the agent learned
 \FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
 bit, whereas the direct arm, with no cumulative state, answered all three.
 The corpus is preregistered, not a search over strategies, and the direct arm
-is its only comparison.
+is its only comparison there; the trace below adds a per-query control.
+
+\textbf{Adaptive trace against per-query control.} The RLS profile replays
+one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
+(receipt look-ups, pages, equivalent predicate spellings, repeated
+aggregations, and branches chosen from prior scalars) through three arms on
+one Product: PostgreSQL row-level security with a department policy and
+column grants, BDG with an unlimited ledger, and BDG bounded at
+$\lfloor 0.7\,U\rfloor$ of the trace's distinct facts
+$U=\FinalVFivePublicationRLSUnionRelease{}/\FinalVFivePublicationRLSUnionDependency{}/\FinalVFivePublicationRLSUnionOutcome{}$
+as counted by an independent trace-union oracle (budgets
+\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{};
+\FinalVFivePublicationRLSPerCell{} samples per arm, identical in every sample).
+RLS answered all \FinalVFivePublicationRLSQueries{} queries
+(\FinalVFivePublicationRLSRowsRLS{} rows), since every query is individually
+legal; BDG-unlimited answered all of them and its final ledger equals the
+oracle's union exactly; BDG-bounded answered
+\FinalVFivePublicationRLSBoundedSuccessful{}, refused query
+\FinalVFivePublicationRLSBoundedRefusalIndex{}---the first whose oracle
+prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
+\FinalVFivePublicationAttackThresholdRejectionCode{}, released nothing
+afterwards, and ended at \FinalVFivePublicationRLSBoundedLedger{}. A control
+step that targets a row outside the policy and a column outside the grant
+returns zero rows under both and is refused at the column (RLS
+\FinalVFivePublicationRLSControlErrorRLS{}, BDG
+\FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
+authorization rather than replacing it, and what RLS cannot express is
+exactly ``at most \FinalVFivePublicationRLSBudgetDependency{} distinct base
+facts''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.98\columnwidth, height=0.42\columnwidth, font=\scriptsize,
+  xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
+  xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
+  legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
+\addplot[blue, thick] coordinates {\FinalVFivePublicationRLSPrefixRelease};
+\addplot[red, thick] coordinates {\FinalVFivePublicationRLSPrefixDependency};
+\addplot[black!60!green, thick] coordinates {\FinalVFivePublicationRLSPrefixOutcome};
+\legend{Release, Dependency, Outcome}
+\addplot[blue, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetRelease) (100,\FinalVFivePublicationRLSBudgetRelease)};
+\addplot[red, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetDependency) (100,\FinalVFivePublicationRLSBudgetDependency)};
+\addplot[black!60!green, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetOutcome) (100,\FinalVFivePublicationRLSBudgetOutcome)};
+\draw[gray, thick] (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,0) -- (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,30)
+  node[pos=0.85, right, font=\tiny, align=left] {bounded arm\\refuses};
+\end{axis}
+\end{tikzpicture}
+\caption{Distinct governed facts obtained by the adaptive trace as a function of
+query index (independent trace-union oracle; solid) against the bounded arm's
+budgets (dashed). RLS and BDG-unlimited answer all
+\FinalVFivePublicationRLSQueries{} queries; BDG-bounded refuses at the first
+query whose prefix crosses a budget and releases nothing afterwards.}
+\label{fig:rls-trace}
+\end{figure}
 
 \begin{table}[t]
 \centering
