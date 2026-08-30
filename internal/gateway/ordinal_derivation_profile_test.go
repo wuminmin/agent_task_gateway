@@ -50,6 +50,69 @@ func TestProfileOrdinalDerivationAtScale(t *testing.T) {
 		effect := fixture.derive(t, visible, inputs)
 		t.Logf("scan rows=%d release=%d influence=%d derive=%s", rowCount, effect.Release.Cardinality(), effect.Influence.Cardinality(), time.Since(started))
 	})
+	t.Run("join-grouped-sum-count", func(t *testing.T) {
+		// The campaign's S2 shape: two sources joined on a key column, grouped
+		// by the left key with a sum and a count, provenance rows pairing one
+		// left row with one right row.
+		left := wideOrdinalProduct(4)
+		left.Name, left.StableRole = "left_product", "left"
+		right := wideOrdinalProduct(4)
+		right.Name, right.StableRole = "right_product", "right"
+		plan := queryplan.QueryPlan{
+			From: &queryplan.From{Join: &queryplan.Join{
+				Left:  queryplan.Scan{Product: left.Name, Role: "left"},
+				Right: queryplan.Scan{Product: right.Name, Role: "right"},
+				On:    []queryplan.JoinPredicate{{Left: "left.c00", Right: "right.c00"}},
+			}},
+			Columns:    []string{"left.c00"},
+			GroupBy:    []string{"left.c00"},
+			Aggregates: []queryplan.Aggregate{{Function: "sum", Column: "right.c01", Alias: "total"}, {Function: "count", Column: "*", Alias: "items"}},
+		}
+		compiled, err := queryplan.CompileRelational(plan, map[string]queryplan.Product{left.Name: left, right.Name: right})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := wideOrdinalRows(rowCount, 4)
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i]["c00"].(string) != rows[j]["c00"].(string) {
+				return rows[i]["c00"].(string) < rows[j]["c00"].(string)
+			}
+			return rows[i]["id"].(int64) < rows[j]["id"].(int64)
+		})
+		fixture := newOrdinalDerivationFixture(t, compiled.OrdinalProgram, rows)
+		totals, counts, order := map[string]int64{}, map[string]int64{}, []string{}
+		for _, row := range rows {
+			key := row["c00"].(string)
+			if _, seen := counts[key]; !seen {
+				order = append(order, key)
+			}
+			totals[key] += row["c01"].(int64)
+			counts[key]++
+		}
+		visibleMaps := make([]map[string]any, 0, len(order))
+		for _, key := range order {
+			values := map[string]any{}
+			for _, output := range fixture.program.Visible {
+				switch {
+				case output.Kind == "field":
+					values[output.ResultAlias] = key
+				case output.ResultAlias == "total":
+					values[output.ResultAlias] = strconv.FormatInt(totals[key], 10)
+				default:
+					values[output.ResultAlias] = counts[key]
+				}
+			}
+			visibleMaps = append(visibleMaps, values)
+		}
+		visible := ordinalVisibleResult(fixture.program, visibleMaps)
+		inputs := make([]ordinalProvenanceInput, rowCount)
+		for index := range inputs {
+			inputs[index] = ordinalProvenanceInput{row: index, branch: -1}
+		}
+		started := time.Now()
+		effect := fixture.derive(t, visible, inputs)
+		t.Logf("join-grouped rows=%d groups=%d release=%d influence=%d derive=%s", rowCount, len(order), effect.Release.Cardinality(), effect.Influence.Cardinality(), time.Since(started))
+	})
 	t.Run("grouped-sum-count", func(t *testing.T) {
 		product := wideOrdinalProduct(4)
 		compiled, err := queryplan.CompileOrdinal(queryplan.QueryPlan{Product: product.Name, Columns: []string{"c00"},
