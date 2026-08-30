@@ -433,11 +433,26 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 			rowWitness := []exposureoracle.Fact{}
 			keyWitness := []exposureoracle.Fact{}
 			argWitness := map[string][]exposureoracle.Fact{}
+			argFields := []string{}
+			seenArg := map[string]bool{}
+			for _, aggregate := range plan.Aggregates {
+				if aggregate.Field != "*" && !seenArg[aggregate.Field] {
+					seenArg[aggregate.Field] = true
+					argFields = append(argFields, aggregate.Field)
+				}
+			}
 			for _, member := range members {
 				if err := contribute(member); err != nil {
 					return Observation{}, err
 				}
-				rowWitness = append(rowWitness, member.rowFacts()...)
+				// The row witness multiset of a surviving row is its base row
+				// facts plus the join-key cells and each distinct predicate
+				// field's cell (Select and Join merge them into the row).
+				witness, err := memberWitness(member, plan)
+				if err != nil {
+					return Observation{}, err
+				}
+				rowWitness = append(rowWitness, witness...)
 				if plan.Kind == "group" {
 					fact, err := member.cell(plan.GroupField)
 					if err != nil {
@@ -446,16 +461,13 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 					add(result.Influence, fact)
 					keyWitness = append(keyWitness, fact)
 				}
-				for _, aggregate := range plan.Aggregates {
-					if aggregate.Field == "*" {
-						continue
-					}
-					fact, err := member.cell(aggregate.Field)
+				for _, field := range argFields {
+					fact, err := member.cell(field)
 					if err != nil {
 						return Observation{}, err
 					}
 					add(result.Influence, fact)
-					argWitness[aggregate.Field] = append(argWitness[aggregate.Field], fact)
+					argWitness[field] = append(argWitness[field], fact)
 				}
 			}
 			if plan.Kind == "group" && plan.GroupKeyVisible {
@@ -546,4 +558,33 @@ func AggregateValue(function, fieldID string, members []joinedRow) any {
 		return best.RatString()
 	}
 	return nil
+}
+
+// memberWitness is the row witness multiset production carries for one
+// surviving (possibly joined) row: base row facts, both join-key cells, and
+// one cell per distinct predicate field.
+func memberWitness(member joinedRow, plan Plan) ([]exposureoracle.Fact, error) {
+	witness := append([]exposureoracle.Fact(nil), member.rowFacts()...)
+	if plan.Join {
+		for _, key := range []string{"department.department", "expense.department"} {
+			fact, err := member.cell(key)
+			if err != nil {
+				return nil, err
+			}
+			witness = append(witness, fact)
+		}
+	}
+	seen := map[string]bool{}
+	for _, predicate := range plan.Predicates {
+		if seen[predicate.Field] {
+			continue
+		}
+		seen[predicate.Field] = true
+		fact, err := member.cell(predicate.Field)
+		if err != nil {
+			return nil, err
+		}
+		witness = append(witness, fact)
+	}
+	return witness, nil
 }
