@@ -344,8 +344,14 @@ def _attack_stats(samples, corpus):
                     raise PublicationEvidenceError(f"attack step {cell}/{step['variant_id']} did not fail closed as preregistered")
             elif step["rejected"] or not step["accepted"]:
                 raise PublicationEvidenceError(f"attack step {cell}/{step['variant_id']} was refused although preregistered as accepted")
-        charged = tuple(sum(step[key] for step in steps) for key in ("charged_release_facts", "charged_dependency_facts", "charged_outcome_facts"))
         sample_charged = {(s["charged_release_facts"], s["charged_dependency_facts"], s["charged_outcome_facts"]) for s in cell_samples}
+        if mode == "idempotent_replay":
+            # Idempotent replay returns the original terminal record, whose
+            # step receipt carries the original charge; the sample-level
+            # control-plane delta is the authoritative charge and must be zero.
+            charged = (0, 0, 0)
+        else:
+            charged = tuple(sum(step[key] for step in steps) for key in ("charged_release_facts", "charged_dependency_facts", "charged_outcome_facts"))
         if sample_charged != {charged}:
             raise PublicationEvidenceError(f"attack cell {cell} step charges {charged} do not sum to the sample charges {sorted(sample_charged)}")
         if mode != "novel":
