@@ -391,10 +391,9 @@ $\sum B_Q$ over the tree (Section~\ref{sec:online}); a settled response
 returns the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
-B_X\rceil$ bits---the query-set-overlap information the statistical-database
-literature studied. The prototype returns exact charges; returning only the
-remaining budget would suffice for planning and is a profile option we have
-not implemented. The model trusts identity, attribute, and approval assertions; Catalog and
+B_X\rceil$ bits of query-set-overlap information; returning only the
+remaining budget would suffice for planning and is not implemented. The model
+trusts identity, attribute, and approval assertions; Catalog and
 Exposure-Profile authors and the immutable publication pipeline; PostgreSQL
 execution and snapshot semantics; enforcement and Control services; key
 management; and object-store access control.
@@ -917,9 +916,9 @@ The publication compiler turns each frozen snapshot into immutable
 per-row/per-field segments, sorting full Fact hashes and assigning 32-bit
 ordinals (a FactID--ordinal bijection $D_j$ per segment; Roaring compression
 changes representation, not membership \cite{chambi2016roaring}); a sidecar
-maps attested entity keys to ordinals, payloads stay content addressed and
-cold, and one manifest binds snapshot, schemas, sidecar, dictionaries, and
-digests, so any collision or canonicality mismatch blocks publication.
+maps entity keys to ordinals, payloads stay cold, and one manifest binds
+snapshot, schemas, sidecar, dictionaries, and digests, so any collision
+blocks publication.
 Online, visible SQL and the ordinal companion run in one read-only
 \code{REPEATABLE READ} transaction; the companion retains every dependency
 the rules require, a k-way hash merge reproduces the witness commitment,
@@ -1020,9 +1019,8 @@ or row), so the agent learns one inequality and nothing else; rejection
 charges no exposure---in particular no Outcome atom---and is settled as a
 failed query that consumes one unit of the request budget $B_Q$ and its
 observed rows and database time, so $B_Q$ is an exposure parameter, not a
-resource guard: with $B_Q=110$ next to $B_O=18$ (Section~\ref{sec:delegation})
-an agent near exhaustion can ask six times more rejected membership questions
-than it can settle distinct predicates.
+resource guard ($B_Q=110$ next to $B_O=18$ in Section~\ref{sec:delegation}
+allows six rejected questions per settled predicate).
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1069,13 +1067,11 @@ zero-novelty replays, as intended: a narrower child must not widen the family.
 
 Conservation stops at the root and at the publication epoch: a second root
 for the same principal, or a root approved on $P_{e+1}$, has an independent
-ledger and a fresh budget, so two approved roots on one Product double its
-capacity; there is no principal-, tenant-, or organization-wide ledger, an
-existing root continues against $P_e$ through a retained route or fails
-closed, and because snapshot identity is part of FactID identity, unchanged
-content may be accounted again under $P_{e+1}$. Cross-root and
-cross-publication deduplication would need a tenant-wide semantic identity
-outside the task-scoped guarantee.
+ledger, so two approved roots on one Product double its capacity and
+unchanged content may be accounted again under $P_{e+1}$ (snapshot identity
+is part of FactID identity); an existing root continues against $P_e$ through
+a retained route or fails closed. Cross-root deduplication would need a
+tenant-wide semantic identity outside the task-scoped guarantee.
 
 Because Definition~\ref{def:task-exposure} sums over the queries that
 settled, $K_X(T)=E_X(T,Q)$ is not itself a theorem. The claim is a safety
@@ -1278,18 +1274,16 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSOneReleaseFacts{} Facts
 (\FinalVFivePublicationSOneNovelS{}~s), while the result-heavy S6 cells cost
 more per Fact than S2, so Release materialization is at least as expensive
-per Fact as Dependency derivation. What the ordinal design buys is visible in
-the archived V4 run (single deployment, recorded source hash, not
-publication-class): against the legacy per-Fact hashing path the ordinal
-companion cut the novel governed query by
-\RQFourVFourNovelReductionPct\% (\RQFourVFourLegacyNovelSpeedup$\times$),
-and at \RQFourVFourOracleFacts{} Facts its phases were ordinal streaming
-\RQFourVFourOrdinalStreamMedianMS{}~ms, bitmap derivation
-\RQFourVFourBitmapDeriveMedianMS{}~ms, and settlement
-\RQFourVFourSettleMedianMS{}~ms, so derivation, not settlement, is the cost of
-exactness; multi-second governed latency is acceptable for batch reporting
-agents and not for interactive ones, which is the envelope Section~\ref{sec:limits}
-states.
+per Fact as Dependency derivation. The archived V4 run (single deployment,
+recorded source hash, not publication-class) shows what ordinals buy: the
+ordinal companion cut the novel governed query by
+\RQFourVFourNovelReductionPct\% (\RQFourVFourLegacyNovelSpeedup$\times$)
+over legacy per-Fact hashing, and at \RQFourVFourOracleFacts{} Facts its
+phases were streaming \RQFourVFourOrdinalStreamMedianMS{}~ms, bitmap
+derivation \RQFourVFourBitmapDeriveMedianMS{}~ms, settlement
+\RQFourVFourSettleMedianMS{}~ms: derivation, not settlement, is the cost of
+exactness, and multi-second governed latency suits batch reporting agents,
+not interactive ones.
 
 \begin{table}[t]
 \centering
@@ -1349,14 +1343,14 @@ execute-and-derive (supplement table).
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
 
-\textbf{Adaptive extraction.} The attack profile replays a frozen,
+\textbf{Scripted decompositions.} The attack profile replays a frozen,
 digest-bound corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
 \FinalVFivePublicationAttackSequences{} scripted sequences that try to obtain
-governed Facts twice---complete query then pages and an overlapping page (and
-the reverse), four spellings of one predicate, a range split and its union,
-replays under the same and a fresh request id, and a count-probe ladder with
-delegation (\FinalVFivePublicationAttackSamples{} samples, identical per-step
-charges in every sample of a cell). Each decomposition was charged exactly
+governed Facts twice: pages and an overlap around a complete query (both
+orders), four spellings of one predicate, a range split and its union,
+replays, and a count-probe ladder with delegation
+(\FinalVFivePublicationAttackSamples{} samples, identical per-step charges
+in every sample of a cell). Each decomposition was charged exactly
 its complete query's Facts once
 (\FinalVFivePublicationAttackPaginationReleaseFacts{}/\FinalVFivePublicationAttackPaginationDependencyFacts{}
 Result/Dependency Facts for the six-step pagination sequence in either
