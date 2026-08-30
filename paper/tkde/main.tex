@@ -60,28 +60,31 @@ Accounting for AI Agents}
 \maketitle
 
 \begin{abstract}
-Large enterprises already operate governed reporting estates, but these
-systems typically do not provide a unified, task-scoped cumulative release
-contract for adaptive agents. \systemname{} (BDG) governs agents that query
-immutable reporting publications produced by scheduled synchronization. For
-each approved root task and its delegated descendants, BDG models three
-profile-defined effects: accounted result facts, declared positive-output
-dependency facts, and canonical query outcomes. A visible query and its
-provenance companion share one PostgreSQL snapshot. Before release, BDG
-computes profile-relative exact set novelty against the root-family ledger and
-atomically settles all three budgets, so within one root family on one
-publication epoch no more than the approved number of distinct facts of each
-kind can become retrievable per approved root and publication epoch; a
-rejected attempt reveals one threshold bit,
-their number bounded by the task tree's request budgets, and a settled query
-returns its own charge. Failed promotion remains recoverable without
-re-executing the business query. The admitted positive relational fragment supports connected
-inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
-ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
-represent cumulative effects. Paper theorems, bounded model checking, and
-executable PostgreSQL differential and fault-injection tests support the
-scoped semantics and protocol without proving the implementation. BDG targets periodic governed reporting
-products and measures neither an agent's knowledge nor differential privacy.
+Per-query authorization does not compose across an adaptive agent's pages,
+retries, rewrites, and delegated subtasks, and query, row, or byte counters
+are order- and encoding-dependent. \systemname{} (BDG) is a release layer
+for immutable reporting publications that turns one approved task into a
+cumulative contract: three set-valued budgets over declared identities
+(result facts, positive-output dependency facts, canonical query outcomes)
+shared by the root task and its descendants. A visible query and a
+provenance companion run on one PostgreSQL snapshot; exact set novelty
+against the root-family ledger is settled atomically before any result
+becomes retrievable, and failed promotion recovers without re-execution.
+The guarantee is bounded \emph{release}: within one root family and
+publication epoch no more than the approved number of distinct declared
+facts of each kind becomes available, whatever admitted sequence the agent
+issues; the agent may still learn a bounded number of data-dependent
+bits---one per refusal, charged to the tree's request budgets, and a charge
+count per settled query---and BDG measures neither knowledge nor
+differential privacy. Immutable ordinals, compressed bitmaps, and a
+Merkle-radix set make novelty exact at $10^6$ facts; propositions, bounded
+model checking, and executable PostgreSQL tests support the semantics and
+protocol. A sealed single-host campaign (\FinalVFivePublicationMeasuredSamples{}
+samples) charges every scripted decomposition exactly once, refuses an
+adaptive trace where a per-query control cannot, and settles against a
+million-fact history in \FinalVFivePublicationScaleSettleMillionMS{}~ms at
+\FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
+the direct query.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -230,8 +233,9 @@ object and a second transaction records AVAILABLE/CONSUMED
 \caption{Publication-time ordinals identify frozen Release/Dependency facts
 and an exact Merkle-radix set holds Outcome hashes; root-family accounting is
 atomic, Parquet publication is recoverable and fail-closed between PENDING and
-AVAILABLE, and a cache hit reuses only a committed observation while
-authorization, metering, audit, receipt, and commit-before-release still run.}
+AVAILABLE, and a cache hit reuses a committed observation---saving the Fact
+charge and the business SQL, not latency---while authorization, metering,
+audit, receipt, and commit-before-release still run.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
@@ -258,7 +262,8 @@ Merkle-radix Outcome set, with settlement before \code{AVAILABLE},
 zero-novelty semantic replay, and a rejection that leaks a threshold bit
 bounded by the request budget; (4) signed, monotonic delegation whose
 descendants share one root-family ledger, so fan-out cannot multiply
-exposure capacity while request budgets stay per task; and (5) algebraic
+release capacity, while per-task request budgets multiply refusal capacity
+by the approved tree size; and (5) algebraic
 propositions, a normal-form soundness theorem, an abstract settlement-safety
 property sanity-checked by two-fact TLA+ models, and executable
 Go/PostgreSQL differential, generated-plan, and fault-injection evidence.
@@ -267,9 +272,6 @@ Go/PostgreSQL differential, generated-plan, and fault-injection evidence.
 \label{sec:related}
 
 \subsection{Closest System Families}
-
-GAAP is the closest cross-tool IFC contrast \cite{stanley2026gaap}: its
-persistent flow state spans steps, tasks, and services outside BDG's scope.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
 whether a history determines forbidden data, and simulatable auditing also
@@ -324,7 +326,8 @@ model behavior under prompt injection \cite{debenedetti2024agentdojo} and
 SafeNLIDB inference risk on the model side \cite{liu2026safenlidb};
 provenance-based access control \cite{park2012pbac} and CaMeL's tool-layer
 capabilities \cite{debenedetti2025camel} decide admission, not cumulative
-release. BDG assumes the authorization boundary, settles every descendant
+release; GAAP's persistent cross-tool flow state \cite{stanley2026gaap}
+spans steps and services outside BDG's scope. BDG assumes the authorization boundary, settles every descendant
 against one root ledger, treats the agent and its SQL as untrusted, and
 claims neither result sanitization, flow tracking, nor inference safety.
 
@@ -396,7 +399,8 @@ the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
 B_X\rceil$ bits of query-set-overlap information; returning only the
-remaining budget would suffice for planning and is not implemented. The model
+remaining budget would be a planning convenience, not a smaller channel
+(remaining equals prior remaining minus charge). The model
 trusts identity, attribute, and approval assertions; Catalog and
 Exposure-Profile authors and the immutable publication pipeline; PostgreSQL
 execution and snapshot semantics; enforcement and Control services; key
@@ -451,9 +455,10 @@ An approved root task is the immutable authorization boundary
 where $P$ is the signed policy grant over the principal, data products,
 fields, and scopes; $S$ is the immutable publication/snapshot binding from
 Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
-dependency-footprint, and query-outcome ceilings; and $C$ is the signed set of
-semantic and execution constraints, including the request budget $B_Q$ (the
-maximum number of settled or rejected query attempts) and row/time guards.  In particular, $C$ binds the effect
+dependency-footprint, and query-outcome ceilings together with the request
+budget $B_Q$ (the maximum number of settled or rejected attempts, an
+exposure parameter because it bounds refusals); and $C$ is the signed set of
+semantic and execution constraints and row/time guards.  In particular, $C$ binds the effect
 profile and closed QueryPlan language, type/collation versions, semantic-View
 contracts, delegation rules, replay identity, and result handling.  The
 monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
@@ -632,6 +637,16 @@ nothing beyond the results that follow. FactIDs are accounting identities, not
 estimates of information content, knowledge, or privacy loss; BDG prevents
 unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
+Exactness rests on four accounting obligations, proved for the closed
+language in the supplement: (O1) every selected cell of a successful result
+has its materialized identity in $\facts_R$; (O2) $\facts_D^\pi$ is exactly
+the declared inductive footprint (retained predicate fields, join keys, group
+keys, complete aggregate arguments), excluding rejected rows and non-output
+pages; (O3) the listed rewrites, projection splits, complete page partitions,
+idempotent overlaps and retries, join support, and root-ledger delegation
+cannot reduce cumulative charge; (O4) each success creates one composite and
+its canonical predicate atoms, exact replay reuses them, and a rejected
+attempt creates none and is charged only to $B_Q$.
 
 Six obligations separate the assurance layers (O1--O4 semantic claims, O5
 models plus transaction tests, O6 binding); none alone proves the
@@ -1192,7 +1207,9 @@ model checking plus implementation evidence, not a mechanized refinement.
 
 RQ1 asks ground-truth Fact membership, RQ2 rewrite and charge invariance,
 RQ3 conservation under adaptive execution, delegation, and concurrency, RQ4
-ordinal/bitmap acceptance, and RQ5 daily publication and retained routing
+ordinal/bitmap acceptance (answered by the campaign's Scale profile; the
+archived V4 run is reported only in the supplement), and RQ5 daily
+publication and retained routing
 (RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
 uses a complete signed profile. Medians and p95 are Type-7
 (linear-interpolation) quantiles over the stated samples. Passant is a semantic
@@ -1203,8 +1220,10 @@ provenance capture is the same-host cost reference
 
 RQ1's oracle (\RQOnePassed{}/\RQOneCases{} cases) is a separate
 implementation over \RQOneRows{} rows that imports no production policy
-code; the campaign's oracle package is likewise an independent
-re-implementation of the FactID wire contract whose import boundary excludes
+code; the campaign's oracle package is likewise a separate implementation
+of the FactID wire contract, written by us from the same specification (so
+agreement is implementation-to-specification, not a third party's reading),
+whose import boundary excludes
 every production package (enforced by a dependency test), fixes the
 expected Fact cardinalities of all
 \FinalVFivePublicationIndependentOracleSamples{} Scale and trace samples,

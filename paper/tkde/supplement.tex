@@ -1799,7 +1799,9 @@ the 22 TPC-H query templates (validation substitution parameters, hand
 transcribed; TPC-derived, not an official run) were lowered through the
 production \code{internal/sqllowering} package against a synthetic eight-table
 Catalog exposing every TPC-H column with \code{count}, \code{sum}, \code{min},
-\code{max}, and \code{avg} approved (\filepath{evaluation/tpchlowerability},
+and \code{max} approved---the lowerer admits no other aggregate
+(\code{AGGREGATE_UNSUPPORTED}), so \code{AVG} is not in the fragment
+(\filepath{evaluation/tpchlowerability},
 results digest \TPCHResultsDigest{}). As written,
 \TPCHLowerableAsWritten{} of \TPCHQueries{} lower; \TPCHCommaJoinQueries{}
 stop at the comma-join FROM shape, which the lowerer marks

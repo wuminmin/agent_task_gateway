@@ -5,7 +5,7 @@ specification, validation substitution parameters, transcribed by hand; the
 text is TPC-derived and is not an official TPC-H run). `go run
 ./evaluation/cmd/tpch-lowerability` lowers every query through the production
 `internal/sqllowering` package against a synthetic eight-table Catalog whose
-products expose every TPC-H column with `count`, `sum`, `min`, `max`, and `avg`
+products expose every TPC-H column with `count`, `sum`, `min`, and `max` (the lowerer admits no other aggregate)
 approved, and writes `results.json`: for each query whether it lowers into the
 closed fragment as written and, if not, the first rejection code, reason, and
 clause the lowerer reports. The lowerer stops at the first rejection, so the

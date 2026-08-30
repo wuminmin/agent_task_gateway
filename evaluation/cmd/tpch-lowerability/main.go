@@ -61,7 +61,7 @@ func product(name string, key string, columns map[string]string) queryplan.Produ
 		Name: name, StableRole: name, SourceNamespace: "tpch." + name, Snapshot: "tpch-sf1",
 		StableEntityKey: []string{key}, Columns: cols, ColumnTypes: columns,
 		ColumnCollations: collations, CollationVersions: versions,
-		AllowedAggregates: map[string]struct{}{"count": {}, "sum": {}, "min": {}, "max": {}, "avg": {}},
+		AllowedAggregates: map[string]struct{}{"count": {}, "sum": {}, "min": {}, "max": {}},
 	}
 }
 
