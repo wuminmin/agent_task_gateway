@@ -157,7 +157,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.48\textwidth}{!}{%
+\resizebox{0.44\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -1256,8 +1256,8 @@ semantic-View form of S2/SF1; S5, a two-branch union-distinct of S1's shape;
 S6, result-heavy releases of 100--100,000 rows with 4 or 16 columns. Modes
 are direct (the same SQL against PostgreSQL without BDG), novel (the first
 governed execution), and the replays; ``publication-class'' is the frozen
-protocol's campaign class, as opposed to never-eligible pilot runs. The
-frozen campaign (\FinalVFivePublicationCampaign{}, commit
+protocol's campaign class (pilot runs are never eligible). The frozen
+campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationCommit{}) executed all
 \FinalVFivePublicationTotalCells{} frozen cells
 (\FinalVFivePublicationProfileCells{} profile cells across
@@ -1345,7 +1345,7 @@ the child's third probe is refused with
 \FinalVFivePublicationAttackThresholdAnswered{} of
 \FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
 bit while the direct arm answered all three (every step is in the
-supplement). The corpus is preregistered, not a search over strategies.
+supplement); the corpus is preregistered, not a search over strategies.
 
 \textbf{Adaptive trace against per-query control.} The RLS profile replays
 one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
@@ -1376,7 +1376,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.26\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.23\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
