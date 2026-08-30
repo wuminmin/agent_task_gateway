@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +59,14 @@ func TestProfileOrdinalDerivationAtScale(t *testing.T) {
 			t.Fatal(err)
 		}
 		rows := wideOrdinalRows(rowCount, 4)
+		// The provenance stream must present groups contiguously in canonical
+		// key order, as the companion statement's ORDER BY guarantees.
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i]["c00"].(string) != rows[j]["c00"].(string) {
+				return rows[i]["c00"].(string) < rows[j]["c00"].(string)
+			}
+			return rows[i]["id"].(int64) < rows[j]["id"].(int64)
+		})
 		fixture := newOrdinalDerivationFixture(t, compiled.OrdinalProgram, rows)
 		groups := map[string]*struct {
 			total int64
