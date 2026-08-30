@@ -479,6 +479,10 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 					}
 					add(result.Influence, fact)
 					keyWitness = append(keyWitness, fact)
+					// The Gateway restricts a grouped relation to its returned
+					// groups with a Select on the group key, which merges the key
+					// cell into every member's row witness (count(*) included).
+					rowWitness = append(rowWitness, fact)
 				}
 				for _, field := range argFields {
 					fact, err := member.cell(field)

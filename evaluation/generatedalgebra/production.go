@@ -114,10 +114,12 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 		if rowsErr != nil {
 			return Observation{}, rowsErr
 		}
-		if plan.Having != nil && plan.Kind == "group" {
-			// Mirror the Gateway: the companion returns every positive row, and
-			// the relation is restricted to the groups PostgreSQL returned before
-			// the aggregate is annotated.
+		if plan.Kind == "group" {
+			// Mirror the Gateway (internal/gateway/exposure.go): the companion
+			// returns every positive row, and the relation is restricted to the
+			// groups PostgreSQL returned before the aggregate is annotated. The
+			// Select merges each member's group-key cell into its row witness,
+			// with or without HAVING.
 			kept := map[string]struct{}{}
 			for _, output := range outputRows {
 				canonical, err := CanonicalValue(groupType(expenses, departments, plan.GroupField), output[plan.GroupField])
