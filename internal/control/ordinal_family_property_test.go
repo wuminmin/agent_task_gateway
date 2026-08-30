@@ -54,15 +54,29 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 			createAwaitingApprovalTask(t, store, rootID, expires)
 			approveOrdinalTask(t, store, rootID, expires, limits)
 
-			// Random delegation tree: every descendant is approved with the root's
-			// limits, as the Gateway's Catalog intersection yields for a child that
-			// does not narrow, and shares the root ledger.
+			// Random delegation tree: every descendant shares the root ledger and
+			// signs its own ceiling drawn uniformly at or below its parent's in
+			// each dimension (the Gateway's Catalog intersection can only narrow).
+			// Settlement admits a query only while the family total stays within
+			// both the root's and the settling task's ceiling (exceedsOrdinalLimit).
 			tasks := []string{rootID}
+			taskLimits := map[string]ExposureLimits{rootID: limits}
+			narrowed := 0
 			for child := 0; child < 1+random.Intn(6); child++ {
 				parent := tasks[random.Intn(len(tasks))]
+				parentLimits := taskLimits[parent]
+				childLimits := ExposureLimits{
+					ReleaseFacts:   1 + random.Int63n(parentLimits.ReleaseFacts),
+					InfluenceFacts: 1 + random.Int63n(parentLimits.InfluenceFacts),
+					OutcomeFacts:   1 + random.Int63n(parentLimits.OutcomeFacts),
+				}
+				if childLimits != parentLimits {
+					narrowed++
+				}
 				childID := fmt.Sprintf("task_family_prop_%d_child_%d", seed, child)
-				createOrdinalChildTask(t, store, childID, parent, expires, limits)
+				createOrdinalChildTask(t, store, childID, parent, expires, childLimits)
 				tasks = append(tasks, childID)
+				taskLimits[childID] = childLimits
 			}
 			// approveOrdinalTask grants ten queries per task; reservations, refused
 			// or not, consume that budget.
@@ -109,7 +123,7 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 					_, err = store.FinalizeQuery(context.Background(), BudgetSettlement{
 						QueryID: step.queryID, Rows: 1, DBMS: 1, OrdinalExposure: &step.observation,
 					}, []byte(`{"ok":true}`))
-					fits := model.fits(step, limits)
+					fits := model.fits(step, taskLimits[step.taskID])
 					switch {
 					case err == nil && fits:
 						model.commit(step)
@@ -171,13 +185,13 @@ func TestOrdinalRootFamilyRandomSequencesConserveExactNovelty(t *testing.T) {
 				}
 			}
 			for _, step := range refused {
-				if model.fits(step, limits) {
+				if model.fits(step, taskLimits[step.taskID]) {
 					t.Fatalf("seed %d: refused %s would fit the final union %+v under %+v",
 						seed, step.queryID, model.used(), limits)
 				}
 			}
-			t.Logf("seed %d: tasks=%d queries=%d committed=%d refused=%d final=%+v limits=%+v",
-				seed, len(tasks), queryCounter, queryCounter-len(refused), len(refused), model.used(), limits)
+			t.Logf("seed %d: tasks=%d queries=%d committed=%d refused=%d final=%+v limits=%+v narrowed=%d",
+				seed, len(tasks), queryCounter, queryCounter-len(refused), len(refused), model.used(), limits, narrowed)
 		})
 	}
 }

@@ -73,15 +73,20 @@ becomes retrievable, and failed promotion recovers without re-execution.
 The guarantee is bounded \emph{release}: within one root family and
 publication epoch no more than the approved number of distinct declared
 facts of each kind becomes available, whatever admitted sequence the agent
-issues; the agent may still learn a bounded number of data-dependent
-bits---one per refusal, charged to the tree's request budgets, and a charge
-count per settled query---and BDG measures neither knowledge nor
-differential privacy. Immutable ordinals, compressed bitmaps, and a
+issues; it does not bound inference from answered or refused predicates
+(one bit per refusal, charged to the tree's request budgets, and a charge
+count per settled query), and BDG measures neither knowledge nor
+differential privacy. Accounting is exact with respect to the declared
+rules and checked against same-team oracles, over a closed reporting
+fragment (connected equijoins, grouping, bounded unions, nested Views;
+SQL an off-the-shelf LLM writes for \AgentWorkloadQueries{} reporting
+questions lowers unedited in \AgentWorkloadLowerablePct\% of cases). Immutable ordinals, compressed bitmaps, and a
 Merkle-radix set make novelty exact at $10^6$ facts; propositions, bounded
 model checking, and executable PostgreSQL tests support the semantics and
 protocol. A sealed single-host campaign (\FinalVFivePublicationMeasuredSamples{}
 samples) charges every scripted decomposition exactly once and keeps an
-adaptive trace within order-independent set budgets; a governed novel query
+adaptive trace within set budgets that a derived permuted replay shows to be
+order-independent where row and query counters are not; a governed novel query
 costs \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
 its direct execution, and the settlement transaction alone takes
 \FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
@@ -253,10 +258,12 @@ This article's five implementation-backed contributions are:
 
 (1) a typed FactID semantics for accounted Result, positive-output
 Dependency, and canonical-atom/composite Outcome sets in a restricted
-algebra; (2) a same-snapshot ordinal companion for admitted one-Product,
-connected equijoins (two-source joins evaluated end to end; up to 16 roles
-admitted by the compiler), two-branch union, grouping, and aggregates, into
-which bounded nested Views flatten; (3) profile-relative exact novelty and
+algebra; (2) a same-snapshot ordinal companion for a closed reporting
+fragment---one-Product and connected equijoin queries (two-source joins
+evaluated end to end; up to 16 roles admitted by the compiler), two-branch
+union, grouping, and the four admitted aggregates, into which bounded
+nested Views flatten; no HAVING, AVG, arithmetic, OR, subqueries, or outer
+joins (Section~\ref{sec:limits} measures the consequence); (3) profile-relative exact novelty and
 atomic three-budget settlement per root family and publication epoch,
 refined by immutable ordinal dictionaries, compressed bitmaps, and an exact
 Merkle-radix Outcome set, with settlement before \code{AVAILABLE},
@@ -357,7 +364,10 @@ the approval workflow, not by BDG; and the settlement decision is two
 data-dependent counter channels. A rejected attempt is a chosen membership
 question over unaccounted facts answered by one bit, charged against $B_Q$
 only and never $B_O$, so rejection capacity is $\sum B_Q$ over the approved
-task tree, not $B_X$ (Section~\ref{sec:online}); a settled response returns
+task tree, not $B_X$ (Section~\ref{sec:online}): under the default route
+($B_O=B_Q=128$) one task can settle 128 distinct predicates and be refused
+128 times, and a $k$-task tree 128 settled predicates in total but $128k$
+refusals; a settled response returns
 the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $\lceil\log_2
@@ -599,7 +609,7 @@ estimates of information content, knowledge, or privacy loss; BDG prevents
 unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
 Exactness rests on four accounting obligations, proved for the closed
-language in the supplement: (O1) every selected cell of a successful result
+language in the supplement (O1--O4): (O1) every selected cell of a successful result
 has its materialized identity in $\facts_R$; (O2) $\facts_D^\pi$ is exactly
 the declared inductive footprint (retained predicate fields, join keys, group
 keys, complete aggregate arguments), excluding rejected rows and non-output
@@ -613,11 +623,7 @@ Six obligations separate the assurance layers (O1--O4 semantic claims, O5
 models plus transaction tests, O6 binding); none alone proves the
 implementation.
 
-The four accounting obligations---O1 output coverage, O2 positive
-dependency coverage, O3 conservation under listed rewrites, splits, pages,
-retries, and delegation, and O4 probe capacity (a rejected attempt creates
-no atom and is charged only against the request budget)---are stated in the
-supplement; the safety obligation is stated here.
+The safety obligation is stated here.
 
 \begin{property}[O5: No unaccounted governed release]
 \label{prop:no-unaccounted-release}
@@ -1157,12 +1163,15 @@ fault-injection tests check implementation correspondence (the supplement
 maps layers and gaps); among them a randomized root-family test settles
 \VFiveFamilyPropertyQueries{} random observation sets over
 \VFiveFamilyPropertySeeds{} random delegation trees (up to
-\VFiveFamilyPropertyMaxTasks{} tasks) in sequential steps and concurrent
-bursts against the live Control store, checking after every step that the
-committed head equals a separately kept plain-set union in all three
-dimensions and never exceeds its limits, that each sequential charge is
-exactly the novelty, and that each of the \VFiveFamilyPropertyRefused{}
-refusals exceeds a limit even against the final union. We claim bounded
+\VFiveFamilyPropertyMaxTasks{} tasks, \VFiveFamilyPropertyNarrowedTasks{}
+of them with ceilings drawn below their parent's) in sequential steps and
+concurrent bursts against the live Control store, checking after every step
+that the committed head equals a separately kept plain-set union in all
+three dimensions and never exceeds the root's or the settling task's
+ceiling, that each sequential charge is exactly the novelty, and that each
+of the \VFiveFamilyPropertyRefused{} refusals exceeds a ceiling even against
+the final union; it drives the settlement engine directly, not SQL lowering
+or the companion statement. We claim bounded
 model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}
@@ -1251,8 +1260,10 @@ cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
 samples passing, with a verified Receipt on every governed arm.
 Table~\ref{tab:baseline-main} gives
 the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
-Baseline cells (one per workload, scale, and mode; Table~\ref{tab:baseline-main}
-shows the sixteen workload/scale rows) a novel governed query costs
+Baseline cells (sixteen workload/scale pairs, each with a direct and a novel
+cell plus the replay cells the protocol defines for it: ten semantic, nine
+idempotent, seven normalized-rewrite; Table~\ref{tab:baseline-main} shows
+the sixteen pairs) a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
 times its direct PostgreSQL equivalent, and that cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
@@ -1390,9 +1401,17 @@ both and is refused at the column (RLS
 authorization; that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
-it could pass. No counter-based arm was run; the analytical remark is that
-a row or query counter's release bound depends on the order in which the
-same queries arrive, whereas the set ledger's does not (supplement).
+it could pass. No counter-based arm was executed; counters are compared by
+admission arithmetic over the sealed per-query fact sets, with budgets set
+by the same $\lfloor 0.7\,U\rfloor$ rule as the bounded arm (a calibration
+on the reported trace, stated once here): a row budget of
+\FinalVFivePublicationCounterRowBudget{} and a query budget of
+\FinalVFivePublicationCounterSetAdmitted{} coincide with the set ledger in
+the issued order (\FinalVFivePublicationCounterSetReleased{} Facts) but
+release the whole union (\FinalVFivePublicationPermutedRowReleased{}) when
+the same queries are replayed novelty-first, where the set ledger still
+releases \FinalVFivePublicationPermutedSetReleased{}: a counter's release
+bound depends on query order, the set ledger's does not (supplement table).
 
 \begin{figure}[t]
 \centering

@@ -130,7 +130,7 @@ V5_FAMILY_PROPERTY_LINE = re.compile(
     r"committed=(?P<committed>\d+) refused=(?P<refused>\d+) "
     r"final=\{ReleaseFacts:(?P<release>\d+) InfluenceFacts:(?P<influence>\d+) OutcomeFacts:(?P<outcome>\d+)\} "
     r"limits=\{ReleaseFacts:(?P<release_limit>\d+) InfluenceFacts:(?P<influence_limit>\d+) "
-    r"OutcomeFacts:(?P<outcome_limit>\d+)\}"
+    r"OutcomeFacts:(?P<outcome_limit>\d+)\} narrowed=(?P<narrowed>\d+)"
 )
 
 PERFORMANCE_SOURCE_DIRS = (
@@ -916,6 +916,7 @@ def v5_family_property_stats(events: list[dict]) -> dict:
         "committed": sum(row["committed"] for row in rows),
         "refused": sum(row["refused"] for row in rows),
         "saturated_seeds": saturated,
+        "narrowed_tasks": sum(row["narrowed"] for row in rows),
     }
 
 
@@ -1469,6 +1470,7 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\VFiveFamilyPropertyCommitted}}{{{v5_outcome['family_property']['committed']}}}",
         rf"\newcommand{{\VFiveFamilyPropertyRefused}}{{{v5_outcome['family_property']['refused']}}}",
         rf"\newcommand{{\VFiveFamilyPropertySaturatedSeeds}}{{{v5_outcome['family_property']['saturated_seeds']}}}",
+        rf"\newcommand{{\VFiveFamilyPropertyNarrowedTasks}}{{{v5_outcome['family_property']['narrowed_tasks']}}}",
         rf"\newcommand{{\VFiveDeterministicMembers}}{{{comma(v5_outcome['deterministic_set']['members'])}}}",
         rf"\newcommand{{\VFiveRootCardinality}}{{{comma(v5_outcome['postgres_committed_graph']['root_cardinality'])}}}",
         rf"\newcommand{{\VFiveRootBlocks}}{{{v5_outcome['postgres_committed_graph']['root_block_count']}}}",

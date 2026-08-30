@@ -628,23 +628,27 @@ Randomized root-family sequences & \VFiveFamilyPropertySeeds{} seeds, \VFiveFami
 \VFiveFamilyPropertySeeds{} seeds it approves a root with random limits
 (6--41 Result, 8--63 Dependency, 3--8 Outcome facts), grows a random
 delegation tree of up to \VFiveFamilyPropertyMaxTasks{} tasks whose
-descendants share the root ledger, and settles up to twenty rounds of random
+descendants share the root ledger and each sign a ceiling drawn uniformly
+at or below their parent's in every dimension
+(\VFiveFamilyPropertyNarrowedTasks{} descendants narrower than their
+parent in all), and settles up to twenty rounds of random
 observations (random subsets of a 24-ordinal row segment and a 24-ordinal
 cell segment, one Outcome fact from a six-payload pool) against the live
 Control store; one round in three is a concurrent burst of two to four tasks
 settling at once. The oracle is an ordinary Go map of the committed
 observations, independent of the bitmap and radix code. After every round
 the committed root head must equal the map's union in all three dimensions
-and never exceed the limits; for sequential steps the head delta must equal
+and never exceed the root's ceiling; a settlement is admitted exactly when
+the family total after it stays within both the root's and the settling
+task's ceiling (Section~5.1's narrowed-child rule); for sequential steps the head delta must equal
 the observation's novelty against the union at that moment (zero for
 replays from any task in the family); and every refusal must still exceed a
 limit when unioned with the final committed set, since the union only grows.
 Over \VFiveFamilyPropertyQueries{} settlements
 (\VFiveFamilyPropertyCommitted{} committed, \VFiveFamilyPropertyRefused{}
 refused) no check failed. The test drives the V4 ordinal settlement engine
-that V5 Outcome sets build on, with children granted the root's limits; it
-does not exercise the SQL lowering, the companion statement, or narrowed
-child limits.
+that V5 Outcome sets build on; it does not exercise the SQL lowering or the
+companion statement.
 
 \section{Measurement Host}
 \label{sec:host-supp}
@@ -1402,7 +1406,8 @@ identical, the per-step charges to sum to the sample's settled charge, every
 decomposition to have charged exactly its complete query's Result and
 Dependency Facts, and the threshold ladder to end in exactly one
 \FinalVFivePublicationAttackThresholdRejectionCode{} refusal
-(\FinalVFivePublicationAttackThresholdRejectionReason{}) at its preregistered
+(\FinalVFivePublicationAttackThresholdRejectionReason{}, an evidence-side
+projection from the oracle; the client receives only the code) at its preregistered
 Outcome ceiling of \FinalVFivePublicationAttackThresholdCeiling{}.
 Table~\ref{tab:attack-sequences-supp} summarizes each governed sequence and
 Table~\ref{tab:threshold-ladder} traces the threshold ladder and
@@ -1540,13 +1545,42 @@ controls return zero rows and refuse at the column (RLS
 \FinalVFivePublicationRLSControlErrorRLS{}, BDG
 \FinalVFivePublicationRLSControlErrorBDG{}).
 
-No counter-based arm was executed. As an analytical remark only: a
-cumulative row or query counter admits a prefix of the trace whose length
-depends on the order in which the same queries arrive, so the facts it
-releases before refusing are order-dependent, whereas the set ledger's
-release is bounded by $B_R/B_D/B_O$ in every order. The manuscript does not
-report derived counter budgets because any budget chosen from this trace's
-own union would be calibrated on the data it is compared with.
+No counter-based arm was executed. Counter arms are derived from the same sealed samples by admission
+arithmetic, with budgets set by the same $\lfloor 0.7\,U\rfloor$ rule as the bounded arm and therefore calibrated on the reported trace (stated once here): each query's Release/Dependency/Outcome facts as counted by the
+independent oracle (\code{oracle_trace}) and its rows are replayed under a
+cumulative row budget and a query-count budget calibrated to refuse at the
+same query as the exposure budgets (\FinalVFivePublicationCounterRowBudget{}
+rows; \FinalVFivePublicationRLSBoundedSuccessful{} queries), and the set
+ledger is continued past its first refusal (the campaign arm stops there).
+Of the \FinalVFivePublicationRLSQueries{} queries,
+\FinalVFivePublicationTraceZeroNoveltyQueries{} add no fact to the running
+union. Table~\ref{tab:counter-arms-supp} reports the arms in the trace's
+order and in a novelty-first order (novel queries first, ascending rows):
+the counters that coincide with the set ledger in one order release the
+whole union in the other, while the set ledger's release never exceeds its
+budgets in any order, which is the property the paper claims for it.
+
+\begin{table}[t]
+\centering
+\caption{Counter arms on the adaptive trace (derived, not run): budget,
+queries admitted, first refusal, refused queries that add no fact to the
+full-trace union (``non-novel'') versus refused queries that do, and facts
+released (Release/Dependency/Outcome) in the trace's order; then facts
+released under a novelty-first order. The set ledger refuses a zero-novelty
+query only when it repeats the facts of the refused query 37, which never
+entered the ledger.}
+\label{tab:counter-arms-supp}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Arm & Budget & Admitted & Refused at & Non-novel refused & Novel refused & Released \\
+\midrule
+\FinalVFivePublicationCounterArmTableBody
+\midrule
+\multicolumn{7}{l}{Novelty-first order: set ledger \FinalVFivePublicationPermutedSetReleased{} (\FinalVFivePublicationPermutedSetAdmitted{} admitted); row budget \FinalVFivePublicationPermutedRowReleased{} (\FinalVFivePublicationPermutedRowAdmitted{}); query budget \FinalVFivePublicationPermutedQueryReleased{} (\FinalVFivePublicationPermutedQueryAdmitted{}).} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{table}[t]
 \centering
