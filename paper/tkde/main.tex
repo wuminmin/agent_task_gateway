@@ -160,7 +160,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.7\textwidth}{!}{%
+\resizebox{0.66\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -1332,15 +1332,15 @@ and an overlapping page, the pages then the complete query, four spellings of
 one predicate, a range split and its union, replays under the same and a
 fresh request id, and a ladder of count probes with delegation
 (\FinalVFivePublicationAttackSamples{} samples,
-\FinalVFivePublicationAttackPerCell{} per cell over three deployments; every
-sample of a cell recorded the same per-step charge). Each decomposition was
+\FinalVFivePublicationAttackPerCell{} per cell over three deployments, every
+sample of a cell recording the same per-step charge). Each decomposition was
 charged exactly its complete query's Facts
 once---\FinalVFivePublicationAttackPaginationReleaseFacts{} Result and
 \FinalVFivePublicationAttackPaginationDependencyFacts{} Dependency Facts for
 the six-step pagination sequence in either order, likewise for the
 split---each distinct page or range shape settled one Outcome composite,
 replays and rewrites charged nothing, and both set-operation variants failed
-closed (\texttt{SQL\_NOT\_LOWERABLE}); the supplement lists every step.
+closed (\texttt{SQL\_NOT\_LOWERABLE}; every step is in the supplement).
 Table~\ref{tab:threshold-ladder} is Proposition~\ref{prop:probing-bound} in
 operation: two count probes, one from a delegated child, and a detail primer
 consume the root's Outcome ceiling of
@@ -1355,11 +1355,11 @@ is its only comparison.
 
 \begin{table}[t]
 \centering
-\caption{Threshold ladder of the attack corpus, governed arm: per-step charge
-($\Delta$ Result/Dependency/Outcome Facts), cumulative Outcome charge against
-the root ceiling, and the decision ($^\dagger$: issued by the delegated
-child; refused = \FinalVFivePublicationAttackThresholdRejectionCode{});
-identical in all \FinalVFivePublicationAttackPerCell{} samples.}
+\caption{Threshold ladder, governed arm: per-step charge ($\Delta$
+Result/Dependency/Outcome Facts), cumulative Outcome charge against the root
+ceiling, and decision ($^\dagger$ issued by the delegated child; refused =
+\FinalVFivePublicationAttackThresholdRejectionCode{}); identical in all
+\FinalVFivePublicationAttackPerCell{} samples.}
 \label{tab:threshold-ladder}
 \scriptsize
 \setlength{\tabcolsep}{2pt}
@@ -1379,8 +1379,8 @@ three rows and joined to one fresh provenance-tracked nonce row per execution
 so that every circuit is novel---on pinned PostgreSQL~16.14, on
 ProvSQL~1.11.0's complete typed drain (rewriting, aggregate-token and
 persistent circuit construction; no semiring evaluation), and on BDG's full
-governed path, \FinalVFivePublicationProvSQLPerCell{} samples per cell (the
-supplement tabulates the cells). Medians are
+governed path, \FinalVFivePublicationProvSQLPerCell{} samples per cell
+(supplement table). Medians are
 \FinalVFivePublicationProvSQLOneKPostgreSQLMS{}/\FinalVFivePublicationProvSQLTenKPostgreSQLMS{}/\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms
 for PostgreSQL,
 \FinalVFivePublicationProvSQLOneKProvSQLS{}/\FinalVFivePublicationProvSQLTenKProvSQLS{}/\FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s
@@ -1394,9 +1394,9 @@ less than general circuit capture of the same queries and
 \FinalVFivePublicationProvSQLBDGOverPostgreSQLMin{}--\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax{}$\times$
 more than ungoverned execution. The boundary is asymmetric by construction:
 ProvSQL builds a reusable semiring circuit and does no accounting, BDG derives
-only the Facts the profile declares and settles them, and neither figure
-includes the other's downstream use; the comparison prices exactness against
-general capture, not the systems against each other.
+only the declared Facts and settles them, and neither figure includes the
+other's downstream use, so the comparison prices exactness against general
+capture rather than ranking the systems.
 
 \subsection{Reproducibility Boundary}
 
