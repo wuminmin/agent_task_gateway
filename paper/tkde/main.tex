@@ -1106,7 +1106,7 @@ the campaign's bounded profile
 ($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
 $B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}
 while row and query counters admit everything), the count-probe ladder, and
-a page sweep; it is a toy department, not a realistic-scale calibration.
+a page sweep---a toy department, not a realistic-scale calibration.
 
 \section{System Realization}
 \label{sec:system}
@@ -1392,11 +1392,9 @@ refused query \FinalVFivePublicationRLSBoundedRefusalIndex{}---the first
 whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
 \FinalVFivePublicationAttackThresholdRejectionCode{}, released nothing
 afterwards, and ended at \FinalVFivePublicationRLSBoundedLedger{}. A control
-step outside the policy row set and the column grant returns zero rows under
-both and is refused at the column (RLS
-\FinalVFivePublicationRLSControlErrorRLS{}, BDG
-\FinalVFivePublicationRLSControlErrorBDG{}): BDG composes with per-query
-authorization; that RLS admits all \FinalVFivePublicationRLSQueries{}
+step outside the policy rows and the column grant is refused at the column
+under both (supplement), so BDG composes with per-query authorization;
+that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
 it could pass. No counter-based arm was executed; the supplement replays
