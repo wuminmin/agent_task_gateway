@@ -1460,15 +1460,14 @@ Section~\ref{sec:model} states the refusal-bit, ledger-visibility, and
 fresh-capacity boundaries. \textbf{Query and identity scope.} Evidence uses
 frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries, and it is a
-reporting-Product fragment, not ad-hoc analytics: lowering the
-\TPCHQueries{} TPC-H templates through the production lowerer admits
-\TPCHLowerableAsWritten{} as written and \TPCHLowerableExplicitJoin{} after
-rewriting their comma joins to explicit joins, the first semantic rejections
-being subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or
-projections (\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}
-(supplement table). Materialized Views are opaque leaves; stable keys and
-publications are trusted declarations; View drift is checked at request,
-approval, and execution.
+reporting-Product fragment, not ad-hoc analytics: the production lowerer
+admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
+even after rewriting comma joins to explicit joins, stopping first at
+subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
+(\TPCHArithmeticQueries{}), and multi-product \code{LIMIT} (supplement
+table). Materialized Views are opaque leaves; stable keys and publications
+are trusted declarations; View drift is checked at request, approval, and
+execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
@@ -1491,10 +1490,8 @@ Its single database path and demo approval adapter provide no production
 integration study, integration-cost measurement, or practitioner study of
 budget calibration of the kind marketplace-integrated agents report
 \cite{tonnarelli2026dataproductmcp}; multi-engine connectors and Policy
-Studio remain future work. Archived V4 used \RQFourVFourBuildRuns{} build;
-every run is single-host, and the radix results establish touched-branch I/O
-shape, not million-scale latency, sustained contention, distributed behavior,
-or live-agent performance.
+Studio remain future work. Archived V4 used \RQFourVFourBuildRuns{} build,
+and the radix results establish touched-branch I/O shape only.
 
 \section{Conclusion}
 
