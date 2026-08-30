@@ -254,10 +254,9 @@ Dependency, and canonical-atom/composite Outcome sets in a restricted
 algebra; (2) a same-snapshot ordinal companion for a closed reporting
 fragment---one-Product and connected equijoin queries (two-source joins
 evaluated end to end; up to 16 roles admitted by the compiler), two-branch
-union, grouping with \code{HAVING}, and the admitted aggregates
-(\code{COUNT}, \code{COUNT(DISTINCT)}, \code{SUM}, \code{MIN}, \code{MAX},
-exact-numeric \code{AVG}), into which bounded nested Views flatten; no
-arithmetic, scalar functions, OR, subqueries, or outer joins
+union, grouping with HAVING and the admitted aggregates (COUNT, COUNT
+DISTINCT, SUM, MIN, MAX, exact AVG), into which bounded nested Views
+flatten; no arithmetic, scalar functions, OR, subqueries, or outer joins
 (Section~\ref{sec:limits} measures the consequence); (3)
 profile-relative novelty, exact by the declared rules and verified as
 consistent with our reference implementation, and
@@ -1482,22 +1481,15 @@ derived measures such as \code{lo_revenue - lo_supplycost} inside an
 aggregate, \code{OR} filters, and ordering by an aggregate alias do not;
 supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
-unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%),
-stopping first at scalar functions such as \code{to_char}
-(\AgentWorkloadFunctionQueries{}), projection arithmetic
-(\AgentWorkloadArithmeticQueries{}), comparisons against a column,
-expression, or subquery rather than a literal
-(\AgentWorkloadLiteralQueries{}), \code{BETWEEN}/\code{LIKE}
-(\AgentWorkloadPredicateQueries{}), \code{OR}
-(\AgentWorkloadDisjunctionQueries{}), \code{LEFT JOIN}
-(\AgentWorkloadOuterJoinQueries{}), and \code{LIMIT} over a join
-(\AgentWorkloadPaginationQueries{}); \code{HAVING}, \code{SELECT *},
-exact-typed \code{AVG}, and \code{COUNT(DISTINCT)} were engineering gaps
-whose Dependency rule already existed (Select's, the column list's,
-SUM/COUNT's) and are now admitted, whereas arithmetic, non-literal
-comparisons, \code{OR}, and outer joins need new rules (derived cells,
-two-cell atoms, disjunctive witnesses, null-extended rows; supplement
-table). Materialized Views are opaque leaves; stable keys and publications
+unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
+the rest stop first at scalar functions, projection arithmetic,
+non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
+\code{LEFT JOIN}, or \code{LIMIT} over a join (counts in the supplement).
+\code{HAVING}, \code{SELECT *}, exact-typed \code{AVG}, and
+\code{COUNT(DISTINCT)} had existing Dependency rules and are now admitted;
+arithmetic, non-literal comparisons, \code{OR}, and outer joins need new
+rules (derived cells, two-cell atoms, disjunctive witnesses, null-extended
+rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 
