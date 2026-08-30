@@ -1694,14 +1694,15 @@ def main(argv: list[str] | None = None) -> None:
     for index, step in enumerate(ladder["steps"], 1):
         cumulative += step["charged_outcome_facts"]
         if step["rejected"]:
-            result, decision = "refused", tex(step["observed_error_code"])
+            result, decision = "--", "refused"
         elif step["scalar_int64"] is not None:
             result, decision = f"count={step['scalar_int64']}", "settled"
         else:
             result = f"{step['row_count']} row" + ("s" if step["row_count"] != 1 else "")
             decision = "replay" if step["classification"] == "semantic_replay" else "settled"
+        issuer = r"$^\dagger$" if step["task_route"] == "delegated_child" else ""
         threshold_rows.append(" & ".join([
-            str(index), tex(step["variant_id"]), "child" if step["task_route"] == "delegated_child" else "root", result,
+            str(index), tex(step["variant_id"]) + issuer, result,
             str(step["charged_release_facts"]), str(step["charged_dependency_facts"]), str(step["charged_outcome_facts"]),
             f"{cumulative}/{threshold['outcome_ceiling']}", decision,
         ]) + r" \\")
