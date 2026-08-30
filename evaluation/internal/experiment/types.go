@@ -447,30 +447,30 @@ func (config Config) isP68CliffDiagnosis() bool {
 }
 
 type Sample struct {
-	SchemaVersion          int                `json:"schema_version"`
-	CampaignID             string             `json:"campaign_id"`
-	DeploymentID           string             `json:"deployment_id"`
-	ExperimentID           string             `json:"experiment_id"`
-	CellID                 string             `json:"cell_id"`
-	SampleID               string             `json:"sample_id"`
-	Iteration              int                `json:"iteration"`
-	ProcessReplicate       int                `json:"process_replicate"`
-	Warmup                 bool               `json:"warmup"`
-	OrderPosition          int                `json:"order_position"`
-	RandomSeed             int64              `json:"random_seed"`
-	PairID                 string             `json:"pair_id"`
-	PairedSystemOrder      string             `json:"paired_system_order"`
-	RootGroupID            string             `json:"root_group_id"`
-	System                 string             `json:"system"`
-	Mode                   string             `json:"mode"`
-	WorkloadID             string             `json:"workload_id"`
-	Scale                  string             `json:"scale"`
-	ClientAvailableMS      float64            `json:"client_available_ms"`
-	ClientFullDrainMS      float64            `json:"client_full_drain_ms"`
-	GenerationBoundaryMS   float64            `json:"generation_boundary_ms,omitempty"`
-	FullTaskGateMS         float64            `json:"full_taskgate_ms,omitempty"`
-	PipelineMS             map[string]float64 `json:"pipeline_ms"`
-	DiagnosticMS           map[string]float64 `json:"diagnostic_ms"`
+	SchemaVersion        int                `json:"schema_version"`
+	CampaignID           string             `json:"campaign_id"`
+	DeploymentID         string             `json:"deployment_id"`
+	ExperimentID         string             `json:"experiment_id"`
+	CellID               string             `json:"cell_id"`
+	SampleID             string             `json:"sample_id"`
+	Iteration            int                `json:"iteration"`
+	ProcessReplicate     int                `json:"process_replicate"`
+	Warmup               bool               `json:"warmup"`
+	OrderPosition        int                `json:"order_position"`
+	RandomSeed           int64              `json:"random_seed"`
+	PairID               string             `json:"pair_id"`
+	PairedSystemOrder    string             `json:"paired_system_order"`
+	RootGroupID          string             `json:"root_group_id"`
+	System               string             `json:"system"`
+	Mode                 string             `json:"mode"`
+	WorkloadID           string             `json:"workload_id"`
+	Scale                string             `json:"scale"`
+	ClientAvailableMS    float64            `json:"client_available_ms"`
+	ClientFullDrainMS    float64            `json:"client_full_drain_ms"`
+	GenerationBoundaryMS float64            `json:"generation_boundary_ms,omitempty"`
+	FullTaskGateMS       float64            `json:"full_taskgate_ms,omitempty"`
+	PipelineMS           map[string]float64 `json:"pipeline_ms"`
+	DiagnosticMS         map[string]float64 `json:"diagnostic_ms"`
 	// ComponentMS retains the Gateway's finer-grained component timings
 	// (business/companion SQL, ordinal streaming, bitmap derivation, result
 	// encoding, encryption, settlement persistence) when the response carries
@@ -1355,19 +1355,19 @@ type AttackRejectedQueryEvidence struct {
 // match is a base-row Dependency check that shares no code with either the
 // production encoder or the oracle package.
 type ProvSQLBaseTupleLinkV1 struct {
-	Version                  string `json:"version"`
-	Roots                    int64  `json:"roots"`
-	InputGates               int64  `json:"input_gates"`
-	OrdersRows               int64  `json:"orders_rows"`
-	LineitemRows             int64  `json:"lineitem_rows"`
-	NonceRows                int64  `json:"nonce_rows"`
-	UnmappedInputGates       int64  `json:"unmapped_input_gates"`
-	ProvSQLRowFacts          int64  `json:"provsql_row_facts"`
-	ProvSQLRowFactSetSHA256  string `json:"provsql_row_fact_set_sha256"`
-	OracleRowFacts           int64  `json:"oracle_row_facts"`
-	OracleRowFactSetSHA256   string `json:"oracle_row_fact_set_sha256"`
-	Match                    bool   `json:"match"`
-	ExpansionMS              float64 `json:"expansion_ms"`
+	Version                 string  `json:"version"`
+	Roots                   int64   `json:"roots"`
+	InputGates              int64   `json:"input_gates"`
+	OrdersRows              int64   `json:"orders_rows"`
+	LineitemRows            int64   `json:"lineitem_rows"`
+	NonceRows               int64   `json:"nonce_rows"`
+	UnmappedInputGates      int64   `json:"unmapped_input_gates"`
+	ProvSQLRowFacts         int64   `json:"provsql_row_facts"`
+	ProvSQLRowFactSetSHA256 string  `json:"provsql_row_fact_set_sha256"`
+	OracleRowFacts          int64   `json:"oracle_row_facts"`
+	OracleRowFactSetSHA256  string  `json:"oracle_row_fact_set_sha256"`
+	Match                   bool    `json:"match"`
+	ExpansionMS             float64 `json:"expansion_ms"`
 }
 
 const ProvSQLBaseTupleLinkV1Version = "taskgate-provsql-base-tuple-link-v1"
