@@ -296,13 +296,12 @@ root, withholds delivery unless settlement succeeds, releases exact
 answers, and models neither prior knowledge, denial leakage, nor
 $\epsilon$; zero-novelty replay is the syntactic analogue of history-aware
 pricing, and Theorem~\ref{thm:nf-soundness} covers listed rewrites only,
-weaker than arbitrage-freedom. Why/where/how
-provenance identifies witnesses, locations, and derivations
-\cite{buneman2001why,green2007provenance,cheney2009provenance,amsterdamer2011aggregate},
-and GProM and ProvSQL provide general rewrite/circuit mechanisms
-\cite{arab2018gprom,senellart2018provsql,sen2026provsql}; BDG claims no new
-provenance algebra but co-generates typed effects with answers and settles
-cumulative novelty before release.
+weaker than arbitrage-freedom. Why/where/how provenance
+\cite{buneman2001why,green2007provenance,cheney2009provenance,amsterdamer2011aggregate}
+and the GProM/ProvSQL capture mechanisms
+\cite{arab2018gprom,senellart2018provsql,sen2026provsql} explain derivations;
+BDG adds no provenance algebra but settles cumulative novelty of typed
+effects before release.
 
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
@@ -839,9 +838,8 @@ Merging release/dependency observations for disjoint projections or a complete
 page partition equals observing the combined result. Overlapping pages and
 repeated terminal observations charge each release/dependency FactID at most
 once; join fanout changes witness multiplicity but not the union of dependency
-support. Composite facts remain per normalized query/result outcome;
-predicate atoms are reused exactly when their canonical footprint components
-agree, so a family of page or threshold questions does not collapse wholesale.
+support; predicate atoms are reused exactly when their canonical footprint
+components agree.
 \end{proposition}
 \emph{Proof in the supplement.}
 
@@ -1439,9 +1437,8 @@ All measurements ran on one laptop-class WSL2 host with a digest-pinned
 PostgreSQL 16.14 image (hardware and versions in the supplement). The
 repository at the
 cited commits, the evidence pack, and the retained raw samples (48 JSONL
-files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
-re-verify every digest chain and recompute every macro but cannot re-hash
-the omitted HOT/COLD/sidecar payloads. Every campaign number above is
+files, 591~MB) form the artifact [artifact DOI/URL], from which every digest
+chain and macro is recomputable. Every campaign number above is
 publication-class: one submission commit (\FinalVFivePublicationCommit{}),
 \FinalVFivePublicationDeployments{} fresh isolated deployments on one host,
 three executions per profile whose per-execution novel medians differ by at
@@ -1498,11 +1495,9 @@ unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted:
 BDG validates bindings, supported semantics, and settlement, not policy
-appropriateness. Its single database path and demo approval adapter provide
-no production integration or practitioner study of budget calibration of the
-kind marketplace-integrated agents report
-\cite{tonnarelli2026dataproductmcp}; multi-engine connectors and Policy
-Studio remain future work.
+appropriateness; its single database path and demo approval adapter offer
+no production integration or practitioner study of budget calibration
+\cite{tonnarelli2026dataproductmcp}.
 
 \section{Conclusion}
 
