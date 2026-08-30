@@ -93,14 +93,13 @@ budget, positive-output dependency footprint, query-outcome accounting
 \IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
 An adaptive agent adds, ``How much policy-defined exposure has this task
 acquired?'' Within one approved task, an agent may split projections, overlap
-pages, retry, rewrite, and delegate while individual queries remain legal.
-Per-query authorization and row limits do not state the root family's distinct
-cumulative exposure.
-BDG accounts that contract-defined quantity, not the agent's knowledge.
-Data-flow control (DFC) asks whether a SQL flow is allowed
-\cite{summers2026dataflow,summers2026passant}; conditional on authorization and
-any DFC checks, BDG asks whether the next allowed execution fits the root's
-cumulative contract.
+pages, retry, rewrite, and delegate while individual queries remain legal,
+and per-query authorization and row limits do not state the root family's
+distinct cumulative exposure; BDG accounts that contract-defined quantity,
+not the agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
+allowed \cite{summers2026dataflow,summers2026passant}; conditional on
+authorization and any DFC check, BDG asks whether the next allowed execution
+fits the root's cumulative contract.
 
 Query count ignores answer size, row count makes a one-row aggregate over
 millions of source rows look cheap, and bytes depend on encoding. Query
@@ -158,7 +157,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.58\textwidth}{!}{%
+\resizebox{0.52\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -331,10 +330,6 @@ settle against one root ledger, treats the agent and its SQL as untrusted,
 and claims neither result sanitization, prompt/tool flow tracking, nor
 inference safety.
 
-\textbf{Novelty boundary.} Table~\ref{tab:system-comparison} separates these
-controls; BDG is exact only for its signed profile, closed language, root
-family, and publication, never as a DP or knowledge measure.
-
 \begin{table*}[t]
 \centering
 \caption{Representative control boundaries from the cited artifacts. Entries
@@ -404,12 +399,10 @@ limit counters (\code{exposure}, \code{exposure_budget}), so each successful
 query additionally reveals $|\Delta_X|$---for an aggregate, how many hidden
 base facts it newly touched. That count is deliberate (an agent must plan
 against its budget) and at most $B_O$ novel queries can obtain one. The model
-assumes
-trusted identity, organizational-attribute, and approval assertions; Catalog
-and Exposure-Profile authors and the immutable publication pipeline;
-PostgreSQL execution and snapshot semantics; enforcement and Control services;
-cryptographic and key-management configuration; and object-store access
-control.
+trusts identity, attribute, and approval assertions; Catalog and
+Exposure-Profile authors and the immutable publication pipeline; PostgreSQL
+execution and snapshot semantics; enforcement and Control services; key
+management; and object-store access control.
 
 \subsection{Publication Epochs and Task Binding}
 
@@ -1064,10 +1057,10 @@ of $B_R$, $B_D$, and $B_O$.
 \end{proposition}
 The bound is on comparisons, not on what a comparison reveals about
 unreleased facts, and it grows with the approved task tree because request
-budgets, unlike exposure budgets, are not pooled at the root. Charging Outcome atoms on rejection would close the oracle at the
-cost of penalizing legitimate near-boundary queries and is left to policy. The
-current protocol is not a simulatable auditor and makes no
-denial-noninterference claim.
+budgets, unlike exposure budgets, are not pooled at the root; charging Outcome
+atoms on rejection would close the oracle at the cost of penalizing legitimate
+near-boundary queries and is left to policy. The protocol is not a simulatable
+auditor and makes no denial-noninterference claim.
 
 \section{Delegation}
 \label{sec:delegation}
@@ -1505,10 +1498,10 @@ or live-agent performance.
 Dependency, and Outcome sets within one publication-bound root family;
 theorems, bounded models, and executable tests support the scoped safety
 claim that no governed artifact becomes \code{AVAILABLE} before atomic
-root-family settlement (Section~\ref{sec:limits} states the scope). BDG is a
-task-to-data release layer for existing data estates, not another lake or
-agent framework: it makes an approved policy enforceable as autonomous
-querying unfolds, without deciding what that policy should be.
+root-family settlement. BDG is a task-to-data release layer for existing
+data estates, not another lake or agent framework: it makes an approved
+policy enforceable as autonomous querying unfolds, without deciding what
+that policy should be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
