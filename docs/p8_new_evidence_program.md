@@ -19,3 +19,10 @@
 
 ## 状态
 - 2026-08-30 22:40 CST：阶段 1 开始，从 (b) 与 (d1) 剖析入手。
+- 2026-08-31 01:10 CST：(b) 代码、差分、RQ1、论文文本全部落地（台账 P8-B-FRAGMENT / P8-B-DIFFERENTIAL / P8-B-RQ1 / P8-B-PAPER）。
+  (d1) 四刀落地：100k×16 扫描派生 15.67 s → 2.43 s（台账 P8-D1-DERIVATION），门禁全绿（P8-D1-GUARDS）。
+  阻塞发现：私有 Dataset Binding 钉住 `config/catalog.yaml` 摘要，(b) 的 avg 批准使其失效——已恢复文件字节，avg 留在校验器能力
+  （P8-D1-BINDING）；**阶段 3 前作者需重新签署绑定，届时决定演示 Catalog 是否批准 avg**。
+  试点复测进行中：subphase-pilot-09（analytics 两剖面 ×1）、随后 subphase-pilot-08（result-heavy ×3，含 S6 100k×16）。
+  尚未开始：(a) 计数器比较臂、(c1) ProvSQL S1–S6 发表级、(c2) 被拒探针时延、(c3) 良性负载误拒率、(d2) ≥3 源连接格。
+

@@ -22,3 +22,14 @@ AGENTS.md 的八条做法每条都对应一次已发生的代价；同类根因�
 - 失败路径先 `docker logs` 落盘再 `down`：trap 里的 down 清掉了 installer 日志，多跑一次复现才拿到直接证据。
 - db-test harness `up --wait` 在一次性 installer 刚 running 就返回（P48b 时已观察、手工绕过），`755dccd` 根治。
 - 估时前先核该估算所用运行的 class/密度：P93 试跑是 pilot 密度（每格 1 样本），不能推正式轮时长。
+
+## 2026-08-31 新增案例
+
+- `go test -cpuprofile` 会把测试二进制（`gateway.test`，40 MB ELF）写进当前目录；repohygiene 测试随后把 DB 套件判红。剖析跑完即删，
+  或用 `-o` 指到 `generated/bin/`。
+- 非交互 ssh 会话的 umask 是 0002（登录 shell 是 0022）：`t.TempDir()` 得到 775，十余个「directory is group- or world-writable」
+  失败全是环境项，不是代码回归。测试/发射脚本内显式 `umask 022`；主工作树 `git pull` 落下的文件也是 664，跑门禁前 `chmod g-w,o-w`。
+- 私有 Dataset Binding 钉住 `config/catalog.yaml` 的 SHA-256（`finalv5binding/binding.go:214`）：改该文件的任何一字节都让
+  Scale/Artifact/ProvSQL 格拒绝发射，报错文字（「currently valid private Dataset Binding」）不点名根因。改 Catalog 前先想清是否
+  值得一次作者重签；能放进 profile Catalog 或测试 Catalog 的改动不要进主 Catalog。
+
