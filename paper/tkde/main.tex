@@ -1189,28 +1189,23 @@ Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
 new approvals to $P_{e+1}$.
 
 MCP tools cover Product discovery, task approval/execution/delegation, View
-rebind, budgets, results, and receipts; an external adapter signs Grants.
-Direct SQL is lowered to the same canonical plan under every grant and fails
-closed when it cannot be, so no path executes agent-authored text; a
-resource-only grant differs in accounting, not in accepted syntax. Control PostgreSQL persists versioned set metadata, a
-three-dimensional root head, observations, and monotonic View bindings;
-canonical payloads remain cold. Results use AES-GCM, audits a hash chain, and
-high-cardinality work an isolated semaphore and encrypted spill path.
+rebind, budgets, results, and receipts, and an external adapter signs Grants;
+direct SQL is lowered to the same canonical plan under every grant and fails
+closed otherwise, so no path executes agent-authored text. Control PostgreSQL
+persists versioned set metadata, the root head, observations, and monotonic
+View bindings; results use AES-GCM, audits a hash chain, and high-cardinality
+work an isolated semaphore and encrypted spill path.
 
 Reference-safe retention and reclamation are specified in the supplement;
 stored ledger identities are never silently reinterpreted.
 
-\textbf{Enterprise integration boundary.}
-BDG can sit on the path
-lake/warehouse $\rightarrow$ curated governed data products $\rightarrow$
-immutable Reporting Publications $\rightarrow$ BDG $\rightarrow$ agent. It
-fronts the governed serving tier, not the raw lake.
-The supplement's interface table defines a brownfield-compatible,
-incremental integration path, not a completed production deployment. It
-replaces none of the lake/warehouse, Data Catalog, IAM/HR, OA/BPM, object
-store, RLS/DFC, Audit/SIEM, or Agent platform. Catalog-bound, version-routed
-instances implement a shared logical Gate contract across
-agent--data-domain pairs.
+\textbf{Enterprise integration boundary.} BDG sits on the path
+lake/warehouse $\rightarrow$ curated data products $\rightarrow$ immutable
+Reporting Publications $\rightarrow$ BDG $\rightarrow$ agent, fronting the
+governed serving tier rather than the raw lake and replacing none of the
+lake, Catalog, IAM/HR, OA/BPM, object store, RLS/DFC, audit, or agent
+platform; the supplement's interface table defines the brownfield-compatible
+path, which is not a completed production deployment.
 
 
 OA/BPM or another tenant-governance layer may impose principal- or tenant-level
@@ -1471,13 +1466,11 @@ safety claim: no governed artifact becomes \code{AVAILABLE} before atomic
 root-family settlement, although a settled artifact may remain \code{PENDING}.
 Section~\ref{sec:limits} states what remains outside scope.
 
-BDG is a task-to-data release layer for existing enterprise data estates, not
-another lake or agent framework. It makes governed reporting Products usable
-by adaptive agents without broad, persistent database identities.
-
-BDG turns governed data at rest into governed agent capability in use. It does
-not determine the correct organizational policy; it makes an approved policy
-enforceable as autonomous querying unfolds.
+BDG is a task-to-data release layer for existing enterprise data estates,
+not another lake or agent framework: it turns governed data at rest into
+governed agent capability in use, and it makes an approved policy enforceable
+as autonomous querying unfolds rather than deciding what that policy should
+be.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
