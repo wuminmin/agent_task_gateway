@@ -277,15 +277,14 @@ compressed bitmaps, and an exact Merkle-radix Outcome set; settlement precedes
 \code{AVAILABLE}, semantic replay is zero-novelty, and rejection leaks a
 threshold bit bounded by the request budget.
 \item Signed, monotonic delegation whose descendants share one root-family
-ledger, so task-tree fan-out cannot multiply exposure capacity; request
-budgets remain per task and bound only each task's probing.
-\item Algebraic theorems, an abstract settlement-safety property whose
-transition system is sanity-checked by small bounded TLA+ models, and
-executable Go/PostgreSQL differential and fault-injection evidence.
+ledger, so fan-out cannot multiply exposure capacity; request budgets stay
+per task and bound only that task's probing.
+\item Algebraic theorems, an abstract settlement-safety property
+sanity-checked by small bounded TLA+ models, and executable Go/PostgreSQL
+differential and fault-injection evidence.
 \end{enumerate}
-
-Section~\ref{sec:limits} makes the closed-language, cross-root, denial,
-privacy, and deployment boundaries explicit.
+Section~\ref{sec:limits} states the closed-language, cross-root, denial,
+privacy, and deployment boundaries.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -1172,25 +1171,24 @@ or DP accounting.
 $B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$, $B_O=128$, and $B_Q=128$ on
 Products of $10^5$ rows. Because a global aggregate depends on every input
 row, $B_D$ is sized to row count times the fields a purpose may aggregate
-and then bounds how many \emph{distinct} base facts any sequence of
-aggregates can touch, not how many aggregates may run. One sequence this blocks and per-query
-authorization with row limits admits: paging through the whole
-$10^5\times16$ Product in 100 pages of 1,000 rows releases $1.6\times10^6$
-Facts and 100 composites, each page a legal query under any row limit, and a
-second such sweep of another Product is refused at $B_R$ although every page
-still passes the row limit; $B_O$ must exceed the distinct queries, pages
-included, that a purpose needs. $B_O$ bounds how
-many \emph{distinct} predicates a task may probe (a threshold ladder
-\code{amount > t} is charged one atom and one composite per step), not what
-one probe reveals: a binary search on one hidden value fits within
-$B_O=128$; bounding the number of probes, not what a probe reveals, is
-exactly the limit inference control identifies (Section~\ref{sec:related}).
-One sequence it does not block: \code{SELECT id ... ORDER BY salary LIMIT k},
-paged, reveals the salary ordering while charging no dependency on
-\code{salary}, because order-only fields are outside this profile
-(Section~\ref{sec:model}); charging sort keys as dependencies is a
-one-rule change the prototype does not implement, so an administrator must
-withhold sortable sensitive fields from the approved scope.
+and bounds how many \emph{distinct} base facts any sequence of aggregates
+can touch, not how many aggregates may run. One sequence this blocks and
+per-query row limits admit: paging through the whole $10^5\times16$ Product
+in 100 pages of 1,000 rows releases $1.6\times10^6$ Facts and 100
+composites, each page legal under any row limit, and a second sweep of
+another Product is refused at $B_R$ while every page still passes the row
+limit; $B_O$ must exceed the distinct queries, pages included, a purpose
+needs. $B_O$ bounds how many \emph{distinct} predicates a task may probe (a
+ladder \code{amount > t} is charged one atom and one composite per step),
+not what a probe reveals: a binary search on one hidden value fits within
+$B_O=128$, exactly the limit inference control identifies
+(Section~\ref{sec:related}); Section~\ref{sec:attack-provsql} shows such a
+ladder refused at its ceiling. One sequence it does not block:
+\code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals the salary
+ordering while charging no dependency on \code{salary}, because order-only
+fields are outside this profile (Section~\ref{sec:model}); charging sort keys
+as dependencies is a one-rule change the prototype does not implement, so an
+administrator must withhold sortable sensitive fields from the approved scope.
 
 \section{System Realization}
 \label{sec:system}
@@ -1367,29 +1365,29 @@ measured.
 \textbf{Adaptive extraction.} The campaign's attack profile replays a frozen,
 digest-bound corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
 \FinalVFivePublicationAttackSequences{} scripted sequences in which an agent
-tries to obtain governed Facts twice: a complete projection followed by three
-pages and an overlapping page, the same pages followed by the complete query,
-four spellings of one predicate, a range split and its union, replays under
-the same and a fresh request id, and a ladder of count probes with
-delegation. Each sequence ran in three fresh deployments
+tries to obtain governed Facts twice: a complete projection then three pages
+and an overlapping page, the pages then the complete query, four spellings of
+one predicate, a range split and its union, replays under the same and a
+fresh request id, and a ladder of count probes with delegation
 (\FinalVFivePublicationAttackSamples{} samples,
-\FinalVFivePublicationAttackPerCell{} per cell), and every sample of a cell
-recorded the same per-step charge. In each decomposition the ledger charged
-exactly the complete query's Facts once---\FinalVFivePublicationAttackPaginationReleaseFacts{}
-Result and \FinalVFivePublicationAttackPaginationDependencyFacts{} Dependency
-Facts for the six-step pagination sequence in either order, likewise for the
-split---while each distinct page or range shape settled one Outcome composite,
+\FinalVFivePublicationAttackPerCell{} per cell over three deployments; every
+sample of a cell recorded the same per-step charge). Each decomposition was
+charged exactly its complete query's Facts
+once---\FinalVFivePublicationAttackPaginationReleaseFacts{} Result and
+\FinalVFivePublicationAttackPaginationDependencyFacts{} Dependency Facts for
+the six-step pagination sequence in either order, likewise for the
+split---each distinct page or range shape settled one Outcome composite,
 replays and rewrites charged nothing, and both set-operation variants failed
 closed (\texttt{SQL\_NOT\_LOWERABLE}); the supplement lists every step.
 Table~\ref{tab:threshold-ladder} is Proposition~\ref{prop:probing-bound} in
-operation: two count probes, one from a delegated child, and one detail
-primer consume the root's Outcome ceiling of
-\FinalVFivePublicationAttackThresholdCeiling{}, and the third probe from the
-child is refused with \FinalVFivePublicationAttackThresholdRejectionCode{},
-charging nothing and returning no count, so the agent learned
+operation: two count probes, one from a delegated child, and a detail primer
+consume the root's Outcome ceiling of
+\FinalVFivePublicationAttackThresholdCeiling{}; the child's third probe is
+refused with \FinalVFivePublicationAttackThresholdRejectionCode{}, charging
+nothing and returning no count, so the agent learned
 \FinalVFivePublicationAttackThresholdAnswered{} of
-\FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal bit,
-whereas the direct arm, which keeps no cumulative state, answered all three.
+\FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
+bit, whereas the direct arm, with no cumulative state, answered all three.
 The corpus is preregistered, not a search over strategies, and the direct arm
 is its only comparison.
 
@@ -1497,17 +1495,17 @@ its head; same-root throughput falls from
 requests per second from width 10 to 50, and multi-root throughput is
 unmeasured.
 
-\textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
-validates structural and version bindings for administrator-attested identities,
-plus supported semantics and settlement; it does not decide policy
-appropriateness. Its single primary database path and demo approval adapter
-provide no production integration study, integration-cost measurement, or
-practitioner study of budget calibration of the kind marketplace-integrated
-agents report \cite{tonnarelli2026dataproductmcp}; multi-engine connectors
-and Policy Studio remain future work.
-Archived V4 used \RQFourVFourBuildRuns{} build; every run reported here is
-single-host. The radix results establish touched-branch I/O shape, not million-scale latency,
-sustained contention, distributed behavior, or live-agent performance.
+\textbf{Governance and deployment scope.} Profile correctness is trusted:
+BDG validates structural and version bindings for administrator-attested
+identities, supported semantics, and settlement, not policy appropriateness.
+Its single database path and demo approval adapter provide no production
+integration study, integration-cost measurement, or practitioner study of
+budget calibration of the kind marketplace-integrated agents report
+\cite{tonnarelli2026dataproductmcp}; multi-engine connectors and Policy
+Studio remain future work. Archived V4 used \RQFourVFourBuildRuns{} build;
+every run is single-host, and the radix results establish touched-branch I/O
+shape, not million-scale latency, sustained contention, distributed behavior,
+or live-agent performance.
 
 \section{Conclusion}
 
