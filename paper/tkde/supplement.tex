@@ -872,7 +872,7 @@ Query, row, or DB time & Request and resource availability & Semantic novelty or
 \section{Control Boundaries of the Closest Systems}
 \label{sec:system-comparison-supp}
 
-Table~\ref{tab:system-comparison} lists, for the cited comparators, the controlled object and decision, the horizon and persistent subject, and the enforcement/release coupling; it is a boundary table drawn from the cited artifacts' modeled or paper-reported scopes, not a feature score.
+Table~\ref{tab:system-comparison} lists, for the cited comparators, the controlled object and decision, the horizon and persistent subject, and the enforcement/release coupling; it is a boundary table drawn from the cited artifacts' modeled or paper-reported scopes, not a feature score; the works are cited in the main text.
 
 \begin{table*}[h]
 \centering
@@ -891,23 +891,23 @@ does the next release fit the budget? & One signed, publication-bound root
 family; descendants share its persistent ledger & One three-dimensional
 root-head CAS co-commits ledger, audit, receipt, and PENDING intent; availability
 is recoverable \\
-DFC/Passant \cite{summers2026dataflow,summers2026passant} & Aggregate policy
+DFC/Passant & Aggregate policy
 predicate over a bag of provenance monomials: is this flow compliant? & One
 SQL execution; relational context may include identity, delegation, or system
 state; trajectory policy is future work & REMOVE/transform/KILL; source,
 required-source, and sink write policies \\
-GAAP \cite{stanley2026gaap} & Permission-consistent disclosure of IFC-labeled
+GAAP & Permission-consistent disclosure of IFC-labeled
 private data & Persistent state across execution steps and tasks separated in
 time & Deterministic disclosure confinement at agent/tool sinks \\
-GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} & General query provenance representation, rewriting, and circuits & Query-result
+GProM/ProvSQL & General query provenance representation, rewriting, and circuits & Query-result
 derivations; no root-family budget & Capture and evaluate provenance; no
 cumulative release decision \\
-Data Product MCP \cite{tonnarelli2026dataproductmcp} & Purpose-versus-contract
+Data Product MCP & Purpose-versus-contract
 compliance and pre-execution contract guards: may this query run for this
 purpose? & Per query; an audit chain links question, purpose, policy, SQL, and
 result & Reject or run before execution; no settlement or availability
 protocol \\
-SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
+SafeNLIDB & Learned safety decision and SQL generation
 from schema, constraints, and interaction history & Multi-turn history
 supplied to the model; no persisted ledger & Reject or generate SQL at the
 model/NLIDB layer \\
