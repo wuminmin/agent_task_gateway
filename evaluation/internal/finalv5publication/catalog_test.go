@@ -43,8 +43,8 @@ func TestBuildCatalogCandidateMergesExactApprovedScaleMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if built.Source.SchemaDigest != liveSchemaSHA256 || len(built.Entries) != 11 || built.Count != 11 {
-		t.Fatalf("Catalog attestation closure = source %s, schemas %d; want live digest/11",
+	if built.Source.SchemaDigest != liveSchemaSHA256 || len(built.Entries) != 13 || built.Count != 13 {
+		t.Fatalf("Catalog attestation closure = source %s, schemas %d; want live digest/13",
 			built.Source.SchemaDigest, len(built.Entries))
 	}
 }
