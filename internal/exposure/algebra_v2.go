@@ -1320,3 +1320,27 @@ func normalizedSchemaV2(fields []FieldV2) string {
 	sort.Strings(parts)
 	return strings.Join(parts, "\x00")
 }
+
+// AggregateFromResultsHavingV2 is AggregateFromResultsV2 for a query whose
+// HAVING clause may have dropped groups. PostgreSQL returns no row for a
+// dropped group, so the caller first restricts the input to the groups that
+// are present in the output (positive-output semantics: a dropped group
+// contributes no Dependency); a global aggregate whose only row was dropped
+// yields an empty relation with the aggregate schema and no facts at all.
+func AggregateFromResultsHavingV2(input RelationV2, groupFields []string, specs []AggregateSpecV2, outputRows []map[string]any) (RelationV2, error) {
+	if len(groupFields) == 0 && len(outputRows) == 0 {
+		if err := ValidateRelationV2(input); err != nil {
+			return RelationV2{}, err
+		}
+		result := RelationV2{SnapshotBundle: append([]SnapshotBinding(nil), input.SnapshotBundle...)}
+		for _, spec := range specs {
+			typeName, err := CanonicalSQLTypeV2(spec.OutputType)
+			if err != nil {
+				return RelationV2{}, err
+			}
+			result.Fields = append(result.Fields, FieldV2{ID: spec.OutputID, SQLType: typeName, Expression: aggregateExpressionV2(input, spec)})
+		}
+		return result, ValidateRelationV2(result)
+	}
+	return AggregateFromResultsV2(input, groupFields, specs, outputRows)
+}

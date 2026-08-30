@@ -381,7 +381,11 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 		specs = append(specs, exposure.AggregateSpecV2{Function: function, Field: aggregate.Column,
 			OutputID: aggregate.Alias, OutputType: outputType, Distinct: aggregate.Distinct})
 	}
-	aggregated, err := exposure.AggregateFromResultsV2(relation, context.plan.GroupBy, specs, outputs)
+	aggregate := exposure.AggregateFromResultsV2
+	if len(context.plan.Having) > 0 {
+		aggregate = exposure.AggregateFromResultsHavingV2
+	}
+	aggregated, err := aggregate(relation, context.plan.GroupBy, specs, outputs)
 	if err != nil {
 		return exposure.Observation{}, err
 	}

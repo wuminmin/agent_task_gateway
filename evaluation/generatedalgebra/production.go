@@ -114,7 +114,37 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 		if rowsErr != nil {
 			return Observation{}, rowsErr
 		}
-		relation, err = exposure.AggregateFromResultsV2(input, groupFields, specs, outputRows)
+		if plan.Having != nil && plan.Kind == "group" {
+			// Mirror the Gateway: the companion returns every positive row, and
+			// the relation is restricted to the groups PostgreSQL returned before
+			// the aggregate is annotated.
+			kept := map[string]struct{}{}
+			for _, output := range outputRows {
+				canonical, err := CanonicalValue(groupType(expenses, departments, plan.GroupField), output[plan.GroupField])
+				if err != nil {
+					return Observation{}, err
+				}
+				kept[canonical] = struct{}{}
+			}
+			input, err = exposure.SelectV2(input, []string{plan.GroupField}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+				canonical, err := CanonicalValue(groupType(expenses, departments, plan.GroupField), row.Cells[plan.GroupField].Value)
+				if err != nil {
+					return exposure.SQLFalse
+				}
+				if _, present := kept[canonical]; present {
+					return exposure.SQLTrue
+				}
+				return exposure.SQLFalse
+			})
+			if err != nil {
+				return Observation{}, err
+			}
+		}
+		aggregate := exposure.AggregateFromResultsV2
+		if plan.Having != nil {
+			aggregate = exposure.AggregateFromResultsHavingV2
+		}
+		relation, err = aggregate(input, groupFields, specs, outputRows)
 		if err != nil {
 			return Observation{}, err
 		}

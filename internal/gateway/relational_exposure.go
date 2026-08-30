@@ -417,7 +417,11 @@ func (context *planExposureContext) deriveRelationalObservationV2(visible, prove
 	for _, aggregate := range context.plan.Aggregates {
 		specs = append(specs, exposure.AggregateSpecV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputID: aggregate.Alias, OutputType: aggregateSQLType(strings.ToLower(aggregate.Function), types[aggregate.Column]), Distinct: aggregate.Distinct})
 	}
-	aggregated, err := exposure.AggregateFromResultsV2(relation, context.plan.GroupBy, specs, outputs)
+	aggregate := exposure.AggregateFromResultsV2
+	if len(context.plan.Having) > 0 {
+		aggregate = exposure.AggregateFromResultsHavingV2
+	}
+	aggregated, err := aggregate(relation, context.plan.GroupBy, specs, outputs)
 	if err != nil {
 		return exposure.Observation{}, err
 	}
