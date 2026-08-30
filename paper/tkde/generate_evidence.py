@@ -2015,6 +2015,40 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\SSBResultsDigest}}{{\texttt{{{hashlib.sha256(ssb_path.read_bytes()).hexdigest()[:12]}}}}}",
         r"\newcommand{\SSBReasonTableBody}{%" + "\n" + "\n".join(ssb_rows) + "%\n}",
     ])
+    # Agent-written workload lowerability (evaluation/agentworkload): SQL an
+    # off-the-shelf LLM assistant wrote from the product sheet and questions.
+    agent_path = ROOT / "evaluation/agentworkload/results.json"
+    agent = json.loads(agent_path.read_text(encoding="utf-8"))
+    agent_passes = {item["variant"]: item for item in agent["passes"]}
+    if set(agent_passes) != {"as-written"} or agent_passes["as-written"]["queries"] != 40:
+        raise SystemExit("evaluation/agentworkload/results.json does not carry the 40-statement pass")
+    agent_pass = agent_passes["as-written"]
+    agent_labels = {
+        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": "HAVING",
+        "SQL_NOT_LOWERABLE/STAR_PROJECTION_UNSUPPORTED": "SELECT *",
+        "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": "AVG or a scalar function in the projection",
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": "arithmetic in the projection",
+        "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": "non-literal comparison (column or subquery)",
+        "JOIN_TYPE_UNSUPPORTED/LEFT_JOIN_UNSUPPORTED": "LEFT JOIN",
+        "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": "OR disjunction in WHERE",
+        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": "COUNT(DISTINCT)",
+        "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": "LIMIT over a multi-product join",
+    }
+    agent_rows = []
+    for key, count in sorted(agent_pass["by_reason"].items(), key=lambda kv: (-kv[1], kv[0])):
+        queries = ", ".join(r["query"].upper() for r in agent_pass["results"] if (r.get("code", "") + "/" + r.get("reason", "")) == key)
+        agent_rows.append(" & ".join([agent_labels.get(key, tex(key)), tex(key.split("/")[-1]), str(count), queries]) + r" \\")
+    lines.extend([
+        rf"\newcommand{{\AgentWorkloadQueries}}{{{agent_pass['queries']}}}",
+        rf"\newcommand{{\AgentWorkloadLowerable}}{{{agent_pass['lowerable']}}}",
+        rf"\newcommand{{\AgentWorkloadLowerablePct}}{{{round(100 * agent_pass['lowerable'] / agent_pass['queries'])}}}",
+        rf"\newcommand{{\AgentWorkloadHavingQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadStarQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/STAR_PROJECTION_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadFunctionQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadArithmeticQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadResultsDigest}}{{\texttt{{{hashlib.sha256(agent_path.read_bytes()).hexdigest()[:12]}}}}}",
+        r"\newcommand{\AgentWorkloadReasonTableBody}{%" + "\n" + "\n".join(agent_rows) + "%\n}",
+    ])
     # Generated-plan differential campaign (evaluation/generatedalgebra).
     generated_path = ROOT / "evaluation/generatedalgebra/results.json"
     generated = json.loads(generated_path.read_text(encoding="utf-8"))

@@ -646,6 +646,14 @@ that V5 Outcome sets build on, with children granted the root's limits; it
 does not exercise the SQL lowering, the companion statement, or narrowed
 child limits.
 
+\section{Measurement Host}
+\label{sec:host-supp}
+
+All measurements ran on one WSL2 guest (Ubuntu 22.04.5) of a laptop-class
+Intel Core i9-13900HX (16 cores, 29~GiB visible), Docker 29.7.2, PostgreSQL
+16.14 from a digest-pinned image, and Go 1.25.14; no other workload ran
+during a campaign.
+
 \section{Number-to-Evidence Map}
 \label{sec:number-map-supp}
 
@@ -698,6 +706,7 @@ Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evalu
 Generated-plan campaign (Section~\ref{sec:generated-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
 TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
 SSB lowerability (Section~\ref{sec:ssb-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/ssblowerability/results.json} (digest \SSBResultsDigest{}) & \code{make eval-ssb-lowerability} \\
+Agent-written workload (Section~\ref{sec:agent-workload-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/agentworkload/results.json} (digest \AgentWorkloadResultsDigest{}) & \code{make eval-agent-workload-lowerability} \\
 TLC (Table VI) & tracked at \EvidenceChainCommit{} & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
@@ -1883,6 +1892,46 @@ normalization.}
 Construct & Reason code & Queries & SSB \\
 \midrule
 \SSBReasonTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Agent-Written Workload Lowerability}
+\label{sec:agent-workload-supp}
+
+To test the fragment on SQL not written by the authors, an off-the-shelf LLM
+assistant (Claude, invoked through Claude Code as a text-to-SQL agent) was
+given only the campaign Products as \code{describe_data_product} exposes them
+(fields, types, entity keys, approved aggregates and operators;
+\filepath{evaluation/agentworkload/products.md}) and \AgentWorkloadQueries{}
+natural-language reporting questions over the expense, orders/line-item, and
+result-heavy Products (\filepath{questions.md}), and asked for one
+PostgreSQL statement per question with no hint of the closed fragment. Its
+statements were lowered unedited through the production lowerer
+(results digest \AgentWorkloadResultsDigest{}):
+\AgentWorkloadLowerable{} of \AgentWorkloadQueries{}
+(\AgentWorkloadLowerablePct\%) lower as written, including grouped
+aggregates, two-source equijoins, and multi-column filters.
+Table~\ref{tab:agent-workload} names the first rejection of the others;
+\code{HAVING} (\AgentWorkloadHavingQueries{}), \code{SELECT *}
+(\AgentWorkloadStarQueries{}), \code{AVG} or a scalar function such as
+\code{to_char} in the projection (\AgentWorkloadFunctionQueries{}), and
+arithmetic in the projection (\AgentWorkloadArithmeticQueries{}) account for
+most. \code{SELECT *} and \code{HAVING} are rewritable by the agent from the
+rejection message (the lowerer names the construct); \code{AVG}, projection
+arithmetic, and \code{OR} would extend the fragment and its Dependency
+rule. The questions were written by the authors; the SQL was not.
+
+\begin{table}[t]
+\centering
+\caption{First rejection reason of each agent-written statement.}
+\label{tab:agent-workload}
+\small
+\begin{tabular}{llrl}
+\toprule
+Construct & Reason code & Queries & Statements \\
+\midrule
+\AgentWorkloadReasonTableBody
 \bottomrule
 \end{tabular}
 \end{table}

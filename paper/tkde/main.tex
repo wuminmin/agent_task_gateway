@@ -388,10 +388,8 @@ $P_{e+1}$ rather than mutating $P_e$.
 \end{definition}
 
 A deployment alias such as \code{latest publication} resolves to a concrete
-Catalog digest in the authorization snapshot presented for approval and
-becomes final when approval succeeds (\emph{``latest'' is resolved at
-approval time, never at query time}; a draft that must follow a rollover is
-reissued). Let $\mathsf Q(T)$ contain every query issued by an approved root
+Catalog digest at approval time, never at query time (a draft that must
+follow a rollover is reissued). Let $\mathsf Q(T)$ contain every query issued by an approved root
 $T$ or any delegated descendant. Then
 \begin{equation}
  \begin{aligned}
@@ -1093,18 +1091,15 @@ next to a request budget of 110 and a row budget of 1,000, so on the
 everything (\FinalVFivePublicationRLSRowsRLS{} rows in
 \FinalVFivePublicationRLSQueries{} queries) while the Dependency budget
 refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}, the first
-equivalent predicate that reads new base facts (Section~\ref{sec:attack-provsql}
-compares counters). The ladder shows $B_O$ binding
-(\FinalVFivePublicationAttackThresholdCeiling{} atoms and composites refuse
-the third count probe); $B_R$ binds in the sweep case: under the campaign's
-default low route ($B_R=2{,}000{,}000$, $B_D=8{,}000{,}000$, $B_O=B_Q=128$
-on $10^5$-row Products) paging a $10^5\times16$ Product in 100 pages
-releases $1.6\times10^6$ Facts and 100 composites, each page legal under
-any row limit, and a second sweep is refused at $B_R$ (budget arithmetic,
-not a measured cell). Since every page settles one composite, $B_O$ caps
-pages as well as probes; $B_D$ sized to rows times aggregable fields bounds
-the \emph{distinct} base facts any aggregate sequence touches, not how many
-run. $B_O$ bounds how many distinct predicates a task may \emph{settle}
+equivalent predicate that reads new base facts. The ladder shows $B_O$
+binding (\FinalVFivePublicationAttackThresholdCeiling{} atoms and
+composites refuse the third count probe); $B_R$ binds in the sweep case:
+under the default low route ($B_R=2{,}000{,}000$, $B_O=B_Q=128$) paging a
+$10^5\times16$ Product in 100 pages releases $1.6\times10^6$ Facts and 100
+composites, each page legal under any row limit, and a second sweep is
+refused at $B_R$ (budget arithmetic, not a measured cell); $B_D$ sized to
+rows times aggregable fields bounds the \emph{distinct} base facts any
+aggregate sequence touches, not how many run. $B_O$ bounds how many distinct predicates a task may \emph{settle}
 (one atom and composite per answered ladder step), not what an answer
 reveals, and not rejected probes, which $B_Q$ bounds: a binary search on
 one hidden value fits within $B_O=128$ answered steps or $B_Q$ refusals.
@@ -1440,9 +1435,9 @@ construction and does not rank the systems.
 
 \subsection{Reproducibility Boundary}
 
-All measurements ran on one WSL2 guest (Ubuntu 22.04.5) of a laptop-class
-Intel Core i9-13900HX (16 cores, 29~GiB visible), Docker 29.7.2, PostgreSQL
-16.14 from a digest-pinned image, and Go 1.25.14. The repository at the
+All measurements ran on one laptop-class WSL2 host with a digest-pinned
+PostgreSQL 16.14 image (hardware and versions in the supplement). The
+repository at the
 cited commits, the evidence pack, and the retained raw samples (48 JSONL
 files, 591~MB) form the artifact [artifact DOI/URL]; a third party can
 re-verify every digest chain and recompute every macro but cannot re-hash
@@ -1480,7 +1475,11 @@ subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
 reporting queries (four-source star joins with a grouped \code{SUM} lower;
 derived measures such as \code{lo_revenue - lo_supplycost} inside an
 aggregate, \code{OR} filters, and ordering by an aggregate alias do not;
-supplement tables). Materialized Views are opaque leaves; stable keys and publications
+supplement tables); SQL written by an off-the-shelf LLM assistant from the
+Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
+unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%),
+stopping first at \code{HAVING}, \code{SELECT *}, \code{AVG} or scalar
+functions, and projection arithmetic (supplement). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 
