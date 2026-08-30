@@ -347,9 +347,9 @@ $B_R$ (budget arithmetic in Section~\ref{sec:calibration}, not a measured
 cell); aggregates that read far more base facts
 than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
 ladders, whose count of distinct settled predicates $B_O$ bounds but whose
-recovery it does not (the corpus ladder refuses at $B_O=5$; under the
-default $B_O=128$ a binary search recovers a 64-bit cell in 64 settled
-probes, and $B_Q$ adds 128 refusal bits per task); and delegation fan-out,
+recovery it does not (under the default $B_O=128$ a binary search recovers
+a 64-bit cell in 64 settled probes; $B_Q$ adds 128 refusal bits per task);
+and delegation fan-out,
 bounded by the shared root ledger (the delegated child's refusal). Four
 boundaries hold at this goal: it counts declared identities, not inference;
 only the Catalog tie-break keys of a page order are order-only (every
@@ -1095,13 +1095,12 @@ when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
 Section~\ref{sec:introduction} dismisses it charges a repeated outcome once
 and bounds no release size, which $B_R$ and $B_D$ do. A data owner derives
-the profile from the purpose and the Product: $B_R$ is the detail rows the
-purpose may release times their fields; $B_D$ is the largest admitted
-aggregate shape's footprint (rows times argument fields), which for a
-purpose needing one full-Product aggregate equals the Product's fact count,
-so $B_D$ then bounds nothing within that Product and protects only against
-reading further Products or columns; $B_O$ is the expected pages plus
-distinct predicates; $B_Q$ a small multiple of $B_O$. The supplement works
+the profile from purpose and Product: $B_R$ is the detail rows the purpose
+may release times their fields; $B_D$ the largest admitted aggregate's
+footprint (rows times argument fields), which for a full-Product aggregate
+equals the Product's fact count, so $B_D$ then protects only against
+reading further Products or columns; $B_O$ the expected pages plus distinct
+predicates; $B_Q$ a small multiple of $B_O$. The supplement works
 the campaign's bounded profile
 ($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
 $B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}
@@ -1185,12 +1184,11 @@ agreement is implementation-to-specification, not a third party's reading;
 such oracles cannot detect specification errors or a shared misreading of
 PostgreSQL semantics, so we claim consistency with our oracle rather than
 independent validation, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
-cases are regression evidence, not statistical evidence; one check does
-not share our specification: a pilot-class rerun expands ProvSQL's own
-provenance circuit to its base tuples on the paired join cells and finds
-them equal, member by member, to the oracle's
-\FinalVFiveProvSQLLeafTotalRowFacts{} base-row facts, to which BDG's
-Dependency sets are linked in turn),
+cases are regression evidence, not statistical evidence; one check shares
+nothing with our specification: a pilot-class rerun expands ProvSQL's own
+circuit to its base tuples on the paired join cells and finds them equal,
+member by member, to the oracle's \FinalVFiveProvSQLLeafTotalRowFacts{}
+base-row facts, to which BDG's Dependency sets are linked in turn),
 whose import boundary excludes
 every production package (enforced by a dependency test), fixes the
 expected Fact cardinalities of all
