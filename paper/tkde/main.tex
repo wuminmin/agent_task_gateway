@@ -127,15 +127,11 @@ Large enterprises already operate lakes or warehouses, reporting marts, Data
 Catalogs, identity directories, and approval workflows, but none turns one
 approved purpose into an enforceable contract across an agent's queries,
 retries, pages, and delegated subtasks. Marketplace-integrated agents
-close the discovery-and-request half of this gap: Data Product MCP lets an
-agent find, request, and query governed data products over MCP and checks
-the declared purpose against natural-language contracts before each query
-\cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}. Once
-a purpose
-is approved, per-query checks still do not state how much governed data the
-task has cumulatively released across retries, pages, rewrites, and delegated
-subtasks, and that system's own expert panel names letting a language model
-make security decisions as an adoption barrier. BDG starts at that boundary
+close the discovery-and-request half of this gap (Data Product MCP checks
+a declared purpose against natural-language contracts before each query
+\cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}), but
+once a purpose is approved, per-query checks still do not state how much
+governed data the task has cumulatively released. BDG starts at that boundary
 as a brownfield-compatible data-egress layer at the governed serving tier:
 the reporting pipeline supplies immutable publications, the Catalog supplies
 Products and attested stable keys, identity and workflow systems supply
@@ -977,19 +973,16 @@ mismatch takes the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
 \subsection{Receipts and Failure Semantics}
 
 A signed Ed25519 settlement receipt binds accounting evidence, result/object
-metadata and hashes, the expected \code{PENDING} intent, and registration
-audit without exposing raw values or FactIDs; availability separately requires
-the hash-chained \code{QUERY_RESULT_CONSUMED} inclusion, a recovered
-attestation may postdate settlement but authenticates the same intent, and a
-dedicated receipt domain prevents cross-identity replay. Failures before
-connector invocation release reservations, over-budget settlement creates no
-canonical object or AVAILABLE row, ambiguous connector outcomes charge
-resources but no exposure, and terminal replay returns the first status
-without repeating Business execution.
+hashes, the \code{PENDING} intent, and registration audit without exposing
+values or FactIDs; availability separately requires the hash-chained
+\code{QUERY_RESULT_CONSUMED} inclusion, and a dedicated receipt domain
+prevents cross-identity replay. Failures before connector invocation release
+reservations, over-budget settlement creates no object or AVAILABLE row,
+ambiguous connector outcomes charge resources but no exposure, and terminal
+replay returns the first status without re-executing.
 
-Withholding the buffer does not hide the decision bit: a rejected attempt
-returns only the code \code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count,
-or row), so the agent learns one inequality and nothing else; rejection
+A rejected attempt returns only the code
+\code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count, or row); rejection
 charges no exposure---in particular no Outcome atom---and is recorded as a
 failed query (contributing no set, Definition~\ref{def:task-exposure}) that
 consumes one unit of the request budget $B_Q$ together with the rows and
