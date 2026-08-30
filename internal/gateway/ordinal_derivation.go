@@ -812,11 +812,11 @@ func (d *ordinalDeriver) groupKeyComponents(member ordinalMember) ([]string, err
 	for _, group := range d.program.Groups {
 		cell, present := member.cells[group.Field.FieldID]
 		if !present {
-			return "", fmt.Errorf("group field %q is unavailable", group.Field.FieldID)
+			return nil, fmt.Errorf("group field %q is unavailable", group.Field.FieldID)
 		}
 		canonical, err := exposure.CanonicalSQLValue(cell.binding.SQLType, cell.value)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		components = append(components, cell.binding.CanonicalExpression+"\x00"+cell.binding.SQLType+"\x00"+canonical)
 	}
