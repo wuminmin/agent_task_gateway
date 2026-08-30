@@ -161,7 +161,7 @@ object and a second transaction records AVAILABLE/CONSUMED
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.8\textwidth}{!}{%
+\resizebox{0.74\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\tiny,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=6mm,
@@ -1050,10 +1050,10 @@ metadata and hashes, the expected \code{PENDING} intent, and registration
 audit without exposing raw values or FactIDs; availability separately requires
 the hash-chained \code{QUERY_RESULT_CONSUMED} inclusion, a recovered
 attestation may postdate settlement but authenticates the same intent, and a
-dedicated receipt domain prevents replay across identities. Failures before
-connector invocation release reservations; over-budget settlement creates no
-canonical object or AVAILABLE row; ambiguous connector outcomes charge
-resources but no exposure; terminal replay returns the first status, may
+dedicated receipt domain prevents cross-identity replay. Failures before
+connector invocation release reservations, over-budget settlement creates no
+canonical object or AVAILABLE row, ambiguous connector outcomes charge
+resources but no exposure, and terminal replay returns the first status, may
 resume PENDING promotion, and never repeats Business execution.
 
 Withholding the buffer does not hide the decision bit: a rejected attempt
@@ -1088,22 +1088,19 @@ denial-noninterference claim.
 A child authorization signs both \code{root_task_id} and
 \code{parent_task_id}. Its human subject, catalog, datasource, schema, and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
-all budget dimensions may only narrow. Every execution revalidates the signed
-parent grant and active ancestor chain.
+all budget dimensions may only narrow; every execution revalidates the signed
+parent grant and active ancestor chain. View-bound descendants inherit the
+parent's complete original contract set, and their approved subset cannot add
+or replace a contract, so narrowing is not an implicit semantic rebind.
 
-View-bound descendants inherit the parent's complete original contract set;
-their approved subset cannot add or replace a contract, so narrowing is not an
-implicit semantic rebind.
-
-All descendants resolve to one root ledger. If a parent and child request the
-same fact, only the first successful settlement accounts it. Revoking the root
-blocks new descendant queries, while an already terminal request ID remains
-readable. Consequently, creating workers or task nodes cannot create fresh
-exposure capacity. Settlement checks the settling task's own signed ceiling
-against the shared family total, so a child that signs a lower ceiling may add
-novel facts only while the family total stays within it, and a child whose
-ceiling is already below the family total can settle only zero-novelty
-replays; this is intended, since a narrower child must not widen the family.
+All descendants resolve to one root ledger: if a parent and child request the
+same fact, only the first successful settlement accounts it, revoking the
+root blocks new descendant queries while a terminal request ID stays
+readable, and creating workers or task nodes cannot create fresh exposure
+capacity. Settlement checks the settling task's own signed ceiling against
+the shared family total, so a child with a lower ceiling adds novel facts only
+while the family total stays within it and otherwise settles only
+zero-novelty replays, as intended: a narrower child must not widen the family.
 
 Conservation stops at the root and at the publication epoch. A second root for
 the same principal, or a root approved on $P_{e+1}$, has an independent ledger
@@ -1256,12 +1253,12 @@ provenance capture is the same-host cost reference
 \toprule
 RQ & Current result \\
 \midrule
-RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated at this commit \\
+RQ1 & \RQOnePassed{}/\RQOneCases{} separate-implementation oracle cases (\RQOneRows{} rows); regenerated \\
 RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches; regenerated \\
-RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus, \FinalVFivePublicationAttackSamples{} samples (Section~\ref{sec:attack-provsql}) \\
-RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, and a \RQFourVFourOracleFacts{}-Fact offline re-derivation (shares the FactID encoder); archived run at its recorded source hash \\
+RQ3 & \RQThreeCases{} cases, each passing deterministically and as a PostgreSQL race test (\RQThreePassed{}/\RQThreeCases{} and \RQThreeIntegration{}/\RQThreeExecuted{}); Join/Union/Group paths; regenerated; campaign attack corpus (Section~\ref{sec:attack-provsql}) \\
+RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, \RQFourVFourOracleFacts{}-Fact offline re-derivation (shared encoder); archived run at its recorded source hash \\
 RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions; regenerated \\
-Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} measured samples, all passing; sealed at commit \FinalVFivePublicationCommit{} \\
+Campaign & \FinalVFivePublicationCampaign{}: \FinalVFivePublicationDeployments{} fresh deployments of \FinalVFivePublicationProfiles{} profiles, \FinalVFivePublicationTotalCells{} frozen cells, \FinalVFivePublicationMeasuredSamples{} samples, all passing; sealed at \FinalVFivePublicationCommit{} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1271,11 +1268,11 @@ imports no production policy code, the only code-independent check; the
 \RQFourVFourOracleFacts{}-Fact RQ4 check (\RQFourVFourReleaseFacts{} Release,
 \RQFourVFourInfluenceFacts{} Dependency, \RQFourVFourOutcomeFacts{} Outcome)
 re-derives every hash, payload, and witness offline but shares the FactID
-encoder, so it is derivation-independent only. RQ2 requires equal
+encoder, so it is only derivation-independent. RQ2 requires equal
 Result/Dependency sets and zero bidirectional charge; RQ3 covers split, page,
 retry, snapshot identity, joins/unions, delegation, and races; Outcome
-regressions cover empty probes, replay, radix tamper, and digest binding. The
-supplement's broad-SQL stress test checks row equality only, not FactSets.
+regressions cover empty probes, replay, radix tamper, and digest binding; the
+supplement's broad-SQL stress test checks row equality only.
 
 The Baseline workloads: S1, a two-column projection of the frozen
 50,000-order corpus under an order-key threshold (SF1: 5,000 orders; SF10:
