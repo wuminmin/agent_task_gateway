@@ -252,7 +252,6 @@ func TestProvSQLManifestInstallRejectsIncompleteOrUnboundArtifactsBeforeWriting(
 	}
 }
 
-
 func trackedProvSQLManifestArtifacts(t *testing.T) (map[string][]byte, []finalv5oracle.ProvSQLManifestArtifact) {
 	t.Helper()
 	sourceRoot := filepath.Join("..", "..", "final-v5-wsl2", "oracle-manifests")
