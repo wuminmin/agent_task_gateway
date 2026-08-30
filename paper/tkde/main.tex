@@ -324,26 +324,20 @@ GProM and ProvSQL provide broader rewrite/circuit mechanisms
 general provenance algebra; it co-generates typed effects and answers for a
 positive fragment, then settles cumulative novelty before release.
 
-\textbf{Data-flow policy enforcement.} FlowGuard and the later DFC/Passant work
-in the same DFC line are the closest database-layer comparators to BDG
-\cite{summers2026dataflow,summers2026passant}. The Passant paper formalizes
-optimizer-invariant aggregate predicates over each output tuple's bag of
-provenance monomials and introduces Provenance Guard Notation (PGN). It
-describes rewrites that remove or replace violating tuples, terminate a query,
-and constrain \code{INSERT}/\code{UPDATE} through source, sink, and
-required-source policies. This per-query model covers contributor thresholds,
-prohibited source combinations, grounding, prompt-bound untrusted flows, and
-legal state transitions that BDG does not subsume.
-
-The temporal unit differs. Passant focuses on one query and leaves trajectory
-policy to future work. After authorization and applicable flow checks, BDG
-persists Result, Dependency, and Outcome sets under one root and charges exact
-profile-relative novelty across queries, retries, pages, supported rewrites,
-and descendants. One root-head transaction co-commits settlement, audit,
-receipt, and PENDING intent; AVAILABLE promotion is recoverable and fail-closed.
-The prototype does not integrate or evaluate Passant--BDG composition. Thus DFC
-asks whether a flow is allowed; BDG asks whether another allowed flow fits the
-cumulative contract.
+\textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
+closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
+Passant formalizes optimizer-invariant aggregate predicates over each output
+tuple's bag of provenance monomials, rewrites or terminates violating queries,
+and constrains writes through source, sink, and required-source policies;
+that per-query model covers contributor thresholds, prohibited source
+combinations, grounding, and prompt-bound flows that BDG does not subsume, and
+leaves trajectory policy to future work. BDG differs in temporal unit: after
+authorization and any flow check it persists Result, Dependency, and Outcome
+sets under one root and charges exact profile-relative novelty across queries,
+retries, pages, supported rewrites, and descendants, co-committing settlement,
+audit, receipt, and PENDING intent in one root-head transaction. DFC asks
+whether a flow is allowed; BDG asks whether another allowed flow fits the
+cumulative contract. Their composition is not evaluated here.
 
 \textbf{Authorization and delegation.} Usage/history control, delegation,
 RLS/VPD, ABAC/XACML, and query-policy systems establish ongoing authority,
@@ -473,16 +467,12 @@ cryptographically enforce it as a separate manifest field.
 A new synchronization creates a new $P_{e+1}$; it never mutates $P_e$.
 \end{definition}
 
-Any deployment alias such as \code{latest publication} must resolve to the
-concrete Catalog digest whose transitive binding instantiates $P_e$ in the
-authorization snapshot presented for approval; that binding becomes final
-when approval succeeds. The prototype
-has no mutable runtime alias: it eagerly writes the resolved Catalog digest into the
-draft and approval revalidates it, so a deployer that requires the newest epoch
-after a rollover must cancel and reissue the draft rather than rewrite it. In
-particular, \emph{``latest'' is resolved at approval time, never at query time}. Let
-$\mathsf Q(T)$ contain every query issued by an approved root
-$T$ or any delegated descendant. Then
+A deployment alias such as \code{latest publication} resolves to a concrete
+Catalog digest in the authorization snapshot presented for approval, and that
+binding becomes final when approval succeeds: \emph{``latest'' is resolved at
+approval time, never at query time}, and a draft that must follow a rollover is
+reissued, not rewritten. Let $\mathsf Q(T)$ contain every query issued by an
+approved root $T$ or any delegated descendant. Then
 \begin{equation}
  \begin{aligned}
  \operatorname{publication}(T)&=P_e,\\
@@ -1213,26 +1203,9 @@ componentwise union in Eq.~\eqref{eq:task-exposure}, and the pre-commit checks
 preserve every component bound. The representation-refinement details are in
 the supplement.
 
-\textbf{Catalog-issued capacity.} Table~\ref{tab:profile-calibration} separates
+\textbf{Catalog-issued capacity.} The supplement's calibration table separates
 profile units from resource guards and from quantities they do not estimate.
 
-\begin{table}[t]
-\centering
-\caption{Profile calibration boundary.}
-\label{tab:profile-calibration}
-\scriptsize
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{L{0.13\columnwidth}L{0.40\columnwidth}L{0.37\columnwidth}}
-\toprule
-Budget & Governs & Does not represent \\
-\midrule
-$B_R$ & Distinct accounted Result Fact identities selected for publication & Knowledge value or privacy loss \\
-$B_D$ & Distinct profile-declared positive-output Dependency Facts & Minimal causes or all physical reads \\
-$B_O$ & Distinct canonical predicate atoms and query/result composites & Bits, entropy, or DP $\epsilon$ \\
-Query, row, or DB time & Request and resource availability & Semantic novelty or exposure deduplication \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 These human-governed declarations are neither learned risk scores nor
 optimization targets: 1,000 permits 1,000 declared units, not ``risk 1,000.''

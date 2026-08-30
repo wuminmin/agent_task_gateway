@@ -762,6 +762,31 @@ Both forms prove intent rather than availability; the normal Compose path
 produces the co-committed form. They share one wire format and verification
 rule rather than carrying a recovery-mode flag.
 
+\section{Profile Calibration Boundary}
+
+The three budgets are human-governed declarations of distinct FactID capacity.
+Table~\ref{tab:profile-calibration} separates what each governs from the
+quantities it does not represent; unit weights enable exact set union, not harm
+or differential-privacy accounting.
+
+\begin{table}[h]
+\centering
+\caption{Profile calibration boundary.}
+\label{tab:profile-calibration}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{L{0.13\textwidth}L{0.40\textwidth}L{0.37\textwidth}}
+\toprule
+Budget & Governs & Does not represent \\
+\midrule
+$B_R$ & Distinct accounted Result Fact identities selected for publication & Knowledge value or privacy loss \\
+$B_D$ & Distinct profile-declared positive-output Dependency Facts & Minimal causes or all physical reads \\
+$B_O$ & Distinct canonical predicate atoms and query/result composites & Bits, entropy, or DP $\epsilon$ \\
+Query, row, or DB time & Request and resource availability & Semantic novelty or exposure deduplication \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Clearance-Accounting Obligations and Evidence}
 \label{sec:supp-clearance-accounting}
 
