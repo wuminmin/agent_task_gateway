@@ -711,7 +711,7 @@ func canonicalSQLValueOfType(typeName string, value any) (string, error) {
 		}
 		return "s:" + text, nil
 	default:
-		return "", fmt.Errorf("%w: PostgreSQL type %q is outside %s", ErrInvalid, sqlType, ProfileV2)
+		return "", fmt.Errorf("%w: PostgreSQL type %q is outside %s", ErrInvalid, typeName, ProfileV2)
 	}
 }
 
