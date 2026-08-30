@@ -3,8 +3,8 @@
   "command_exit_code": 0,
   "executed": 5,
   "failed": 0,
-  "finished_at": "2026-08-10T06:49:35.426272118Z",
-  "go_version": "go version go1.25.12 linux/amd64",
+  "finished_at": "2026-08-30T15:56:47.908598317Z",
+  "go_version": "go version go1.25.14 linux/amd64",
   "packages": [
     "taskbound.local/agent-data-gateway/internal/control",
     "taskbound.local/agent-data-gateway/internal/gateway"
@@ -13,41 +13,41 @@
   "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "race_enabled": true,
   "raw_log": "evaluation/exposure/raw/rq3-postgres-go-test.jsonl",
-  "raw_log_sha256": "3565056ddc70d463d04cb72ab0609fab7f63613889b456cbe02754a5d54f89cf",
+  "raw_log_sha256": "18c3b7bb888ef4ce30446cb1f0c6da088564c3de5bff8a7108d91001a904fd5a",
   "schema_version": 2,
-  "started_at": "2026-08-10T06:49:14.325121151Z",
+  "started_at": "2026-08-30T15:56:28.737610731Z",
   "status": "complete",
   "tests": [
     {
-      "elapsed_seconds": 0.46,
+      "elapsed_seconds": 0.36,
       "id": "concurrent_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",
       "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
     },
     {
-      "elapsed_seconds": 0.57,
+      "elapsed_seconds": 0.56,
       "id": "distinct_zero_result_predicates",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestExposureV3ChargesDistinctZeroResultPredicates"
     },
     {
-      "elapsed_seconds": 0.66,
+      "elapsed_seconds": 0.62,
       "id": "online_relational_gateway_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalGatewayEndToEndAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.3,
+      "elapsed_seconds": 0.44,
       "id": "online_relational_postgres",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalOnlinePathAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.42,
+      "elapsed_seconds": 0.36,
       "id": "task_family_delegation",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",

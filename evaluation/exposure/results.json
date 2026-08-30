@@ -1,16 +1,16 @@
 {
   "schema_version": 7,
   "profile_version": "taskgate-exposure-v3",
-  "corpus_sha256": "8b87db47e51db7db42c759155c8581f95af93e766e7731a0174087ce110f2967",
+  "corpus_sha256": "5704d22606b0e7e31b55251d522a5cfc6a75be38aadb13d6e2399f3d27103754",
   "rq1_ground_truth": {
-    "cases": 21,
-    "passed": 21,
+    "cases": 24,
+    "passed": 24,
     "dataset_relations": 2,
     "dataset_rows": 16,
-    "release_fact_comparisons": 125,
-    "influence_fact_comparisons": 392,
+    "release_fact_comparisons": 133,
+    "influence_fact_comparisons": 461,
     "oracle": "independent-rq1-relational-oracle-v1",
-    "oracle_source_sha256": "4548b9ae4ce46e056a39ff6cffafc6cd615a7d34966786f03cc59e749b0e064b",
+    "oracle_source_sha256": "235c8155bf310a0869be20bd54b7e18194db84fe6e126c625e48c8457337117c",
     "results": [
       {
         "id": "projection_amount",
@@ -158,6 +158,27 @@
         "influence_facts": 6,
         "release_set_sha256": "32c016833652eafe8be668cfefd4848d0985c7abfc44a13e1e43481802b6194b",
         "influence_set_sha256": "26e7ae955b2d6d7648f3f27ed3535a2dcf8ad0229d53ad43a6b09ec2a7a3d414"
+      },
+      {
+        "id": "global_avg",
+        "release_facts": 1,
+        "influence_facts": 24,
+        "release_set_sha256": "14808f9d7043325969e4b1c96cd13a75a3641376cf439f6ff6ce26c9a08510a9",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
+      },
+      {
+        "id": "global_count_distinct_department",
+        "release_facts": 1,
+        "influence_facts": 24,
+        "release_set_sha256": "4ef95e50ad7fd21a5ffa0d32e5ec7925458a30024fcf772dc76d932f4492d3ff",
+        "influence_set_sha256": "00491fddb7e92929472f43acf2efc58610b7c1372c597e9f72ade7a806e85ec5"
+      },
+      {
+        "id": "group_sum_having",
+        "release_facts": 6,
+        "influence_facts": 21,
+        "release_set_sha256": "a11daff596cf32b4644da0329af4012be84426c31cf3ae5e23984b7974a8ba10",
+        "influence_set_sha256": "14a8e258995a1b43bda05621d361d97d8f75089a2dc7ed89fbfc72887bfdbf4e"
       }
     ]
   },
@@ -1463,7 +1484,7 @@
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "c7be32148592ca6dc3efaeeae6a69f0a3e0fa1eb871877ab45f20e0cd1b12b4d",
+      "artifact_sha256": "0adc50ff11d69838ce560fe6a57a4b76d45350e28f6044e47cc85e45ea48f648",
       "executed": 5,
       "passed": 5,
       "failed": 0
@@ -1493,7 +1514,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 132453,
+            "ns_per_op": 285928,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1501,7 +1522,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 1728210,
+            "ns_per_op": 3365569,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1509,7 +1530,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 20618270,
+            "ns_per_op": 34409608,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1517,7 +1538,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 223947934,
+            "ns_per_op": 355575114,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1531,31 +1552,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 3765,
+            "ns_per_op": 3309,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 12678,
+            "ns_per_op": 12060,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 32137,
+            "ns_per_op": 28703,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 87534,
+            "ns_per_op": 71662,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 489863,
+            "ns_per_op": 220416,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1567,25 +1588,25 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 10567,
+            "ns_per_op": 35113,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 115236,
+            "ns_per_op": 259790,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 1531349,
+            "ns_per_op": 3054748,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 14669397,
+            "ns_per_op": 34193100,
             "novel_charge": 10000,
             "replay_charge": 0
           }
