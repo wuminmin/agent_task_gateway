@@ -84,7 +84,7 @@ func randomAggregates(rng *rand.Rand) []Aggregate {
 		{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
 		{Function: "min", Field: "expense.amount", OutputID: "minimum", OutputType: "numeric"},
 		{Function: "max", Field: "expense.amount", OutputID: "maximum", OutputType: "numeric"},
-		{Function: "sum", Field: "expense.days", OutputID: "days", OutputType: "bigint"},
+		{Function: "sum", Field: "expense.days", OutputID: "days", OutputType: "numeric"},
 	}
 	rng.Shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
 	return append([]Aggregate(nil), candidates[:1+rng.Intn(3)]...)
