@@ -870,9 +870,8 @@ bytes, and its \emph{sidecar} the PostgreSQL table mapping attested entity
 keys to ordinals; the \emph{root head} is the Control row holding a family's
 three set digests and epoch, advanced only by compare-and-swap (\emph{CAS}).
 
-Formal semantics and the RQ1 oracle cover scan/select/project, group with
-the admitted aggregates and \code{HAVING}, inner equijoin, union-distinct,
-and page. Online lowering
+Formal semantics and the RQ1 oracle cover scan/select/project, group (with
+HAVING), inner equijoin, union-distinct, and page. Online lowering
 admits one product, a connected 2--16-source equi-join graph, or two-branch
 union-distinct, optionally grouped; the SQL-AST path covers the first two and
 the semantic-View path eliminates a bounded nested DAG into them. Union is
@@ -1484,12 +1483,11 @@ Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
 the rest stop first at scalar functions, projection arithmetic,
 non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
-\code{LEFT JOIN}, or \code{LIMIT} over a join (counts in the supplement).
-\code{HAVING}, \code{SELECT *}, exact-typed \code{AVG}, and
-\code{COUNT(DISTINCT)} had existing Dependency rules and are now admitted;
-arithmetic, non-literal comparisons, \code{OR}, and outer joins need new
-rules (derived cells, two-cell atoms, disjunctive witnesses, null-extended
-rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
+\code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING},
+\code{SELECT *}, exact \code{AVG}, and \code{COUNT(DISTINCT)} are now
+admitted under existing Dependency rules; arithmetic, non-literal
+comparisons, \code{OR}, and outer joins need new rules (derived cells,
+two-cell atoms, disjunctive witnesses, null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 
