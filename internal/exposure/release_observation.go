@@ -50,6 +50,14 @@ type releaseRun struct {
 	count int
 }
 
+// releaseEntries sorts by hash without reflection; ties keep insertion order
+// under sort.Stable.
+type releaseEntries []releaseEntry
+
+func (e releaseEntries) Len() int           { return len(e) }
+func (e releaseEntries) Less(i, j int) bool { return bytes.Compare(e[i].hash[:], e[j].hash[:]) < 0 }
+func (e releaseEntries) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+
 // NewReleaseObservation returns an empty accumulator with the FactSet
 // residency threshold.
 func NewReleaseObservation() *ReleaseObservation {
@@ -74,7 +82,9 @@ func (o *ReleaseObservation) Add(fact FactID) error {
 
 // AddCanonical records a fact whose canonical payload and hash the caller has
 // already computed; the derivation verifies base facts against the snapshot
-// ordinal with that same hash, so it is computed exactly once per fact.
+// ordinal with that same hash, so it is computed exactly once per fact. The
+// observation takes ownership of payload: the caller must not read or modify
+// it afterwards (it is zeroed once spooled or closed).
 func (o *ReleaseObservation) AddCanonical(fact FactID, payload []byte, hash [32]byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: nil release observation", ErrInvalid)
@@ -91,7 +101,7 @@ func (o *ReleaseObservation) AddCanonical(fact FactID, payload []byte, hash [32]
 	if len(payload) == 0 || len(payload) > maxFactSetRecordBytes {
 		return fmt.Errorf("%w: release observation record length is invalid", ErrInvalid)
 	}
-	o.resident = append(o.resident, releaseEntry{hash: hash, payload: append([]byte(nil), payload...)})
+	o.resident = append(o.resident, releaseEntry{hash: hash, payload: payload})
 	o.residentBytes += int64(len(payload))
 	o.total++
 	if o.residentBytes > o.threshold {
@@ -118,9 +128,7 @@ func (o *ReleaseObservation) Spilled() bool { return o != nil && len(o.runs) != 
 // and collapses equal hashes to their first payload; an equal hash with a
 // different payload is a collision and fails closed exactly as FactSet.Add.
 func sortRun(entries []releaseEntry) ([]releaseEntry, error) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		return bytes.Compare(entries[i].hash[:], entries[j].hash[:]) < 0
-	})
+	sort.Stable(releaseEntries(entries))
 	unique := entries[:0]
 	for index, entry := range entries {
 		if index > 0 && entry.hash == entries[index-1].hash {
@@ -158,9 +166,12 @@ func (o *ReleaseObservation) spillRun() error {
 	}
 	run := &releaseRun{spool: spool, count: len(sorted)}
 	o.runs = append(o.runs, run)
-	var header [4]byte
+	// Record: 32-byte hash, 4-byte payload length, payload. The hash is stored
+	// so readers need not re-hash; the spool's AEAD chunks authenticate it.
+	var header [sha256.Size + 4]byte
 	for _, entry := range sorted {
-		binary.BigEndian.PutUint32(header[:], uint32(len(entry.payload)))
+		copy(header[:sha256.Size], entry.hash[:])
+		binary.BigEndian.PutUint32(header[sha256.Size:], uint32(len(entry.payload)))
 		if _, err := spool.Write(header[:]); err != nil {
 			return fmt.Errorf("write encrypted release observation record: %w", err)
 		}
@@ -230,13 +241,13 @@ type releaseCursor struct {
 	position  int
 	hash      [32]byte
 	payload   []byte
+	buffer    []byte
 	active    bool
 }
 
+// advance loads the next entry. A spooled cursor reads into its own reusable
+// buffer, so payload is only valid until the next advance or close.
 func (c *releaseCursor) advance() error {
-	if c.payload != nil && c.reader != nil {
-		zeroBytes(c.payload)
-	}
 	c.payload = nil
 	c.active = false
 	if c.reader == nil {
@@ -255,22 +266,35 @@ func (c *releaseCursor) advance() error {
 		}
 		return nil
 	}
-	var header [4]byte
+	var header [sha256.Size + 4]byte
 	if _, err := io.ReadFull(c.reader, header[:]); err != nil {
-		return fmt.Errorf("read encrypted release observation record length: %w", err)
+		return fmt.Errorf("read encrypted release observation record header: %w", err)
 	}
-	length := int(binary.BigEndian.Uint32(header[:]))
+	length := int(binary.BigEndian.Uint32(header[sha256.Size:]))
 	if length < 1 || length > maxFactSetRecordBytes {
 		return errors.New("encrypted release observation record length is invalid")
 	}
-	payload := make([]byte, length)
+	if cap(c.buffer) < length {
+		zeroBytes(c.buffer)
+		c.buffer = make([]byte, length, length+length/2)
+	}
+	payload := c.buffer[:length]
 	if _, err := io.ReadFull(c.reader, payload); err != nil {
 		return fmt.Errorf("read encrypted release observation record: %w", err)
 	}
 	c.remaining--
-	c.hash = sha256.Sum256(append([]byte(factDomainV2), payload...))
+	copy(c.hash[:], header[:sha256.Size])
 	c.payload, c.active = payload, true
 	return nil
+}
+
+func (c *releaseCursor) close() error {
+	zeroBytes(c.buffer)
+	c.buffer, c.payload = nil, nil
+	if c.reader == nil {
+		return nil
+	}
+	return c.reader.Close()
 }
 
 // merge visits every distinct payload in ascending hash order across all
@@ -279,10 +303,8 @@ func (o *ReleaseObservation) merge(visit func([32]byte, []byte) error) (err erro
 	cursors := make([]*releaseCursor, 0, len(o.runs)+1)
 	defer func() {
 		for _, cursor := range cursors {
-			if cursor.reader != nil {
-				if closeErr := cursor.reader.Close(); closeErr != nil && err == nil {
-					err = closeErr
-				}
+			if closeErr := cursor.close(); closeErr != nil && err == nil {
+				err = closeErr
 			}
 		}
 	}()

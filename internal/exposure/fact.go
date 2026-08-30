@@ -2133,6 +2133,14 @@ func NewBaseCellFactBuilder(sourceNamespace, snapshot, fieldID, sqlType string) 
 	}, nil
 }
 
+// TypeName returns the column's canonical SQL type name.
+func (b *BaseCellFactBuilder) TypeName() string {
+	if b == nil {
+		return ""
+	}
+	return b.typeName
+}
+
 // Fact returns the cell's FactID, canonical payload, and hash.
 func (b *BaseCellFactBuilder) Fact(entityKey string, value any) (FactID, []byte, [32]byte, error) {
 	if b == nil {

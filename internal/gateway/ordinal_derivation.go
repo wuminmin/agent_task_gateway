@@ -853,17 +853,42 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 		if !present || position >= len(visible.values) || !cellPresent {
 			return fmt.Errorf("visible field %q cannot be matched to provenance", output.OutputID)
 		}
-		if err := sameCanonicalValue(output.SQLType, visible.values[position], cell.value); err != nil {
-			return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+		var baseFact exposure.FactID
+		var basePayload []byte
+		var baseHash [32]byte
+		if cell.hasBase && cell.builder != nil && cell.builder.TypeName() == output.SQLType {
+			// The builder already canonicalized the provenance value under the
+			// output's canonical type; compare the visible value against it
+			// instead of canonicalizing the provenance value a second time.
+			fact, payload, hash, err := cell.builder.Fact(cell.entityKey, cell.value)
+			if err != nil {
+				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+			}
+			visibleCanonical, err := exposure.CanonicalSQLValue(output.SQLType, visible.values[position])
+			if err != nil {
+				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+			}
+			if visibleCanonical != fact.CanonicalValue {
+				return fmt.Errorf("visible/provenance value mismatch for %q: canonical values differ", output.OutputID)
+			}
+			baseFact, basePayload, baseHash = fact, payload, hash
+		} else {
+			if err := sameCanonicalValue(output.SQLType, visible.values[position], cell.value); err != nil {
+				return fmt.Errorf("visible/provenance value mismatch for %q: %w", output.OutputID, err)
+			}
+			if cell.hasBase {
+				fact, payload, hash, err := cell.baseFactPayload()
+				if err != nil {
+					return err
+				}
+				baseFact, basePayload, baseHash = fact, payload, hash
+			}
 		}
 		if err := cell.witness.addSupport(d.influence); err != nil {
 			return err
 		}
 		if cell.hasBase {
-			fact, payload, hash, err := cell.baseFactPayload()
-			if err != nil {
-				return err
-			}
+			fact, payload, hash := baseFact, basePayload, baseHash
 			if err := d.verifyBaseFact(cell.baseRef, hash); err != nil {
 				return err
 			}
