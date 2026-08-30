@@ -63,6 +63,9 @@ type releaseEntry struct {
 type releaseRun struct {
 	spool *encryptedspool.Spool
 	count int
+	// hashes is the run's sorted, deduplicated hash sequence, kept resident
+	// (32 bytes per fact) so the unique count needs no decrypting pass.
+	hashes [][32]byte
 }
 
 // releaseEntries sorts by hash without reflection; ties keep insertion order
@@ -228,7 +231,10 @@ func writeReleaseRun(entries []releaseEntry, baseDir string, chunkSize int) (*re
 	if err != nil {
 		return nil, err
 	}
-	run := &releaseRun{spool: spool, count: len(sorted)}
+	run := &releaseRun{spool: spool, count: len(sorted), hashes: make([][32]byte, 0, len(sorted))}
+	for _, entry := range sorted {
+		run.hashes = append(run.hashes, entry.hash)
+	}
 	// Record: 32-byte hash, 4-byte payload length, payload. The hash is stored
 	// so readers need not re-hash; the spool's AEAD chunks authenticate it.
 	var header [sha256.Size + 4]byte
@@ -277,14 +283,7 @@ func (o *ReleaseObservation) Digest(visibleRows int64) (string, error) {
 	for _, entry := range sorted {
 		o.residentBytes += int64(len(entry.payload))
 	}
-	unique := 0
-	if err := o.merge(func([32]byte, []byte) error {
-		unique++
-		return nil
-	}); err != nil {
-		o.err = err
-		return "", err
-	}
+	unique := o.uniqueHashCount()
 	digestState := sha256.New()
 	digestState.Write([]byte(outcomeDigestDomainV1))
 	writeCanonicalUint64Stream(digestState, uint64(visibleRows))
@@ -298,6 +297,46 @@ func (o *ReleaseObservation) Digest(visibleRows int64) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(digestState.Sum(nil)), nil
+}
+
+// uniqueHashCount merges the resident hashes with every run's resident hash
+// sequence and counts distinct hashes; payload equality of equal hashes is
+// checked by the payload merge that follows, before any digest is returned.
+func (o *ReleaseObservation) uniqueHashCount() int {
+	o.mu.Lock()
+	sources := make([][][32]byte, 0, len(o.runs)+1)
+	for _, run := range o.runs {
+		sources = append(sources, run.hashes)
+	}
+	o.mu.Unlock()
+	resident := make([][32]byte, 0, len(o.resident))
+	for _, entry := range o.resident {
+		resident = append(resident, entry.hash)
+	}
+	sources = append(sources, resident)
+	positions := make([]int, len(sources))
+	unique := 0
+	for {
+		var lowest *[32]byte
+		for index, source := range sources {
+			if positions[index] >= len(source) {
+				continue
+			}
+			if lowest == nil || bytes.Compare(source[positions[index]][:], lowest[:]) < 0 {
+				lowest = &source[positions[index]]
+			}
+		}
+		if lowest == nil {
+			return unique
+		}
+		hash := *lowest
+		unique++
+		for index, source := range sources {
+			if positions[index] < len(source) && source[positions[index]] == hash {
+				positions[index]++
+			}
+		}
+	}
 }
 
 // releaseCursor walks one hash-sorted source: a sealed run behind an
