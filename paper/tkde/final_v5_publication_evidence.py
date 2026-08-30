@@ -642,11 +642,51 @@ def _counter_arms(oracle_trace, rows, budgets, first_over):
             row_admitted.append(False)
     query_budget = first_over - 1
     query_admitted = [k < query_budget for k in range(len(rows))]
+
+    # The same queries in a novelty-first order (novel queries by ascending
+    # rows, then the rest): the set ledger's release bound is order-invariant,
+    # the counters' is not.
+    order = sorted(range(len(facts)), key=lambda k: (not novel[k], rows[k], k))
+
+    def released_under(admit):
+        released = [set(), set(), set()]
+        admitted = 0
+        state = {"rows": 0, "queries": 0, "ledger": [set(), set(), set()]}
+        for k in order:
+            if admit(state, k):
+                admitted += 1
+                for i in range(3):
+                    released[i] |= facts[k][i]
+        return {"admitted": admitted, "released": tuple(len(r) for r in released)}
+
+    def admit_set(state, k):
+        fits = all(len(state["ledger"][i] | facts[k][i]) <= budgets[i] for i in range(3))
+        if fits:
+            for i in range(3):
+                state["ledger"][i] |= facts[k][i]
+        return fits
+
+    def admit_rows(state, k):
+        if state["rows"] + rows[k] <= row_budget:
+            state["rows"] += rows[k]
+            return True
+        return False
+
+    def admit_queries(state, k):
+        if state["queries"] < query_budget:
+            state["queries"] += 1
+            return True
+        return False
+
+    permuted = {"set_ledger": released_under(admit_set), "row_budget": released_under(admit_rows), "query_budget": released_under(admit_queries)}
+    if any(permuted["set_ledger"]["released"][i] > budgets[i] for i in range(3)):
+        raise PublicationEvidenceError("simulated set ledger exceeded its budgets under permutation")
     return {
         "zero_novelty_queries": sum(zero_novelty),
         "set_ledger": summarize(set_admitted),
         "row_budget": {"budget": row_budget, **summarize(row_admitted)},
         "query_budget": {"budget": query_budget, **summarize(query_admitted)},
+        "novelty_first": permuted,
     }
 
 

@@ -1774,6 +1774,12 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePublicationCounterSetReleased}}{{{'/'.join(str(v) for v in arms['set_ledger']['released'])}}}",
         rf"\newcommand{{\FinalVFivePublicationCounterRowReleased}}{{{'/'.join(str(v) for v in arms['row_budget']['released'])}}}",
         rf"\newcommand{{\FinalVFivePublicationCounterQueryReleased}}{{{'/'.join(str(v) for v in arms['query_budget']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedSetReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['set_ledger']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedRowReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['row_budget']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedQueryReleased}}{{{'/'.join(str(v) for v in arms['novelty_first']['query_budget']['released'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedSetAdmitted}}{{{arms['novelty_first']['set_ledger']['admitted']}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedRowAdmitted}}{{{arms['novelty_first']['row_budget']['admitted']}}}",
+        rf"\newcommand{{\FinalVFivePublicationPermutedQueryAdmitted}}{{{arms['novelty_first']['query_budget']['admitted']}}}",
     ])
     # Dependency-history scale: settlement against a pre-seeded ledger.
     scale = publication["scale"]
