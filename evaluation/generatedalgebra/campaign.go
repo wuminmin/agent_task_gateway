@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+
+	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 )
 
 // Fixtures returns random expenses/departments relations: departments is the
@@ -169,7 +171,7 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 			if !sameSet(keys(reference.Release), keys(production.Release)) || !sameSet(keys(reference.Influence), keys(production.Influence)) {
 				report.Mismatches++
 				if len(report.Failures) < 20 {
-					report.Failures = append(report.Failures, fmt.Sprintf("mismatch: reference R=%d D=%d production R=%d D=%d (%+v)", len(reference.Release), len(reference.Influence), len(production.Release), len(production.Influence), plan))
+					report.Failures = append(report.Failures, fmt.Sprintf("mismatch: reference R=%d D=%d production R=%d D=%d (%+v) diff=%s", len(reference.Release), len(reference.Influence), len(production.Release), len(production.Influence), plan, diffKeys(reference, production)))
 				}
 			}
 			// conservation on projection plans without page: split projection
@@ -225,4 +227,21 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 		}
 	}
 	return report
+}
+
+func diffKeys(reference, production Observation) string {
+	var out []string
+	for name, pair := range map[string][2]map[string]exposureoracle.Fact{"release": {reference.Release, production.Release}, "dependency": {reference.Influence, production.Influence}} {
+		for key, fact := range pair[0] {
+			if _, ok := pair[1][key]; !ok && len(out) < 4 {
+				out = append(out, fmt.Sprintf("%s reference-only kind=%s field=%s expr=%s value=%s witness=%.8s", name, fact.Kind, fact.Field, fact.NormalizedExpression, fact.CanonicalValue, fact.WitnessCommitment))
+			}
+		}
+		for key, fact := range pair[1] {
+			if _, ok := pair[0][key]; !ok && len(out) < 8 {
+				out = append(out, fmt.Sprintf("%s production-only kind=%s field=%s expr=%s value=%s witness=%.8s", name, fact.Kind, fact.Field, fact.NormalizedExpression, fact.CanonicalValue, fact.WitnessCommitment))
+			}
+		}
+	}
+	return fmt.Sprint(out)
 }

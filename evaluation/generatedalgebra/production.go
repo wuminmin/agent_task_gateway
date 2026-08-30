@@ -58,8 +58,12 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 	}
 	if len(plan.Predicates) > 0 {
 		predicateFields := make([]string, 0, len(plan.Predicates))
+		seen := map[string]bool{}
 		for _, predicate := range plan.Predicates {
-			predicateFields = append(predicateFields, predicate.Field)
+			if !seen[predicate.Field] {
+				seen[predicate.Field] = true
+				predicateFields = append(predicateFields, predicate.Field)
+			}
 		}
 		predicates := plan.Predicates
 		input, err = exposure.SelectV2(input, predicateFields, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
