@@ -65,7 +65,7 @@ func TestStageBVerificationSchemaMatchesEvidenceStructs(t *testing.T) {
 					"root_before_dependency_link", "root_after_dependency_link")
 			}
 			if propertyName == "provsql_verification" {
-				wantProperties = withoutStrings(wantProperties, "dependency_link")
+				wantProperties = withoutStrings(wantProperties, "dependency_link", "base_tuple_link")
 			}
 			gotProperties := sortedKeys(objectMap(t, strictSchema["properties"], propertyName+" properties"))
 			gotRequired := stringArray(t, strictSchema["required"], propertyName+" required")
