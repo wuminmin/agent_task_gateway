@@ -6,17 +6,16 @@
       "variant": "as-written",
       "directory": "evaluation/agentworkload/queries",
       "queries": 40,
-      "lowerable": 18,
+      "lowerable": 27,
       "by_reason": {
         "JOIN_TYPE_UNSUPPORTED/LEFT_JOIN_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": 4,
+        "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": 3,
         "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": 2,
-        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": 5,
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/HAVING_LITERAL_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 3,
-        "SQL_NOT_LOWERABLE/STAR_PROJECTION_UNSUPPORTED": 4
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 3
       },
       "results": [
         {
@@ -40,21 +39,13 @@
         {
           "query": "q04",
           "sql_sha256": "0c14276d012e669c85147c83953f903ae3f286817526f65e39357e5b5e5fc033",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "Aggregate \"avg\" is outside the reporting SQL profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
           "query": "q05",
           "sql_sha256": "1a9da3618ed812b0eeb0850070c2d8fde2b77df6db2fe601a1027e3c173897ce",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -94,29 +85,21 @@
           "sql_sha256": "28e5c4a1be56a2fa6b5f19efcfa1222ee46d4284617c4df90dd162363b2469bd",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "STAR_PROJECTION_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "SELECT * and relation.* are outside the lossless reporting profile.",
+          "reason": "FILTER_PREDICATE_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "This WHERE predicate is outside the closed reporting SQL profile.",
           "from_sources": 1
         },
         {
           "query": "q11",
           "sql_sha256": "11abc92a08388b890608dcabd52265b11c98718dc85a01efc964a09bd6b7f966",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_MODIFIER_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "DISTINCT, FILTER, ORDER BY, window, and variadic aggregate modifiers are outside this profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
           "query": "q12",
           "sql_sha256": "53fe669692e704fff163bb7332ac1e9c5c447f7c4a45d9824cf66f0f9e4e14e6",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -138,11 +121,7 @@
         {
           "query": "q15",
           "sql_sha256": "6a2aee637a3fd7ce227b6ec68a0a591454f453d452f728eb63b3738b25853b64",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -168,9 +147,9 @@
           "sql_sha256": "b21510b6c03dd4dc48c35841d68a5c98466d96543e397f1e05f13c709665cca5",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
+          "reason": "HAVING_LITERAL_UNSUPPORTED",
           "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "message": "a string, boolean, or numeric literal is required",
           "from_sources": 1
         },
         {
@@ -214,11 +193,7 @@
         {
           "query": "q25",
           "sql_sha256": "3a7dcc3c09e8ad61015e0acf72a66962a0d7ac934c73df5013172b7cd0c8e750",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -252,11 +227,7 @@
         {
           "query": "q30",
           "sql_sha256": "0be52f76a77d56970cab08716da9f811890d95bb7bfd53f0fc747acfd27e53d0",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "STAR_PROJECTION_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "SELECT * and relation.* are outside the lossless reporting profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -298,11 +269,7 @@
         {
           "query": "q35",
           "sql_sha256": "4d422ac7b96b5b28c8e2b2ea9110ebace7a2b7acd7e39bf7c12cda795c9a8910",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "STAR_PROJECTION_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "SELECT * and relation.* are outside the lossless reporting profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
@@ -314,11 +281,7 @@
         {
           "query": "q37",
           "sql_sha256": "920e0edddf8f27cb4045c9ee420ef8cce191d62a722a0a6b5982ec61bee13bed",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "STAR_PROJECTION_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "SELECT * and relation.* are outside the lossless reporting profile.",
+          "lowerable": true,
           "from_sources": 1
         },
         {

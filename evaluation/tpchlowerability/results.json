@@ -10,8 +10,7 @@
       "by_reason": {
         "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 2,
         "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": 13,
-        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": 14,
         "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": 5
       },
       "results": [
@@ -120,9 +119,9 @@
           "sql_sha256": "69867e5bd1800388187eef28afecfe4c3468dfab55366d221347c05198f19082",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
           "from_sources": 1
         },
         {
@@ -244,10 +243,10 @@
       "lowerable": 0,
       "by_reason": {
         "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 5,
-        "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/FROM_SHAPE_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": 5,
         "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 2,
         "SUBQUERY_UNSUPPORTED/SUBQUERY_UNSUPPORTED": 6
@@ -358,9 +357,9 @@
           "sql_sha256": "69867e5bd1800388187eef28afecfe4c3468dfab55366d221347c05198f19082",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "HAVING_UNSUPPORTED",
-          "clause": "HAVING",
-          "message": "HAVING predicates are outside this SQL profile.",
+          "reason": "FROM_SHAPE_UNSUPPORTED",
+          "clause": "FROM",
+          "message": "The reporting SQL profile requires exactly one table or connected explicit JOIN tree.",
           "from_sources": 1
         },
         {
@@ -408,9 +407,9 @@
           "sql_sha256": "ea24f9c01307f086a1b05d296f3642b33945d05cd2214786ce32dbdf52c4f3bd",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_MODIFIER_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "DISTINCT, FILTER, ORDER BY, window, and variadic aggregate modifiers are outside this profile.",
+          "reason": "BOOLEAN_OPERATOR_UNSUPPORTED",
+          "clause": "WHERE",
+          "message": "WHERE supports AND conjunctions only.",
           "from_sources": 1
         },
         {
