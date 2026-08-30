@@ -121,14 +121,11 @@ remain on the prior one through version routing or fail closed. BDG therefore
 addresses adaptive disclosure within one reporting epoch, not freshness or
 consistency over a changing database.
 
-Large enterprises also operate data lakes or warehouses, reporting marts, Data
-Catalogs, identity directories, and approval workflows. They organize data,
-describe governed Products, identify employees, and record decisions, but do
-not jointly turn one approved purpose into a machine-enforceable contract
-across an agent's queries, retries, pages, and delegated subtasks. Implementing
-that contract per agent--Product pair fragments the control surface. Models and
-runtimes may change; the database data-egress boundary should not live in each
-prompt or application.
+Large enterprises already operate lakes or warehouses, reporting marts, Data
+Catalogs, identity directories, and approval workflows, but none of them turns
+one approved purpose into a machine-enforceable contract across an agent's
+queries, retries, pages, and delegated subtasks; implementing that contract per
+agent--Product pair fragments the control surface.
 
 Marketplace-integrated agents now close the discovery-and-request half of
 this gap: Data Product MCP lets an agent find, request, and query governed
@@ -141,27 +138,18 @@ subtasks, and that system's own expert panel names not letting a language
 model make security decisions as an adoption barrier. BDG starts at that
 boundary.
 
-BDG is instead a brownfield-compatible data-egress layer at a governed serving
-tier materialized from a lake or warehouse. The reporting pipeline supplies
-immutable publications; the Catalog supplies Products, metadata, and candidate
-business keys; identity/workflow systems supply subject, organization, purpose,
-and approval; and object storage receives artifacts. BDG structurally validates
-and version-binds administrator-attested stable semantic identities, compiles
-these inputs into a signed task contract, and settles cumulative exposure under
-a shared logical Gate contract implemented by Catalog-bound, version-routed
-instances. At this
-model-independent database boundary, human-approved bounds delimit
-machine-enforced autonomy; the raw lake is not exposed directly to the agent.
+BDG is a brownfield-compatible data-egress layer at the governed serving tier:
+the reporting pipeline supplies immutable publications, the Catalog supplies
+Products and attested stable keys, identity and workflow systems supply
+subject, purpose, and approval, and BDG compiles these into a signed task
+contract and settles cumulative exposure at a model-independent database
+boundary; the raw lake is never exposed to the agent.
 
-This arrangement motivates a bonded-warehouse model. An immutable Reporting
-Publication is governed inventory: a signed Grant permits queries but does not
-clear an artifact to leave the trusted boundary. BDG releases only after scope
-validation, cumulative settlement, and verified \code{AVAILABLE} promotion.
-``Clearance'' is shorthand for that path, not legal or DFC compliance, and its
-exactness is profile-relative rather than epistemic. The analogy covers only
-declaration, settlement, and release. Formal terms remain \emph{Exposure
-Ledger} and \emph{settlement receipt}; the latter certifies settlement and a
-\code{PENDING} intent, not availability.
+The name is a bonded-warehouse analogy: a signed Grant permits queries, but an
+artifact leaves the trusted boundary only after scope validation, cumulative
+settlement, and verified \code{AVAILABLE} promotion. ``Clearance'' is
+shorthand for that path, not legal or DFC compliance; the formal terms remain
+\emph{Exposure Ledger} and \emph{settlement receipt}.
 
 \system budgets the root task in three set-valued dimensions. \emph{Accounted
 result exposure} identifies selected result values (wire label \emph{release});
@@ -1324,17 +1312,13 @@ bypass, colluding independent roots, and external-tool leakage are not. BDG
 enforces an approved organizational policy; it does not autonomously determine
 whether that policy is appropriate.
 
-\textbf{Governance responsibility.}
-Data owners decide business purpose and releasable scope; security and privacy teams define sensitive
-fields and prohibited combinations; IAM/HR and OA/BPM attest identity,
-organization, and approval chains. DBAs and data engineers validate tables,
-Views, stable keys, types, collations, and performance mappings; BDG validates
-structure, versions, and supported semantics, then compiles and enforces the
-signed contract; auditors reconcile approval, settlement, receipt, and
-AVAILABLE evidence. Thus DBAs validate database facts, owners decide
-permission, security defines boundaries, and BDG enforces the supported signed
-portion; broader flow policy remains a separate DFC or equivalent
-responsibility.
+\textbf{Governance responsibility.} Owners decide purpose and releasable
+scope, security teams define sensitive fields and prohibited combinations,
+IAM/HR and OA/BPM attest identity and approval, DBAs validate tables, Views,
+stable keys, types, and collations, and auditors reconcile approval,
+settlement, receipt, and AVAILABLE evidence; BDG validates structure and
+versions and enforces the supported signed portion, while broader flow policy
+remains a DFC responsibility.
 
 \section{Three-Layer Assurance}
 \label{sec:formal}
