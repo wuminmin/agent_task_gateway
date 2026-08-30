@@ -1156,8 +1156,7 @@ needs. $B_O$ bounds how many \emph{distinct} predicates a task may probe (a
 ladder \code{amount > t} is charged one atom and one composite per step),
 not what a probe reveals: a binary search on one hidden value fits within
 $B_O=128$; bounding how many probes run, not what a probe reveals, is the
-limit inference control identifies (Section~\ref{sec:related}), and
-Section~\ref{sec:attack-provsql} shows such a ladder refused at its ceiling. One sequence it does not block:
+limit inference control identifies (Section~\ref{sec:related}). One sequence it does not block:
 \code{SELECT id ... ORDER BY salary LIMIT k}, paged, reveals the salary
 ordering while charging no dependency on \code{salary}, because order-only
 fields are outside this profile (Section~\ref{sec:model}); charging sort keys
@@ -1325,52 +1324,43 @@ per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
 batched settlement could relax the bound, and multi-root throughput is not
-measured. Ledger growth is measured by the Scale profile, which settles one
-candidate of $10^4$, $10^5$, or \FinalVFivePublicationScaleMillionHistory{}
-Dependency Facts against a pre-seeded history of the same size at
-0--100\% overlap (\FinalVFivePublicationScaleCells{} cells,
-\FinalVFivePublicationScaleSamples{} samples; the independent oracle fixes
-each cell's candidate, history, and union cardinalities, and every sample's
-charge equals union minus history): settlement p50 grows from
+measured. Ledger growth: the Scale profile settles one candidate of $10^4$,
+$10^5$, or \FinalVFivePublicationScaleMillionHistory{} Dependency Facts
+against a pre-seeded history of the same size at 0--100\% overlap
+(\FinalVFivePublicationScaleCells{} cells,
+\FinalVFivePublicationScaleSamples{} samples, every charge equal to the
+independent oracle's union minus history); settlement p50 grows from
 \FinalVFivePublicationScaleSettleTenKMS{}~ms at $10^4$ to
 \FinalVFivePublicationScaleSettleMillionMS{}~ms against the
-\FinalVFivePublicationScaleMillionHistory{}-Fact history
-(\FinalVFivePublicationScaleSettleMillionFullOverlapMS{}~ms when the
-candidate is fully covered), within a
+\FinalVFivePublicationScaleMillionHistory{}-Fact history within a
 \FinalVFivePublicationScaleMillionDrainMS{}~ms response dominated by
-execute-and-derive; the supplement tabulates every cell.
+execute-and-derive (supplement table).
 
 \subsection{Adaptive Extraction and Provenance-Capture Cost}
 \label{sec:attack-provsql}
 
-\textbf{Adaptive extraction.} The campaign's attack profile replays a frozen,
+\textbf{Adaptive extraction.} The attack profile replays a frozen,
 digest-bound corpus (\FinalVFivePublicationAttackCorpusDigest{}) of
-\FinalVFivePublicationAttackSequences{} scripted sequences in which an agent
-tries to obtain governed Facts twice: a complete projection then three pages
-and an overlapping page, the pages then the complete query, four spellings of
-one predicate, a range split and its union, replays under the same and a
-fresh request id, and a ladder of count probes with delegation
-(\FinalVFivePublicationAttackSamples{} samples,
-\FinalVFivePublicationAttackPerCell{} per cell over three deployments, every
-sample of a cell recording the same per-step charge). Each decomposition was
-charged exactly its complete query's Facts
-once---\FinalVFivePublicationAttackPaginationReleaseFacts{} Result and
-\FinalVFivePublicationAttackPaginationDependencyFacts{} Dependency Facts for
-the six-step pagination sequence in either order, likewise for the
-split---each distinct page or range shape settled one Outcome composite,
+\FinalVFivePublicationAttackSequences{} scripted sequences that try to obtain
+governed Facts twice---complete query then pages and an overlapping page (and
+the reverse), four spellings of one predicate, a range split and its union,
+replays under the same and a fresh request id, and a count-probe ladder with
+delegation (\FinalVFivePublicationAttackSamples{} samples, identical per-step
+charges in every sample of a cell). Each decomposition was charged exactly
+its complete query's Facts once
+(\FinalVFivePublicationAttackPaginationReleaseFacts{}/\FinalVFivePublicationAttackPaginationDependencyFacts{}
+Result/Dependency Facts for the six-step pagination sequence in either
+order), each distinct page or range shape settled one Outcome composite,
 replays and rewrites charged nothing, and both set-operation variants failed
-closed (\texttt{SQL\_NOT\_LOWERABLE}; every step is in the supplement).
-The threshold ladder (supplement table) is Proposition~\ref{prop:probing-bound}
-in operation: two count probes, one from a delegated child, and a detail
-primer consume the root's Outcome ceiling of
-\FinalVFivePublicationAttackThresholdCeiling{}; the child's third probe is
-refused with \FinalVFivePublicationAttackThresholdRejectionCode{}, charging
-nothing and returning no count, so the agent learned
+closed. The ladder is Proposition~\ref{prop:probing-bound} in operation: two
+count probes, one from a delegated child, and a detail primer consume the
+root's Outcome ceiling of \FinalVFivePublicationAttackThresholdCeiling{}, and
+the child's third probe is refused with
+\FinalVFivePublicationAttackThresholdRejectionCode{}, so the agent learned
 \FinalVFivePublicationAttackThresholdAnswered{} of
 \FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
-bit, whereas the direct arm, with no cumulative state, answered all three.
-The corpus is preregistered, not a search over strategies, and the direct arm
-is its only comparison there; the trace below adds a per-query control.
+bit while the direct arm answered all three (every step is in the
+supplement). The corpus is preregistered, not a search over strategies.
 
 \textbf{Adaptive trace against per-query control.} The RLS profile replays
 one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
@@ -1401,7 +1391,7 @@ authorization, and what RLS cannot express is exactly ``at most
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.36\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.33\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
   legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
@@ -1426,30 +1416,26 @@ query whose prefix crosses a budget and releases nothing afterwards.}
 
 
 \textbf{Provenance-capture cost.} The ProvSQL profile pairs, on the same
-host, byte-identical grouped SQL---an orders--lineitem equijoin over the first
-1,000, 10,000, or 45,000 orders (five lines each), grouped by status into
-three rows and joined to one fresh provenance-tracked nonce row per execution
-so that every circuit is novel---on pinned PostgreSQL~16.14, on
-ProvSQL~1.11.0's complete typed drain (rewriting, aggregate-token and
-persistent circuit construction; no semiring evaluation), and on BDG's full
-governed path, \FinalVFivePublicationProvSQLPerCell{} samples per cell
-(supplement table). At 45k orders the medians are
-\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms for PostgreSQL,
-\FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s for ProvSQL, and
-\FinalVFivePublicationProvSQLFortyFiveKBDGS{}~s for BDG over
-\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{} Dependency Facts
-(1k: \FinalVFivePublicationProvSQLOneKPostgreSQLMS{}~ms,
-\FinalVFivePublicationProvSQLOneKProvSQLS{}~s,
-\FinalVFivePublicationProvSQLOneKBDGS{}~s): across the three scales, typed
-exact-set derivation plus settlement costs
+host, byte-identical grouped SQL (an orders--lineitem equijoin over the first
+1,000--45,000 orders, grouped into three rows, joined to a fresh
+provenance-tracked nonce row per execution so every circuit is novel) on
+pinned PostgreSQL~16.14, on ProvSQL~1.11.0's complete typed drain
+(rewriting, aggregate-token and persistent circuit construction; no semiring
+evaluation), and on BDG's full governed path
+(\FinalVFivePublicationProvSQLPerCell{} samples per cell; supplement table).
+At 45k orders the medians are
+\FinalVFivePublicationProvSQLFortyFiveKPostgreSQLMS{}~ms,
+\FinalVFivePublicationProvSQLFortyFiveKProvSQLS{}~s, and
+\FinalVFivePublicationProvSQLFortyFiveKBDGS{}~s over
+\FinalVFivePublicationProvSQLFortyFiveKDependencyFacts{} Dependency Facts;
+across the scales, typed exact-set derivation plus settlement costs
 \FinalVFivePublicationProvSQLOverBDGMin{}--\FinalVFivePublicationProvSQLOverBDGMax{}$\times$
-less than general circuit capture of the same queries and
+less than general circuit capture and
 \FinalVFivePublicationProvSQLBDGOverPostgreSQLMin{}--\FinalVFivePublicationProvSQLBDGOverPostgreSQLMax{}$\times$
-more than ungoverned execution. The boundary is asymmetric by construction:
-ProvSQL builds a reusable semiring circuit and does no accounting, BDG derives
-only the declared Facts and settles them, and neither figure includes the
-other's downstream use, so the comparison prices exactness against general
-capture rather than ranking the systems.
+more than ungoverned execution. The boundary is asymmetric by construction
+(ProvSQL builds a reusable circuit and does no accounting; BDG derives only
+the declared Facts and settles them), so the comparison prices exactness
+against general capture rather than ranking the systems.
 
 \subsection{Reproducibility Boundary}
 
