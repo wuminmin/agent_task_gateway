@@ -202,6 +202,12 @@ def _provsql_sample(scale: str, system: str, drain_ms: float) -> dict:
               "actual_dependency_facts": facts if system == "taskgate" else 0}
     if system == "provsql":
         sample["provsql_verification"] = {"boundary": PROVSQL_BOUNDARY}
+    if system == "taskgate":
+        sample["provsql_verification"] = {"boundary": "taskgate_released_parquet_v8", "dependency_link": {
+            "version": "taskgate-provsql-dependency-set-verification-v1", "match": True,
+            "expected_cardinality": facts, "observed_cardinality": facts,
+            "expected_semantic_set_sha256": "a" * 64, "observed_semantic_set_sha256": "a" * 64,
+            "expected_ordinals_missing": 0, "unexpected_actual_ordinals": 0}}
     return {"campaign_class": "publication", "record": SAMPLE_RECORD, "sample": sample}
 
 
@@ -289,7 +295,19 @@ def _scale_sample(size: str, overlap: str, mode: str, drain_ms: float) -> dict:
                        "pipeline_ms": {"control_settlement": drain_ms / 5, "execute_and_derive": drain_ms / 2, "server_total": drain_ms},
                        "scale_verification": {"boundary": SCALE_BOUNDARY, "expected_candidate_facts": facts, "observed_candidate_facts": facts,
                                               "expected_existing_facts": facts, "expected_union_facts": union,
-                                              "expected_outcome_member_cardinality": 5, "observed_outcome_member_cardinality": 5}}}
+                                              "expected_outcome_member_cardinality": 5, "observed_outcome_member_cardinality": 5,
+                                              **{role: _scale_link(card) for role, card in (
+                                                  ("history_dependency_link", facts), ("candidate_dependency_link", facts),
+                                                  ("root_before_dependency_link", facts if mode == "novel" else union),
+                                                  ("root_after_dependency_link", union))
+                                                 if mode == "novel" or role != "history_dependency_link"}}}}
+
+
+def _scale_link(cardinality: int) -> dict:
+    return {"version": "taskgate-scale-dependency-set-verification-v1", "match": True,
+            "expected_cardinality": cardinality, "observed_cardinality": cardinality,
+            "expected_semantic_set_sha256": "b" * 64, "observed_semantic_set_sha256": "b" * 64,
+            "expected_ordinals_missing": 0, "unexpected_actual_ordinals": 0}
 
 
 def _rq5_sample(cell: str, drain_ms: float) -> dict:

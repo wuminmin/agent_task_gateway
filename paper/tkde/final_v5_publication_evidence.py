@@ -98,6 +98,10 @@ RQ5_CELLS = ("daily-publication-v5/345000/build_verify_activate", "daily-publica
 PROVSQL_WORKLOAD = "nonce-join-group"
 PROVSQL_SCALES = ("1k", "10k", "45k")
 PROVSQL_SYSTEMS = ("postgresql", "provsql", "taskgate")
+SCALE_DEPENDENCY_LINK_VERSION = "taskgate-scale-dependency-set-verification-v1"
+SCALE_LINK_ROLES_REPLAY = ("candidate_dependency_link", "root_before_dependency_link", "root_after_dependency_link")
+SCALE_LINK_ROLES_NOVEL = ("history_dependency_link",) + SCALE_LINK_ROLES_REPLAY
+PROVSQL_DEPENDENCY_LINK_VERSION = "taskgate-provsql-dependency-set-verification-v1"
 PROVSQL_BOUNDARY = "provsql_complete_typed_drain"
 
 
@@ -459,6 +463,19 @@ def _provsql_stats(samples):
                 if len(facts) != 1:
                     raise PublicationEvidenceError(f"provsql cell {scale}/taskgate observed varying Fact sets {sorted(facts)}")
                 entry["release_facts"], entry["dependency_facts"] = facts.pop()
+                # Every BDG sample of the pair carries the independent
+                # semantic-set verification: the production Dependency set,
+                # resolved through the publication dictionaries, must equal the
+                # closed-form semantic oracle member by member.
+                for s in values:
+                    link = (s.get("provsql_verification") or {}).get("dependency_link") or {}
+                    if (link.get("version") != PROVSQL_DEPENDENCY_LINK_VERSION or link.get("match") is not True
+                            or link.get("expected_cardinality") != entry["dependency_facts"]
+                            or link.get("observed_cardinality") != entry["dependency_facts"]
+                            or link.get("expected_semantic_set_sha256") != link.get("observed_semantic_set_sha256")
+                            or link.get("expected_ordinals_missing") != 0 or link.get("unexpected_actual_ordinals") != 0):
+                        raise PublicationEvidenceError(f"provsql cell {scale}/taskgate lacks a matching independent dependency-set verification")
+                entry["dependency_links_verified"] = len(values)
         if len(rows) != 1:
             raise PublicationEvidenceError(f"provsql cell {scale} returned differing row counts {sorted(rows)} across systems")
         entry["rows"] = rows.pop()
@@ -470,6 +487,8 @@ def _provsql_stats(samples):
         "samples": len(samples),
         "samples_per_cell": samples_per_cell,
         "scales": result,
+        "dependency_links_verified": sum(v["dependency_links_verified"] for v in result.values()),
+        "dependency_link_max_cardinality": max(v["dependency_facts"] for v in result.values()),
         "provsql_over_taskgate_min": min(v["provsql_over_taskgate"] for v in result.values()),
         "provsql_over_taskgate_max": max(v["provsql_over_taskgate"] for v in result.values()),
         "taskgate_over_postgresql_min": min(v["taskgate_over_postgresql"] for v in result.values()),
@@ -705,6 +724,7 @@ def _scale_stats(samples):
     if set(by_cell) != expected:
         raise PublicationEvidenceError(f"scale publication evidence covers {len(by_cell)} cells, expected {len(expected)}")
     result = {}
+    links_verified, link_max = 0, 0
     for cell, values in by_cell.items():
         _, spec, mode = cell.split("/")
         size, overlap = spec.replace("dependency-e2e/", "").split("-overlap-")
@@ -720,6 +740,23 @@ def _scale_stats(samples):
             if sample["charged_dependency_facts"] != expected_charge:
                 raise PublicationEvidenceError(f"scale cell {cell} charged {sample['charged_dependency_facts']} Dependency Facts, oracle expects {expected_charge}")
             facts.add((verification["expected_candidate_facts"], verification["expected_existing_facts"], verification["expected_union_facts"]))
+            # Every committed set of the cell is linked member by member to the
+            # independent semantic oracle through the activated dictionaries:
+            # the candidate, the pre-seeded history (novel arm), and the root
+            # ledger before and after settlement.
+            roles = SCALE_LINK_ROLES_NOVEL if mode == "novel" else SCALE_LINK_ROLES_REPLAY
+            for role in roles:
+                link = verification.get(role) or {}
+                if (link.get("version") != SCALE_DEPENDENCY_LINK_VERSION or link.get("match") is not True
+                        or link.get("expected_cardinality") != link.get("observed_cardinality")
+                        or link.get("expected_cardinality", 0) <= 0
+                        or link.get("expected_semantic_set_sha256") != link.get("observed_semantic_set_sha256")
+                        or link.get("expected_ordinals_missing") != 0 or link.get("unexpected_actual_ordinals") != 0):
+                    raise PublicationEvidenceError(f"scale cell {cell} lacks a matching {role} semantic-set verification")
+            if verification["root_after_dependency_link"]["expected_cardinality"] != verification["expected_union_facts"]:
+                raise PublicationEvidenceError(f"scale cell {cell} root-after link cardinality differs from the oracle union")
+            links_verified += len(roles)
+            link_max = max(link_max, verification["root_after_dependency_link"]["expected_cardinality"])
         if len(facts) != 1:
             raise PublicationEvidenceError(f"scale cell {cell} mixes histories {sorted(facts)}")
         candidate, existing, union = facts.pop()
@@ -731,7 +768,8 @@ def _scale_stats(samples):
             "execute_p50_ms": _quantile([float(s["pipeline_ms"]["execute_and_derive"]) for s in values], 0.5),
             "drain_p50_ms": _quantile([float(s["client_full_drain_ms"]) for s in values], 0.5),
         }
-    return {"samples": len(samples), "cells": result}
+    return {"samples": len(samples), "cells": result,
+            "dependency_links_verified": links_verified, "dependency_link_max_cardinality": link_max}
 
 
 def _rq5_stats(samples):

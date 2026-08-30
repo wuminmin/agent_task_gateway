@@ -654,7 +654,7 @@ the main text cites and the source state of each line.
 
 \begin{table}[t]
 \centering
-\caption{Current source-backed evidence by research question: the counts the main text cites and the source state of each line (regenerated at the repository head, archived run, or sealed publication campaign).}
+\caption{Current source-backed evidence by research question: the counts the main text cites and the source state of each line (tracked results at the evidence commit and regenerable by the listed command, archived run, or sealed publication campaign).}
 \label{tab:current-evidence}
 \small
 \begin{tabular}{L{0.1\textwidth}L{0.82\textwidth}}
@@ -687,17 +687,17 @@ or commit binding disagrees.
 \toprule
 Numbers & Commit & Retained file(s) & Regeneration \\
 \midrule
-RQ1--RQ3 (Table 2) & repository head & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
+RQ1--RQ3 (Table 2) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/exposure/results.json}, \filepath{corpus.json} (digest \ExposureCorpusHash{}) & \code{make eval-exposure} \\
 RQ4 archived ordinal/bitmap & recorded in \filepath{evidence/} \filepath{legacy-rq4-source.json} under the results directory & \filepath{evaluation/exposure-performance/results.json}, \filepath{path_analysis.json} & \code{make eval-exposure-} \code{performance}, \code{-scale}, \code{-storage} \\
-RQ5 publication and routing & repository head & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
-V5 outcome-set regressions & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
+RQ5 publication and routing & tracked at \EvidenceChainCommit{} & \filepath{evaluation/daily-publication/evidence/}, \filepath{daily-publication-online/evidence/} & \code{make eval-daily-publication}, \code{-online} \\
+V5 outcome-set regressions and randomized root-family sequences & \VFiveImplementationCommit{} & \filepath{evaluation/v5-outcome/evidence.json}, \filepath{raw/go-test.jsonl}, \filepath{compose-receipt.json} & \code{scripts/} \code{record-compose-e2e.sh} \\
 Publication campaign (Tables 2--3, IX, XI--XIII) & \FinalVFivePublicationCommit{} & \filepath{evaluation/final-v5-wsl2/publication-evidence-v1.json} $\to$ \filepath{campaign-evidence.json}, \filepath{deployments/*/raw/*.jsonl} & \filepath{scripts/run-profile-campaign.sh}; macros: \code{make paper-evidence} \\
 Attack corpus, adaptive trace, Scale, ProvSQL pairing, RQ5 cells (Sections~\ref{sec:attack-publication-supp}--\ref{sec:scale-publication-supp}) & \FinalVFivePublicationCommit{} & the same campaign's \filepath{deployments/*/raw/*.jsonl} plus \filepath{evaluation/finalv5attack/corpus-v1.json} (digest \FinalVFivePublicationAttackCorpusDigest{}) & \code{make paper-evidence} \\
 Sub-phase pilot (Section~\ref{sec:subphase-pilot-supp}) & a9a0d9362c2b & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ \filepath{raw/subphase-pilot-06} & pilot; not publication evidence \\
 Retained pilot (Table VIII) & \FinalVFivePilotArtifactCommit{} & \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json} $\to$ pilot run directories & not publication evidence \\
-Generated-plan campaign (Section~\ref{sec:generated-supp}) & repository head & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
-TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & repository head & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
-TLC (Table VI) & repository head & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
+Generated-plan campaign (Section~\ref{sec:generated-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/generatedalgebra/results.json} (digest \GeneratedResultsDigest{}) & \code{make eval-generated-algebra} \\
+TPC-H lowerability (Section~\ref{sec:tpch-lowerability-supp}) & tracked at \EvidenceChainCommit{} & \filepath{evaluation/tpchlowerability/results.json} (digest \TPCHResultsDigest{}) & \code{make eval-tpch-lowerability} \\
+TLC (Table VI) & tracked at \EvidenceChainCommit{} & \filepath{formal/results/*.json}, \filepath{*.log} & \code{make formal} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1411,7 +1411,14 @@ Sequence & \# & Step & Task & Result & Actual $R$/$D$/$O$ & Charged $R$/$D$/$O$ 
 \label{sec:provsql-publication-supp}
 
 The ProvSQL profile of the same campaign pairs three real systems on the same
-host and byte-identical SQL: PostgreSQL~16.14 from a digest-pinned image,
+host and byte-identical SQL (every BDG sample's committed Dependency set is
+also linked member by member to the independent oracle's closed-form
+semantic set for that scale and nonce, as in the Scale profile:
+\FinalVFivePublicationProvSQLDependencyLinksVerified{} verifications, up to
+\FinalVFivePublicationProvSQLDependencyLinkMaxFacts{} Facts, none with a
+missing or extra ordinal; ProvSQL's own circuit is drained to its
+per-output-row roots and root types, not expanded to base tuples, so the
+pairing is a cost reference, not a provenance cross-check): PostgreSQL~16.14 from a digest-pinned image,
 ProvSQL~1.11.0 built on that exact base image, and BDG's public
 \code{query_sql} path with settlement, receipt, and AVAILABLE delivery. The
 query is the orders--lineitem equijoin over the first 1,000, 10,000, or 45,000
@@ -1542,6 +1549,20 @@ between candidate and history, in a novel arm and a semantic-replay arm
 each cell's candidate, history, and union cardinalities; every sample's
 observed candidate and Outcome cardinalities equal the oracle's and its
 charged Dependency Facts equal union minus history (zero on replay).
+Beyond cardinalities, the campaign finalizer links each committed set to the
+oracle member by member: it reads the production Dependency set named by the
+receipt's digest from the Control database, resolves it through the
+activated publication's dictionary closure, and streams the oracle's
+canonical facts for the same role (candidate, pre-seeded history, root ledger
+before and after settlement), reporting missing and unexpected ordinals;
+every one of the \FinalVFivePublicationScaleDependencyLinksVerified{} links
+in the \FinalVFivePublicationScaleSamples{} samples matched with zero of
+either, the largest set holding
+\FinalVFivePublicationScaleDependencyLinkMaxFacts{} Facts (root ledger after
+settlement at the largest history and zero overlap). The oracle package
+imports no production code; the dictionaries it resolves through are the
+production publication's, so the link is independent at the semantic-member
+level, not a second dictionary build.
 Table~\ref{tab:scale-publication} reports medians. Settlement time grows
 with the history and shrinks slightly with overlap (fewer new ordinals to
 persist); execute-and-derive, which streams and encodes the candidate,

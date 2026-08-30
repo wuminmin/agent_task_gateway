@@ -1205,14 +1205,18 @@ RQ1's oracle (\RQOnePassed{}/\RQOneCases{} cases) is a separate
 implementation over \RQOneRows{} rows that imports no production policy
 code; the campaign's oracle package is likewise an independent
 re-implementation of the FactID wire contract whose import boundary excludes
-every production package (enforced by a dependency test) and fixes the
+every production package (enforced by a dependency test), fixes the
 expected Fact cardinalities of all
 \FinalVFivePublicationIndependentOracleSamples{} Scale and trace samples,
-whereas the \RQFourVFourOracleFacts{}-Fact RQ4 check (\RQFourVFourReleaseFacts{} Release, \RQFourVFourInfluenceFacts{}
-Dependency, \RQFourVFourOutcomeFacts{} Outcome; \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{}
-gates), measured on the archived V4 code state at its recorded source hash
-with one index build, re-derives every hash, payload, and witness offline but
-shares the FactID encoder, so it is only derivation-independent. RQ1--RQ3
+and is linked member by member, through the activated publication
+dictionaries, to every committed Dependency set of the Scale and ProvSQL
+cells (\FinalVFivePublicationScaleDependencyLinksVerified{} and
+\FinalVFivePublicationProvSQLDependencyLinksVerified{} set verifications,
+none with a missing or extra ordinal, up to
+\FinalVFivePublicationScaleDependencyLinkMaxFacts{} Facts per set), whereas
+the archived \RQFourVFourOracleFacts{}-Fact RQ4 check
+(\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates, one index build)
+shares the FactID encoder and is only derivation-independent. RQ1--RQ3
 and RQ5 are regenerated at the submission commit; the campaign is sealed at
 \FinalVFivePublicationCommit{}. RQ2
 (\RQTwoExposureCases{} cases, \RQTwoExposureMismatches{} mismatches)

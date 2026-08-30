@@ -767,6 +767,16 @@ def validate_formal(path: Path, label: str) -> dict:
     return result
 
 
+def evidence_chain_commit(v5_outcome: dict) -> str:
+    """Short commit the v5-outcome evidence was recorded at (schema 3), the
+    commit the supplement's tracked, regenerable lines are pinned to. It is read
+    from the committed evidence rather than from HEAD so that the committed
+    evidence.tex stays byte-equal to a regeneration at the same tree."""
+    commit = v5_outcome.get("submission_commit") or v5_outcome["implementation_base_commit"]
+    require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None, "evidence chain commit is not a full SHA-1")
+    return commit[:12]
+
+
 def v5_source_manifest_digest(files: list[dict[str, str]]) -> str:
     canonical = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
@@ -1445,6 +1455,7 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\ArtifactFormalStates}}{{{comma(artifact_formal['states_generated'])}}}",
         rf"\newcommand{{\ArtifactFormalDistinct}}{{{comma(artifact_formal['distinct_states'])}}}",
         rf"\newcommand{{\ArtifactFormalDepth}}{{{artifact_formal['search_depth']}}}",
+        rf"\newcommand{{\EvidenceChainCommit}}{{\texttt{{{evidence_chain_commit(v5_outcome)}}}}}",
         rf"\newcommand{{\VFiveImplementationCommit}}{{\texttt{{{v5_outcome['implementation_base_commit']}}}}}",
         rf"\newcommand{{\VFiveImplementationSourceHash}}{{\nolinkurl{{{v5_outcome['source_manifest']['sha256']}}}}}",
         rf"\newcommand{{\VFiveRawLogHash}}{{\nolinkurl{{{v5_outcome['raw_execution']['raw_log_sha256']}}}}}",
@@ -1767,6 +1778,8 @@ def main(argv: list[str] | None = None) -> None:
     lines.extend([
         rf"\newcommand{{\FinalVFivePublicationProvSQLSamples}}{{{comma(provsql['samples'])}}}",
         rf"\newcommand{{\FinalVFivePublicationProvSQLPerCell}}{{{provsql['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLDependencyLinksVerified}}{{{comma(provsql['dependency_links_verified'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationProvSQLDependencyLinkMaxFacts}}{{{comma(provsql['dependency_link_max_cardinality'])}}}",
         rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMin}}{{{comma(int(round(provsql['provsql_over_taskgate_min'])))}}}",
         rf"\newcommand{{\FinalVFivePublicationProvSQLOverBDGMax}}{{{comma(int(round(provsql['provsql_over_taskgate_max'])))}}}",
         rf"\newcommand{{\FinalVFivePublicationProvSQLBDGOverPostgreSQLMin}}{{{comma(int(round(provsql['taskgate_over_postgresql_min'])))}}}",
@@ -1917,6 +1930,8 @@ def main(argv: list[str] | None = None) -> None:
     large_full = scale["cells"]["dependency-e2e/1035000-overlap-100/novel"]
     lines.extend([
         rf"\newcommand{{\FinalVFivePublicationScaleSamples}}{{{comma(scale['samples'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleDependencyLinksVerified}}{{{comma(scale['dependency_links_verified'])}}}",
+        rf"\newcommand{{\FinalVFivePublicationScaleDependencyLinkMaxFacts}}{{{comma(scale['dependency_link_max_cardinality'])}}}",
         rf"\newcommand{{\FinalVFivePublicationScaleCells}}{{{len(scale['cells'])}}}",
         rf"\newcommand{{\FinalVFivePublicationScaleSettleTenKMS}}{{{decimal(small['settlement_p50_ms'], 0)}}}",
         rf"\newcommand{{\FinalVFivePublicationScaleSettleMillionMS}}{{{decimal(large['settlement_p50_ms'], 0)}}}",
