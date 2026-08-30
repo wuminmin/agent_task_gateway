@@ -850,7 +850,7 @@ the exposure observation rather than checking result equality alone.}
 Operator & Formal semantics & Independent oracle & Online lowering & PG E2E exposure check \\
 \midrule
 Scan/Select/Project & yes & yes & one Catalog product & paired output/evidence and hidden keys \\
-Group + four aggregates & yes & yes & above either online input & hidden group key and aggregate membership \\
+Group + aggregates + HAVING & yes & yes & above either online input & hidden group key and aggregate membership \\
 Inner equijoin & yes & yes & connected graph of 2--16 distinct Catalog roles; one or more typed equalities per edge; canonical fold & representative two-source operand exchange, fanout, downstream SUM \\
 Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
 Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
@@ -1930,8 +1930,13 @@ with text, numeric, and bigint fields and occasional NULLs, and a
 selections with one or two three-valued conjuncts (equality and
 inequality on text and numeric fields), projections, the
 departments--expenses equijoin, grouped aggregates (\code{count(*)},
-\code{sum}, \code{min}, \code{max}, with the group key visible or hidden),
-global aggregates, and pages over the canonical order. Each plan is
+\code{count(distinct)}, \code{sum}, \code{min}, \code{max}, exact
+\code{avg}, with the group key visible or hidden, optionally under a
+\code{HAVING} predicate on an aggregate output), global aggregates, and
+pages over the canonical order. As in the Gateway, the production
+evaluation restricts a grouped plan's input to the rows of its returned
+groups before annotating, and the reference witnesses each group row's key
+cell accordingly. Each plan is
 evaluated by the production V2 algebra (\code{internal/exposure}) and by a
 reference evaluator written from the operator rules of
 the Complete Inference Rules section in the semantic-fact vocabulary of the RQ1
@@ -1962,8 +1967,7 @@ the 22 TPC-H query templates (validation substitution parameters, hand
 transcribed; TPC-derived, not an official run) were lowered through the
 production \code{internal/sqllowering} package against a synthetic eight-table
 Catalog exposing every TPC-H column with \code{count}, \code{sum}, \code{min},
-and \code{max} approved---the lowerer admits no other aggregate
-(\code{AGGREGATE_UNSUPPORTED}), so \code{AVG} is not in the fragment
+\code{max}, and \code{avg} approved
 (\filepath{evaluation/tpchlowerability},
 results digest \TPCHResultsDigest{}). As written,
 \TPCHLowerableAsWritten{} of \TPCHQueries{} lower; \TPCHCommaJoinQueries{}
@@ -1974,8 +1978,9 @@ Table~\ref{tab:tpch-lowerability} lists the first semantic rejection per
 query. The lowerer stops at the first rejection, so each row names the first
 construct met, not every unsupported one. The result is a boundary statement,
 not a deficiency the paper claims to close: the fragment serves governed
-reporting Products, and TPC-H's subqueries, arithmetic inside aggregates,
-multi-product pagination, HAVING, and COUNT(DISTINCT) are outside it.
+reporting Products, and TPC-H's subqueries, arithmetic inside aggregates
+and projections, non-literal comparisons, and multi-product pagination are
+outside it.
 
 \begin{table}[t]
 \centering
@@ -1999,7 +2004,7 @@ The same procedure was applied to a reporting/BI workload: the
 \SSBQueries{} Star Schema Benchmark queries (Q1.1--Q4.3, hand transcribed;
 SSB-derived, not an official run) against a synthetic five-table star
 Catalog (\code{lineorder}, \code{customer}, \code{supplier}, \code{part},
-\code{dwdate}) exposing every column with the four admitted aggregates
+\code{dwdate}) exposing every column with the admitted aggregates
 (\filepath{evaluation/ssblowerability}, results digest \SSBResultsDigest{}).
 As written, \SSBLowerableAsWritten{} of \SSBQueries{} lower
 (\SSBCommaJoinQueries{} stop at the comma-join FROM shape); after explicit
@@ -2047,12 +2052,22 @@ statements were lowered unedited through the production lowerer
 \AgentWorkloadLowerable{} of \AgentWorkloadQueries{}
 (\AgentWorkloadLowerablePct\%) lower as written, including grouped
 aggregates, two-source equijoins, and multi-column filters.
-Table~\ref{tab:agent-workload} names the first rejection of the others;
-\code{HAVING} (\AgentWorkloadHavingQueries{}), \code{SELECT *}
-(\AgentWorkloadStarQueries{}), \code{AVG} or a scalar function such as
-\code{to_char} in the projection (\AgentWorkloadFunctionQueries{}), and
-arithmetic in the projection (\AgentWorkloadArithmeticQueries{}) account for
-most. Table~\ref{tab:constructs-supp} classifies the rejected constructs:
+Table~\ref{tab:agent-workload} names the first rejection of the others:
+a scalar function such as \code{to_char} in the projection
+(\AgentWorkloadFunctionQueries{}), arithmetic in the projection
+(\AgentWorkloadArithmeticQueries{}), a comparison whose right-hand side is
+a column, an expression, or a scalar subquery rather than a literal
+(\AgentWorkloadLiteralQueries{}), a \code{BETWEEN}/\code{LIKE} predicate
+(\AgentWorkloadPredicateQueries{}), an \code{OR} disjunction
+(\AgentWorkloadDisjunctionQueries{}), a \code{LEFT JOIN}
+(\AgentWorkloadOuterJoinQueries{}), and \code{LIMIT} over a join
+(\AgentWorkloadPaginationQueries{}). \code{HAVING}, \code{SELECT *},
+exact-numeric \code{AVG}, and \code{COUNT(DISTINCT)} were rejected by the
+first pass of this study; their Dependency rules already existed (Select's
+above the group, the Product's column list, SUM/COUNT's argument column) and
+the lowerer, compiler, algebra, and oracle now admit them, which is where
+the \AgentWorkloadLowerable{} of \AgentWorkloadQueries{} stands.
+Table~\ref{tab:constructs-supp} classifies the constructs still rejected:
 those whose Dependency rule already exists in the fragment (engineering
 gaps) and those that would need a new rule (fundamental to the accounting).
 The questions were written by the authors; the SQL was not; no rewrite loop
@@ -2069,12 +2084,9 @@ Dependency rule applies) or needs a new rule.}
 \toprule
 Construct & Class & Dependency rule \\
 \midrule
-\code{HAVING} & engineering & post-group Select over group rows; same footprint as Select \\
-\code{SELECT *} & engineering & the Product's column list; Release facts per column \\
-\code{AVG} (exact numeric) & engineering & argument column, as SUM/COUNT; floating types excluded by canonicalization \\
-\code{COUNT(DISTINCT)} & engineering & argument column, as COUNT \\
 scalar functions in projections & engineering (per function) & the argument columns; only attested deterministic functions \\
 arithmetic in projections/aggregates & new rule & derived cells: Release identity of an expression over several columns \\
+comparison to a column, expression, or subquery & new rule & two-cell predicate atoms; a scalar subquery is a nested effect \\
 \code{OR} in \code{WHERE} & new rule & disjunctive witnesses: predicate-cell facts per satisfied disjunct \\
 \code{BETWEEN} over text & new rule & collation-dependent range atoms \\
 outer joins & new rule & null-extended rows have no matching witness \\

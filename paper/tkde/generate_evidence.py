@@ -2049,13 +2049,15 @@ def main(argv: list[str] | None = None) -> None:
     agent_labels = {
         "SQL_NOT_LOWERABLE/HAVING_UNSUPPORTED": "HAVING",
         "SQL_NOT_LOWERABLE/STAR_PROJECTION_UNSUPPORTED": "SELECT *",
-        "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": "AVG or a scalar function in the projection",
+        "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": "scalar function in the projection or aggregate",
         "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": "arithmetic in the projection",
         "SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED": "non-literal comparison (column or subquery)",
         "JOIN_TYPE_UNSUPPORTED/LEFT_JOIN_UNSUPPORTED": "LEFT JOIN",
         "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": "OR disjunction in WHERE",
         "SQL_NOT_LOWERABLE/AGGREGATE_MODIFIER_UNSUPPORTED": "COUNT(DISTINCT)",
         "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": "LIMIT over a multi-product join",
+        "SQL_NOT_LOWERABLE/HAVING_LITERAL_UNSUPPORTED": "HAVING compared to an expression",
+        "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": "BETWEEN / LIKE predicate",
     }
     agent_rows = []
     for key, count in sorted(agent_pass["by_reason"].items(), key=lambda kv: (-kv[1], kv[0])):
@@ -2069,6 +2071,11 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\AgentWorkloadStarQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/STAR_PROJECTION_UNSUPPORTED', 0)}}}",
         rf"\newcommand{{\AgentWorkloadFunctionQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED', 0)}}}",
         rf"\newcommand{{\AgentWorkloadArithmeticQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadLiteralQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/FILTER_LITERAL_UNSUPPORTED', 0) + agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/HAVING_LITERAL_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadPredicateQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadDisjunctionQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadOuterJoinQueries}}{{{agent_pass['by_reason'].get('JOIN_TYPE_UNSUPPORTED/LEFT_JOIN_UNSUPPORTED', 0)}}}",
+        rf"\newcommand{{\AgentWorkloadPaginationQueries}}{{{agent_pass['by_reason'].get('SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED', 0)}}}",
         rf"\newcommand{{\AgentWorkloadResultsDigest}}{{\texttt{{{hashlib.sha256(agent_path.read_bytes()).hexdigest()[:12]}}}}}",
         r"\newcommand{\AgentWorkloadReasonTableBody}{%" + "\n" + "\n".join(agent_rows) + "%\n}",
     ])
