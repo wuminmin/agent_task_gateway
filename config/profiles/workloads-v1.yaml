@@ -82,6 +82,26 @@ experiments:
       scales: [1e5-rows]
       modes: [bounded]
       products: [final_v5_footprint_bounded_result_heavy]
+  # The benign agent trace (docs/p8 c3) runs the 27 unedited lowerable
+  # statements over the five shared trace Products. Budget profiles bind by
+  # exact-set approval routing carried only in the profile Catalogs, so each
+  # arm requests a distinct set: the x2/x4 arms add decoy products that are
+  # approved but never queried.
+  benign:
+    - workload_id: benign-agent-trace-v1
+      scales: [27-statements]
+      modes: [recipe]
+      products: [expense_detail, expense_summary, provsql_orders, provsql_lineitem, final_v5_result_heavy]
+    - workload_id: benign-agent-trace-v1
+      scales: [27-statements]
+      modes: [x2]
+      products: [expense_detail, expense_summary, provsql_orders, provsql_lineitem, final_v5_result_heavy,
+                 provsql_nonce]
+    - workload_id: benign-agent-trace-v1
+      scales: [27-statements]
+      modes: [x4]
+      products: [expense_detail, expense_summary, provsql_orders, provsql_lineitem, final_v5_result_heavy,
+                 provsql_nonce, final_v5_attack_expense_detail]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders
