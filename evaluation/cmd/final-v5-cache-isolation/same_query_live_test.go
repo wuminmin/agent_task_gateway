@@ -48,7 +48,7 @@ func installSingleOverlap(t *testing.T, fixture *commandFixture) sameQueryLiveDo
 	fixture.route.ProfileRegistrySHA256 = registryDigest
 	fixture.route.ProductIntersectionMatrixSHA256 = intersectionDigest
 	fixture.route.Probes = nil
-	products := []string{"product_a", "product_c"}
+	products := []string{"provsql_orders", "product_c"}
 	for _, profile := range fixture.registry.Profiles {
 		inside := stringSet(profile.Closure.Products)
 		for _, product := range products {
