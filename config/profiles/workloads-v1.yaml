@@ -70,6 +70,18 @@ experiments:
       scales: [single]
       modes: [build, retained]
       products: [expense_detail]
+  # The refused-footprint ladder is a dormant source-controlled extension
+  # experiment (docs/p8): each arm requests exactly one immutable ladder
+  # Product over the deterministic result relation.
+  footprint:
+    - workload_id: refused-footprint-ladder-v1
+      scales: [1e5-rows]
+      modes: [unlimited]
+      products: [final_v5_footprint_unlimited_result_heavy]
+    - workload_id: refused-footprint-ladder-v1
+      scales: [1e5-rows]
+      modes: [bounded]
+      products: [final_v5_footprint_bounded_result_heavy]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders
