@@ -74,4 +74,10 @@
 - 2026-08-31 08:00 CST：链 #8c 全绿, v1.12 树四道门禁(DB 套件/全量 evaluation/链/终检)收口(台账 P8-C2-CHAIN8)。
   链 #8 的三次尝试暴露并修复两类流程缺陷：E1 装置无指纹 reuse 硬钉、冻结引导撤销未成对恢复(P8-C2-CHAIN8A/8B)。
   当前进行：slice b(阶梯 adapter runner + 校验器语料分支, 休眠)。
+- slice b 设计修订（2026-08-31 08:20，改口给根因：此前判「沿用 rls」时未见 sample-v3 的 experiment 条件块与语料钉死的全貌）：
+  阶梯改为**独立 experiment id `footprint`**——RLS 信封的必填字段是策略形状（policies/roles JSON），复用等于伪造策略证据；
+  schema 按 experiment 绑定信封，塞 workload 条件比新开 experiment 手术面更大；且契约明文允许 required 九项之外的
+  source-controlled 扩展 experiment（types.go:131 default 分支），试点可跑，发表级纳入属作者范围。
+  新面：FootprintVerificationEvidence + sample-v3 条件块 + finalv5footprint 语料绑定 + adapter footprint.go + validator + 
+  launcher 映射/example 配置/workloads 声明（slice c）。
 
