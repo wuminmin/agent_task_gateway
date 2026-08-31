@@ -13,7 +13,10 @@ import (
 
 func installSingleOverlap(t *testing.T, fixture *commandFixture) sameQueryLiveDocument {
 	t.Helper()
-	fixture.registry.Profiles[1].Closure.Products = []string{"product_a"}
+	// The single overlap models the frozen test's real domain: both profiles
+	// share provsql_orders and neither publishes expense_detail.
+	fixture.registry.Profiles[0].Closure.Products = []string{"provsql_orders"}
+	fixture.registry.Profiles[1].Closure.Products = []string{"provsql_orders"}
 	registryBytes := writeJSONFixture(t, fixture.root, fixture.opts.registryPath, fixture.registry)
 	registryDigest := digestBytes(registryBytes)
 
@@ -29,9 +32,11 @@ func installSingleOverlap(t *testing.T, fixture *commandFixture) sameQueryLiveDo
 				LeftProducts:  append([]string(nil), leftProfile.Closure.Products...),
 				RightProducts: append([]string(nil), rightProfile.Closure.Products...),
 				Intersection:  shared, IntersectionCount: len(shared),
-				SameQueryLiveTestApplicable: len(shared) > 0,
+				SameQueryLiveTestApplicable: finalv5profile.SameQueryLiveTestApplicable(
+					leftProfile.Closure.Products, rightProfile.Closure.Products, shared),
 			})
-			if len(shared) > 0 {
+			if finalv5profile.SameQueryLiveTestApplicable(
+				leftProfile.Closure.Products, rightProfile.Closure.Products, shared) {
 				fixture.intersection.OverlappingPairCount++
 			}
 		}
@@ -74,7 +79,7 @@ func installSingleOverlap(t *testing.T, fixture *commandFixture) sameQueryLiveDo
 		Pairs: []sameQueryLivePair{{
 			LeftProfileID: left.ProfileID, RightProfileID: right.ProfileID,
 			LeftAlias: left.Alias, RightAlias: right.Alias,
-			SharedProducts: []string{"product_a"}, SelectedProduct: "product_a",
+			SharedProducts: []string{"provsql_orders"}, SelectedProduct: "provsql_orders",
 			QuerySHA256: strings.Repeat("4", 64), LeftCatalogSHA256: left.CatalogSHA256,
 			RightCatalogSHA256: right.CatalogSHA256, FirstCacheKeySHA256: digestA,
 			SecondCacheKeySHA256: digestB, FirstSQLFingerprintSHA256: strings.Repeat("5", 64),
