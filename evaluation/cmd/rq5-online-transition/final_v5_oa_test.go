@@ -106,8 +106,20 @@ func TestFinalV5OAWorkflowUsesRealLoginSubmitDecisionAndSignedCallbacks(t *testi
 		}
 		mu.Unlock()
 		if complete {
-			if first.Status != "submitted" || second.Status != "approved" || second.ApprovalReceipt == nil ||
-				second.ApprovalReceipt.Signature == "" {
+			// The OA demo dispatches each callback in its own goroutine with
+			// independent retries (internal/oademo/server.go dispatch), so
+			// delivery order is deliberately unguaranteed; classify by status.
+			var submitted, approved *observedCallback
+			for _, callback := range []*observedCallback{&first, &second} {
+				switch callback.Status {
+				case "submitted":
+					submitted = callback
+				case "approved":
+					approved = callback
+				}
+			}
+			if submitted == nil || approved == nil || approved.ApprovalReceipt == nil ||
+				approved.ApprovalReceipt.Signature == "" {
 				t.Fatalf("unexpected real OA callbacks: %#v %#v", first, second)
 			}
 			break
