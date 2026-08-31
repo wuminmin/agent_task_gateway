@@ -45,7 +45,9 @@ type BuildInput struct {
 // a-priori footprints from the closed-form dataset models.
 func BuildManifest(input BuildInput) (Manifest, error) {
 	manifest := Manifest{SchemaVersion: SchemaVersion, CorpusID: CorpusID,
-		WorkloadID: TraceWorkloadID, SourceDirectory: input.AgentWorkloadDir}
+		// The recorded directory is the repo-relative identity of the unedited
+		// statement set, independent of the caller's working directory.
+		WorkloadID: TraceWorkloadID, SourceDirectory: "evaluation/agentworkload"}
 	reportBytes, err := os.ReadFile(filepath.Join(input.AgentWorkloadDir, "results.json"))
 	if err != nil {
 		return Manifest{}, err
