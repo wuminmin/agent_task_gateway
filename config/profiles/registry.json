@@ -439,7 +439,7 @@
       "experiments": [
         "footprint"
       ],
-      "catalog_sha256": "3a0d77eb01b1ee5da7afc96c4394d072ef56f713a0ca92a846044b88fedec1f2",
+      "catalog_sha256": "4774967311cc4b4efa18c7d01333e37f03dfac86df3c4e602ddf5d350f5b6c1a",
       "catalog_path": "config/profiles/footprint-unlimited.catalog.yaml",
       "hot_artifacts": [
         {
@@ -830,7 +830,7 @@
       "experiments": [
         "footprint"
       ],
-      "catalog_sha256": "0bf304c0bb7a679d052e25f0808ff6d7734079ff54f8f0f73d46760417eeefdf",
+      "catalog_sha256": "41db95bb01f447eb8c33177e94907ad738943eec245dee7759d67728b272b66e",
       "catalog_path": "config/profiles/footprint-bounded.catalog.yaml",
       "hot_artifacts": [
         {

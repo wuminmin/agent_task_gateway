@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "attestation_version": "taskgate-final-v5-profile-schema-attestation-v1",
-  "contract_release": "final-v5-contracts-v1.10",
+  "contract_release": "final-v5-contracts-v1.12",
   "source": "travel_demo",
   "postgres_major_version": 16,
-  "generated_at": "2026-08-16T16:19:32Z",
+  "generated_at": "2026-08-31T14:58:43Z",
   "profiles": [
     {
       "profile_id": "profile-00bc8f7d5633f596",
@@ -98,6 +98,21 @@
       "generated_from_fresh_deployment": true
     },
     {
+      "profile_id": "profile-52504d68e0f7fa28",
+      "profile_alias": "footprint-unlimited",
+      "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "7f12d3cb195e9c39c3216fa23f6db6087140a168fa6e80e693e52018b1bb2499",
+      "reporting_view_set_sha256": "58816f0fbb77b59520c8d703ae1903a6c24a6547d6b508a412aa3a56507f6303",
+      "reporting_views": [
+        "reporting.final_v5_footprint_unlimited_result_heavy"
+      ],
+      "schema_digest": "87a6d770b6a95fd9f7e41a6a6bc741d3c7ba42973e47e20050210c4803abf861",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
       "profile_id": "profile-5b48ad2a02c5446d",
       "profile_alias": "analytics-orders-lineitem",
       "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
@@ -157,6 +172,21 @@
         "reporting.final_v5_result_heavy"
       ],
       "schema_digest": "ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-ac3d38a970ae15e6",
+      "profile_alias": "footprint-bounded",
+      "closure_sha256": "ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "76805c5087f1060cdb345dbadfdb9e6fd4e53fff905d2f1b7902ddaea6fc91bf",
+      "reporting_view_set_sha256": "8a30e503cbfe540b5d7cd6d4f485c79dd9d8a17da18fa61d20462f6d060dde5b",
+      "reporting_views": [
+        "reporting.final_v5_footprint_bounded_result_heavy"
+      ],
+      "schema_digest": "418738c7e62be973db8476fb29f461bd7ffb6e353c5f845c0bf75d16278475d7",
       "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
       "generated_from_fresh_deployment": true
     },
