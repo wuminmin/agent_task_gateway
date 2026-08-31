@@ -211,7 +211,7 @@ func validateProfileCampaignExperimentGate(campaignClass, experimentID string, s
 
 func profileCampaignExperiment(value string) bool {
 	switch value {
-	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5":
+	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint":
 		return true
 	default:
 		return false
@@ -293,6 +293,13 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 	case "rq5":
 		if sample.TaskGateAcceptanceV3 != nil || sample.RQ5Verification == nil {
 			return errors.New("RQ5 pass must use RQ5 verification without top-level v3 acceptance")
+		}
+	case "footprint":
+		if sample.TaskGateAcceptanceV3 != nil || sample.FootprintVerification == nil {
+			return errors.New("footprint pass must use footprint verification without top-level v3 acceptance")
+		}
+		if sample.System != "taskgate" || (sample.Mode != "bounded" && sample.Mode != "unlimited") {
+			return errors.New("footprint pass has the wrong mode/system shape")
 		}
 	default:
 		return errors.New("unknown experiment terminal shape")
