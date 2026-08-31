@@ -44,6 +44,9 @@ func ValidateFootprintEvidence(sample Sample) error {
 		return fmt.Errorf("footprint sample carries %d rungs, the frozen ladder has %d",
 			len(evidence.Rungs), len(manifest.Rungs))
 	}
+	if sample.RootTaskIDHash != evidence.Rungs[0].RootTaskIDHash {
+		return errors.New("footprint sample root identity is not the first rung's root")
+	}
 	accepted, refused := 0, 0
 	for position, rung := range evidence.Rungs {
 		want := manifest.Rungs[position]

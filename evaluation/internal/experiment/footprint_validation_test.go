@@ -43,6 +43,7 @@ func validFootprintSample(t *testing.T, mode string) Sample {
 	}
 	sample := Sample{ExperimentID: "footprint", WorkloadID: "refused-footprint-ladder-v1",
 		Scale: "1e5-rows", Mode: mode, System: "taskgate", Status: "pass",
+		RootTaskIDHash:        evidence.Rungs[0].RootTaskIDHash,
 		FootprintVerification: evidence}
 	return sample
 }

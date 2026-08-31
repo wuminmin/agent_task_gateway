@@ -104,6 +104,11 @@ func (adapter *footprintAdapter) runLadder(ctx context.Context, operation experi
 		sample.ClientFullDrainMS = durationMS(time.Since(started))
 		sample.RowCount = totalRows
 		sample.FootprintVerification = evidence
+		// The ladder provisions one fresh root per rung; the sample-level root
+		// identity the runner's fresh-root gate tracks is the first rung's.
+		if len(evidence.Rungs) > 0 {
+			sample.RootTaskIDHash = evidence.Rungs[0].RootTaskIDHash
+		}
 		return sample
 	}
 	for _, want := range adapter.manifest.Rungs {
