@@ -29,8 +29,8 @@ func (err *benignInvariantError) Error() string { return err.reason }
 var benignTraceColumns = map[string][]string{
 	"expense_detail": {"receipt_no", "employee_no", "employee_name", "department", "expense_date",
 		"expense_type", "amount", "city", "purpose", "status"},
-	"expense_summary": {"month", "department", "expense_type", "total_amount", "request_count"},
-	"provsql_orders":  {"orderkey", "status", "partition_key"},
+	"expense_summary":  {"month", "department", "expense_type", "total_amount", "request_count"},
+	"provsql_orders":   {"orderkey", "status", "partition_key"},
 	"provsql_lineitem": {"orderkey", "linenumber", "extendedprice", "partition_key"},
 	"final_v5_result_heavy": {"row_id", "category", "amount", "event_date", "sequence_no", "approved",
 		"event_timestamp", "description", "quantity", "unit_price", "tax_amount",
