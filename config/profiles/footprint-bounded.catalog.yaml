@@ -58,8 +58,8 @@ products:
       scopes:
         - category
       allowed_operators:
+        - =
         - <=
-        - in
       allowed_aggregates:
         - sum
       snapshot: final-v5-result-heavy-2026-v1

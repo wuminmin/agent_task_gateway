@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 127,
+  "targeted_run_eligible_cells": 125,
   "unresolved_cells": 127,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -288,15 +288,21 @@
       "alias": "footprint-unlimited",
       "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6",
       "routable": false,
-      "targeted_run_eligible": true,
+      "targeted_run_eligible": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": true,
-        "activation_smoke_passed": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "activation_evidence_catalog_drift",
+            "subject": "profile-52504d68e0f7fa28",
+            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
+          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -306,12 +312,18 @@
       },
       "unresolved_reason": [
         {
+          "state": "activation_supported",
+          "code": "activation_evidence_catalog_drift",
+          "subject": "profile-52504d68e0f7fa28",
+          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
+        },
+        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "4774967311cc4b4efa18c7d01333e37f03dfac86df3c4e602ddf5d350f5b6c1a",
+      "catalog_sha256": "8dafc3b5b6092d0fb547291987d0182c0afcdcb7d997d7d6d6e486cf076738e1",
       "total_hot_bytes": 126813361,
       "cells": [
         "footprint/refused-footprint-ladder-v1/1e5-rows/unlimited"
@@ -530,15 +542,21 @@
       "alias": "footprint-bounded",
       "closure_sha256": "ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c",
       "routable": false,
-      "targeted_run_eligible": true,
+      "targeted_run_eligible": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": true,
-        "activation_smoke_passed": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "activation_evidence_catalog_drift",
+            "subject": "profile-ac3d38a970ae15e6",
+            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
+          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -548,12 +566,18 @@
       },
       "unresolved_reason": [
         {
+          "state": "activation_supported",
+          "code": "activation_evidence_catalog_drift",
+          "subject": "profile-ac3d38a970ae15e6",
+          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
+        },
+        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "41db95bb01f447eb8c33177e94907ad738943eec245dee7759d67728b272b66e",
+      "catalog_sha256": "abe239592aeb2878a54b230c6606b2e09de29eed949479ae8591f01c153343af",
       "total_hot_bytes": 126813361,
       "cells": [
         "footprint/refused-footprint-ladder-v1/1e5-rows/bounded"
