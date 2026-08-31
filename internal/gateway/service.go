@@ -320,7 +320,7 @@ func toolError(err error) error {
 	case control.CodeConflict, control.CodeCallbackInProgress:
 		return &mcp.ToolError{Code: apierr.CodeConflict, Message: "请求与当前状态冲突；请重试或刷新状态"}
 	}
-	return &mcp.ToolError{Code: apierr.CodeInternal, Message: "请求处理失败；请使用 trace_id 联系管理员"}
+	return &mcp.ToolError{Code: apierr.CodeInternal, Message: "请求处理失败；请使用 trace_id 联系管理员", Cause: err}
 }
 
 func forbidden() error {

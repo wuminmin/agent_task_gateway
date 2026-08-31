@@ -67,9 +67,15 @@ type ToolError struct {
 	Code    string         `json:"code"`
 	Message string         `json:"message"`
 	Details map[string]any `json:"-"`
+	// Cause is the unclassified underlying error a generic mapping wrapped.
+	// It is logged next to the trace_id and never serialized to the caller.
+	Cause error `json:"-"`
 }
 
 func (e *ToolError) Error() string { return e.Code + ": " + e.Message }
+
+// Unwrap exposes the wrapped cause to errors.Is/As and the server log.
+func (e *ToolError) Unwrap() error { return e.Cause }
 
 type ToolHandler interface {
 	ListTools(Principal) []Tool
@@ -211,7 +217,11 @@ func (s *Server) dispatch(ctx context.Context, principal Principal, rpcRequest r
 			if errors.As(err, &toolErr) {
 				code, message = toolErr.Code, toolErr.Message
 			}
-			s.logger.Warn("MCP tool failed", "trace_id", traceID, "tool", params.Name, "subject", principal.Subject, "code", code, "error", err)
+			logArguments := []any{"trace_id", traceID, "tool", params.Name, "subject", principal.Subject, "code", code, "error", err}
+			if toolErr != nil && toolErr.Cause != nil {
+				logArguments = append(logArguments, "cause", toolErr.Cause)
+			}
+			s.logger.Warn("MCP tool failed", logArguments...)
 			errorBody := map[string]any{"code": code, "message": message}
 			if toolErr != nil {
 				for key, value := range toolErr.Details {
