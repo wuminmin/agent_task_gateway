@@ -4,7 +4,7 @@
   "contract_release": "final-v5-contracts-v1.12",
   "source": "travel_demo",
   "postgres_major_version": 16,
-  "generated_at": "2026-08-31T18:14:52Z",
+  "generated_at": "2026-08-31T19:56:45Z",
   "profiles": [
     {
       "profile_id": "profile-00bc8f7d5633f596",
@@ -82,6 +82,27 @@
       "generated_from_fresh_deployment": true
     },
     {
+      "profile_id": "profile-4150e35650c39ab2",
+      "profile_alias": "benign-x4",
+      "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "10b3b5e875359d2ebb19b22e8d6f6f0d3124420cbfc6f4f598152582b9165e7c",
+      "reporting_view_set_sha256": "a005f66eb28d87138595102695baf5afa5459d67b3ea1b4dda36d91f5b97ea64",
+      "reporting_views": [
+        "reporting.expense_detail",
+        "reporting.expense_summary",
+        "reporting.final_v5_attack_expense_detail",
+        "reporting.final_v5_result_heavy",
+        "reporting.provsql_lineitem",
+        "reporting.provsql_nonce",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "5bf3cbc1f3bacb2e2d35fb21ea83cb672bf16b97d1d9f60aa3a927654c3079c3",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
       "profile_id": "profile-46b22367d1386567",
       "profile_alias": "depth4-semantic-view",
       "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
@@ -109,6 +130,25 @@
         "reporting.final_v5_footprint_unlimited_result_heavy"
       ],
       "schema_digest": "87a6d770b6a95fd9f7e41a6a6bc741d3c7ba42973e47e20050210c4803abf861",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-57cd926b3fcbccde",
+      "profile_alias": "benign-recipe",
+      "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "11b87babef45ee79ecf9cbc3cbdbeb7ddb75292ff8aff0cdd159960b508293df",
+      "reporting_view_set_sha256": "82b74b42c652ced6e69cb2bb3f1b87bc30ca42d115c51bf96c1a79e93ab8161a",
+      "reporting_views": [
+        "reporting.expense_detail",
+        "reporting.expense_summary",
+        "reporting.final_v5_result_heavy",
+        "reporting.provsql_lineitem",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "983139e67998d6237163a2c6661ced66be62851a74fd79c23ce42508ac250a77",
       "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
       "generated_from_fresh_deployment": true
     },
@@ -187,6 +227,26 @@
         "reporting.final_v5_footprint_bounded_result_heavy"
       ],
       "schema_digest": "418738c7e62be973db8476fb29f461bd7ffb6e353c5f845c0bf75d16278475d7",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-f08342e0b89058a9",
+      "profile_alias": "benign-x2",
+      "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "702b253fce60983350740963f068c529d2eac975453b6a3dc97794770d812fd6",
+      "reporting_view_set_sha256": "c2dbfb4fbaafb5d1b13e02baad7ed51ef614a1f95e1af7cb44bae841f39970e8",
+      "reporting_views": [
+        "reporting.expense_detail",
+        "reporting.expense_summary",
+        "reporting.final_v5_result_heavy",
+        "reporting.provsql_lineitem",
+        "reporting.provsql_nonce",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "7dc1e57da789f8e3d8681ff39d5d88b10ffc325eb1af808fc792a0f191f4c040",
       "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
       "generated_from_fresh_deployment": true
     },

@@ -287,7 +287,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "57a57f0c885ed9ab961a1c5b1d1fae7ce9ccb8ca708f3ec984d2b1766af14a92",
+      "catalog_sha256": "e68add17798f25fc055e626ca4c76f58068c0f734f340b4ba732ca904f1bba2d",
       "total_hot_bytes": 244709250,
       "cells": [
         "benign/benign-agent-trace-v1/27-statements/x4"
@@ -403,7 +403,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "c913ed31ca8edab16bbb9bb37f1648ddb1ad22121871ced58987c54df7635efe",
+      "catalog_sha256": "768acdff269e5043916d5cbfe05dcb288b0ac83fcfc75ba192733cbd7a4287fd",
       "total_hot_bytes": 244446763,
       "cells": [
         "benign/benign-agent-trace-v1/27-statements/recipe"
@@ -691,7 +691,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "2d8bd3e46bc5400357bb095ee009e213b483a61b1c509595e4fc1e04bee9f8ab",
+      "catalog_sha256": "82418ee6bcdf9cc8b84b56031e5ba0da726c4b9964c68baf93a7da8d8454aa9b",
       "total_hot_bytes": 244709250,
       "cells": [
         "benign/benign-agent-trace-v1/27-statements/x2"
