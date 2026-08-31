@@ -56,12 +56,15 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 	if err := json.Unmarshal(payload, &registry); err != nil {
 		return fmt.Errorf("decode profile registry: %w", err)
 	}
-	required, nonProfile, nonProfileCampaigns, err := publicationCells(root)
+	required, nonProfile, nonProfileCampaigns, protocolExperiments, err := publicationCells(root)
 	if err != nil {
 		return err
 	}
-	// Pilot planning retains the 125-cell profile matrix. Formal
-	// publication planning adds the 47 deployment-free cells explicitly.
+	// Pilot planning retains the full registry profile matrix, including
+	// source-controlled extension experiments. Formal publication planning is
+	// scoped to the frozen protocol's experiments (extension profiles are
+	// excluded before the denominator closes) and adds the 47 deployment-free
+	// cells explicitly.
 	if campaignClass == "pilot" {
 		required = required[:0]
 		for _, profile := range registry.Profiles {
@@ -70,6 +73,10 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 		nonProfile = nil
 		nonProfileCampaigns = nil
 	} else {
+		registry, err = filterPublicationRegistry(registry, protocolExperiments)
+		if err != nil {
+			return err
+		}
 		for _, profile := range registry.Profiles {
 			required = append(required, profile.Cells...)
 		}
@@ -103,7 +110,37 @@ func run(root, registryPath, preregistrationPath, campaignClass string, requireR
 	return nil
 }
 
-func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.PlannedNonProfileCampaign, error) {
+// filterPublicationRegistry scopes a registry to the frozen protocol's
+// experiments. A profile carrying only extension-experiment cells (for
+// example the refused-footprint ladder) is pilot-runnable but never part of
+// the formal publication denominator until the protocol itself admits its
+// experiment; a profile mixing protocol and extension experiments would make
+// that scope ambiguous and is rejected outright.
+func filterPublicationRegistry(registry finalv5profile.Registry,
+	protocolExperiments map[string]bool) (finalv5profile.Registry, error) {
+	filtered := registry
+	filtered.Profiles = nil
+	for _, profile := range registry.Profiles {
+		inside := 0
+		for _, experiment := range profile.Experiments {
+			if protocolExperiments[experiment] {
+				inside++
+			}
+		}
+		switch inside {
+		case 0:
+			continue
+		case len(profile.Experiments):
+			filtered.Profiles = append(filtered.Profiles, profile)
+		default:
+			return finalv5profile.Registry{}, fmt.Errorf(
+				"profile %q mixes protocol and extension experiments", profile.Alias)
+		}
+	}
+	return filtered, nil
+}
+
+func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.PlannedNonProfileCampaign, map[string]bool, error) {
 	type profile struct {
 		Workloads []struct {
 			ID     string   `yaml:"id"`
@@ -117,7 +154,7 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 	}
 	payload, err := os.ReadFile(filepath.Join(root, "evaluation/final-v5-wsl2/protocol/workloads-v1.yaml"))
 	if err != nil || yaml.Unmarshal(payload, &workloads) != nil || workloads.SchemaVersion != 2 {
-		return nil, nil, nil, errors.New("decode frozen publication workload profiles")
+		return nil, nil, nil, nil, errors.New("decode frozen publication workload profiles")
 	}
 	type replicate struct {
 		Profiles        []string `yaml:"profiles"`
@@ -133,7 +170,7 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 	}
 	protocolPayload, err := os.ReadFile(filepath.Join(root, "evaluation/final-v5-wsl2/protocol/protocol-v1.yaml"))
 	if err != nil || yaml.Unmarshal(protocolPayload, &protocol) != nil || protocol.Campaign.PublicationDeployments != 3 {
-		return nil, nil, nil, errors.New("decode frozen publication replicate contracts")
+		return nil, nil, nil, nil, errors.New("decode frozen publication replicate contracts")
 	}
 	contracts := map[string]replicate{}
 	for _, contract := range protocol.Campaign.Contracts {
@@ -150,11 +187,13 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 		profileNames = append(profileNames, name)
 	}
 	sort.Strings(profileNames)
+	protocolExperiments := map[string]bool{}
 	for _, profileName := range profileNames {
 		experimentID := profileName
 		if profileName == "scale-extreme" {
 			experimentID = "scale"
 		}
+		protocolExperiments[experimentID] = true
 		for _, workload := range workloads.Profiles[profileName].Workloads {
 			for _, scale := range workload.Scales {
 				for _, mode := range workload.Modes {
@@ -181,7 +220,7 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 	for key, cells := range groups {
 		contract, ok := contracts[key.profile]
 		if !ok || contract.Processes < 1 || contract.MeasuredSamples < 1 {
-			return nil, nil, nil, fmt.Errorf("frozen profile %s lacks a valid replicate contract", key.profile)
+			return nil, nil, nil, nil, fmt.Errorf("frozen profile %s lacks a valid replicate contract", key.profile)
 		}
 		sort.Strings(cells)
 		campaigns = append(campaigns, finalv5profile.PlannedNonProfileCampaign{
@@ -195,7 +234,7 @@ func publicationCells(root string) ([]string, map[string]bool, []finalv5profile.
 	sort.Strings(required)
 	sort.Slice(campaigns, func(i, j int) bool { return campaigns[i].ID < campaigns[j].ID })
 	if len(required) != 47 || len(nonProfile) != 47 || len(campaigns) != 2 {
-		return nil, nil, nil, fmt.Errorf("publication non-profile denominator is %d cells with %d groups/%d identities, want 47 and 2/47", len(required), len(campaigns), len(nonProfile))
+		return nil, nil, nil, nil, fmt.Errorf("publication non-profile denominator is %d cells with %d groups/%d identities, want 47 and 2/47", len(required), len(campaigns), len(nonProfile))
 	}
-	return required, nonProfile, campaigns, nil
+	return required, nonProfile, campaigns, protocolExperiments, nil
 }

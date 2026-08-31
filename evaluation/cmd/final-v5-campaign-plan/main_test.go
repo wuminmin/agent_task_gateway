@@ -11,7 +11,7 @@ import (
 
 func TestPublicationPlanClosesProfileAndNonProfileDenominators(t *testing.T) {
 	root := filepath.Clean("../../..")
-	required, nonProfile, groups, err := publicationCells(root)
+	required, nonProfile, groups, protocolExperiments, err := publicationCells(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +22,17 @@ func TestPublicationPlanClosesProfileAndNonProfileDenominators(t *testing.T) {
 	var registry finalv5profile.Registry
 	if err := json.Unmarshal(registryBytes, &registry); err != nil {
 		t.Fatal(err)
+	}
+	registry, err = filterPublicationRegistry(registry, protocolExperiments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, deployment := range registry.Profiles {
+		for _, experiment := range deployment.Experiments {
+			if !protocolExperiments[experiment] {
+				t.Fatalf("publication registry retains extension experiment %q", experiment)
+			}
+		}
 	}
 	for _, profile := range registry.Profiles {
 		required = append(required, profile.Cells...)
