@@ -5,7 +5,7 @@
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
   "profile_count": 16,
   "pair_count": 120,
-  "overlapping_pair_count": 28,
+  "overlapping_pair_count": 6,
   "pairs": [
     {
       "left_profile_id": "profile-00bc8f7d5633f596",
@@ -318,7 +318,7 @@
         "expense_detail"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-0d88c4e9d8b7561b",
@@ -371,7 +371,7 @@
         "expense_detail"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-0d88c4e9d8b7561b",
@@ -471,7 +471,7 @@
         "expense_detail"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-0d88c4e9d8b7561b",
@@ -539,7 +539,7 @@
         "final_v5_attack_expense_detail"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-158c6ffcccef2383",
@@ -1114,7 +1114,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1166,7 +1166,7 @@
         "provsql_orders"
       ],
       "intersection_count": 5,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1191,7 +1191,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1239,7 +1239,7 @@
         "provsql_orders"
       ],
       "intersection_count": 3,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1262,7 +1262,7 @@
         "final_v5_result_heavy"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1316,7 +1316,7 @@
         "provsql_orders"
       ],
       "intersection_count": 6,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-4150e35650c39ab2",
@@ -1339,7 +1339,7 @@
         "provsql_orders"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-46b22367d1386567",
@@ -1380,7 +1380,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-46b22367d1386567",
@@ -1499,7 +1499,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-46b22367d1386567",
@@ -1673,7 +1673,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-57cd926b3fcbccde",
@@ -1716,7 +1716,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-57cd926b3fcbccde",
@@ -1737,7 +1737,7 @@
         "final_v5_result_heavy"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-57cd926b3fcbccde",
@@ -1786,7 +1786,7 @@
         "provsql_orders"
       ],
       "intersection_count": 5,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-57cd926b3fcbccde",
@@ -1807,7 +1807,7 @@
         "provsql_orders"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-5b48ad2a02c5446d",
@@ -1900,7 +1900,7 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-5b48ad2a02c5446d",
@@ -2060,7 +2060,7 @@
         "provsql_orders"
       ],
       "intersection_count": 3,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-a60a787c64c95451",
@@ -2116,7 +2116,7 @@
         "final_v5_result_heavy"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     },
     {
       "left_profile_id": "profile-a86cd4df5cad6e26",
@@ -2188,7 +2188,7 @@
         "provsql_orders"
       ],
       "intersection_count": 1,
-      "same_query_live_test_applicable": true
+      "same_query_live_test_applicable": false
     }
   ]
 }
