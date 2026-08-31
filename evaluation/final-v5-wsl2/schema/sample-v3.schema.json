@@ -322,6 +322,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "footprint"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "footprint_verification"
+        ],
+        "properties": {
+          "footprint_verification": {
+            "$ref": "#/properties/footprint_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2197,6 +2223,16 @@
     },
     "profile_binding": {
       "$ref": "#/$defs/profileBinding"
+    },
+    "footprint_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/footprintVerification"
+        },
+        {
+          "$ref": "#/$defs/partialFootprintVerification"
+        }
+      ]
     }
   },
   "$defs": {
@@ -2987,10 +3023,10 @@
           "const": "TR-2026-0005"
         },
         "target_department": {
-          "const": "研发部"
+          "const": "\u7814\u53d1\u90e8"
         },
         "policy_department": {
-          "const": "销售部"
+          "const": "\u9500\u552e\u90e8"
         },
         "target_present_outside_policy": {
           "const": true
@@ -3447,7 +3483,7 @@
                 "const": "SELECT"
               },
               "qual": {
-                "const": "(department = '销售部'::text)"
+                "const": "(department = '\u9500\u552e\u90e8'::text)"
               },
               "with_check": {
                 "type": "null"
@@ -5562,6 +5598,148 @@
           "type": "number",
           "minimum": 0
         }
+      }
+    },
+    "footprintRung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "charged_release_facts",
+        "client_ms",
+        "columns",
+        "direct_sql_sha256",
+        "expected_dependency_facts",
+        "id",
+        "index",
+        "logical_sql_sha256",
+        "rejected",
+        "root_task_id_hash",
+        "rows"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "integer"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "logical_sql_sha256": {
+          "type": "string"
+        },
+        "direct_sql_sha256": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "root_task_id_hash": {
+          "type": "string"
+        },
+        "request_id_hash": {
+          "type": "string"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "expected_dependency_facts": {
+          "type": "integer"
+        },
+        "observed_scalars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "footprintVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_rungs",
+        "bounded_max_dependency_facts",
+        "budget_profile",
+        "corpus_id",
+        "corpus_sha256",
+        "product",
+        "refused_rungs",
+        "rungs",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "budget_profile": {
+          "type": "string"
+        },
+        "bounded_max_dependency_facts": {
+          "type": "integer"
+        },
+        "rungs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/footprintRung"
+          }
+        },
+        "accepted_rungs": {
+          "type": "integer"
+        },
+        "refused_rungs": {
+          "type": "integer"
+        }
+      }
+    },
+    "partialFootprintVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted_rungs",
+          "bounded_max_dependency_facts",
+          "budget_profile",
+          "corpus_id",
+          "corpus_sha256",
+          "product",
+          "refused_rungs",
+          "rungs",
+          "version"
+        ]
       }
     }
   }

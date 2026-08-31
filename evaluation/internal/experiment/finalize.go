@@ -898,6 +898,10 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 			}
 		}
 		validateTrace(sample, fail)
+	case "footprint":
+		if err := validateFootprintVerification(sample); err != nil {
+			fail("footprint independent verification failed: " + err.Error())
+		}
 	case "provsql":
 		if sample.System == "taskgate" && (sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS <= 0) {
 			fail("ProvSQL-paired TaskGate sample lacks both measurement boundaries")

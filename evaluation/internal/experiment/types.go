@@ -550,6 +550,7 @@ type Sample struct {
 	IdempotentVerification    *IdempotentVerificationEvidence   `json:"idempotent_verification,omitempty"`
 	RecoveryVerification      *RecoveryVerificationEvidence     `json:"recovery_verification,omitempty"`
 	RLSVerification           *RLSVerificationEvidence          `json:"rls_verification,omitempty"`
+	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
 	ProvSQLVerification       *ProvSQLVerificationEvidence      `json:"provsql_verification,omitempty"`
 	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
@@ -1964,3 +1965,42 @@ func CanonicalResultHash(rows [][]any) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// FootprintRungEvidence is one refused-footprint ladder rung: a single-query
+// task whose acceptance or refusal, charges, and client-observed latency are
+// bound to the frozen corpus expectations.
+type FootprintRungEvidence struct {
+	Index                   int      `json:"index"`
+	ID                      string   `json:"id"`
+	Rows                    int64    `json:"rows"`
+	Columns                 []string `json:"columns"`
+	LogicalSQLSHA256        string   `json:"logical_sql_sha256"`
+	DirectSQLSHA256         string   `json:"direct_sql_sha256"`
+	Accepted                bool     `json:"accepted"`
+	Rejected                bool     `json:"rejected"`
+	ObservedErrorCode       string   `json:"observed_error_code,omitempty"`
+	ClientMS                float64  `json:"client_ms"`
+	RootTaskIDHash          string   `json:"root_task_id_hash"`
+	RequestIDHash           string   `json:"request_id_hash,omitempty"`
+	ChargedReleaseFacts     int64    `json:"charged_release_facts"`
+	ChargedDependencyFacts  int64    `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts     int64    `json:"charged_outcome_facts"`
+	ExpectedDependencyFacts int64    `json:"expected_dependency_facts"`
+	ObservedScalars         []string `json:"observed_scalars,omitempty"`
+}
+
+// FootprintVerificationEvidence binds a refused-footprint ladder sample to
+// the frozen evaluation/finalv5footprint corpus: every rung's identity,
+// decision, charges, and timing.
+type FootprintVerificationEvidence struct {
+	Version                   string                  `json:"version"`
+	CorpusID                  string                  `json:"corpus_id"`
+	CorpusSHA256              string                  `json:"corpus_sha256"`
+	Product                   string                  `json:"product"`
+	BudgetProfile             string                  `json:"budget_profile"`
+	BoundedMaxDependencyFacts int64                   `json:"bounded_max_dependency_facts"`
+	Rungs                     []FootprintRungEvidence `json:"rungs"`
+	AcceptedRungs             int                     `json:"accepted_rungs"`
+	RefusedRungs              int                     `json:"refused_rungs"`
+}
+
