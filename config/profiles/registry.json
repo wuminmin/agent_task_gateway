@@ -320,6 +320,108 @@
       "within_hot_limit": true
     },
     {
+      "profile_id": "profile-4150e35650c39ab2",
+      "alias": "benign-x4",
+      "closure": {
+        "products": [
+          "expense_detail",
+          "expense_summary",
+          "final_v5_attack_expense_detail",
+          "final_v5_result_heavy",
+          "provsql_lineitem",
+          "provsql_nonce",
+          "provsql_orders"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "expense-summary-v1",
+          "final-v5-result-heavy-v1",
+          "provsql-lineitem-v1",
+          "provsql-nonce-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category",
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-4150e35650c39ab2",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-benign-x4-v1"
+      ],
+      "workload_cells": [
+        "benign/benign-agent-trace-v1/27-statements/x4"
+      ],
+      "experiments": [
+        "benign"
+      ],
+      "catalog_sha256": "57a57f0c885ed9ab961a1c5b1d1fae7ce9ccb8ca708f3ec984d2b1766af14a92",
+      "catalog_path": "config/profiles/benign-x4.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "expense-summary-v1",
+          "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028",
+          "bytes": 9488
+        },
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        },
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-nonce-v1",
+          "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530",
+          "bytes": 262487
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 244709250,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
       "profile_id": "profile-46b22367d1386567",
       "alias": "depth4-semantic-view",
       "closure": {
@@ -443,6 +545,100 @@
         }
       ],
       "total_hot_bytes": 126813361,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-57cd926b3fcbccde",
+      "alias": "benign-recipe",
+      "closure": {
+        "products": [
+          "expense_detail",
+          "expense_summary",
+          "final_v5_result_heavy",
+          "provsql_lineitem",
+          "provsql_orders"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "expense-summary-v1",
+          "final-v5-result-heavy-v1",
+          "provsql-lineitem-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category",
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-57cd926b3fcbccde",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-benign-recipe-v1"
+      ],
+      "workload_cells": [
+        "benign/benign-agent-trace-v1/27-statements/recipe"
+      ],
+      "experiments": [
+        "benign"
+      ],
+      "catalog_sha256": "c913ed31ca8edab16bbb9bb37f1648ddb1ad22121871ced58987c54df7635efe",
+      "catalog_path": "config/profiles/benign-recipe.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "expense-summary-v1",
+          "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028",
+          "bytes": 9488
+        },
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        },
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 244446763,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
@@ -828,6 +1024,107 @@
         }
       ],
       "total_hot_bytes": 126813361,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-f08342e0b89058a9",
+      "alias": "benign-x2",
+      "closure": {
+        "products": [
+          "expense_detail",
+          "expense_summary",
+          "final_v5_result_heavy",
+          "provsql_lineitem",
+          "provsql_nonce",
+          "provsql_orders"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "expense-summary-v1",
+          "final-v5-result-heavy-v1",
+          "provsql-lineitem-v1",
+          "provsql-nonce-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category",
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-f08342e0b89058a9",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-benign-x2-v1"
+      ],
+      "workload_cells": [
+        "benign/benign-agent-trace-v1/27-statements/x2"
+      ],
+      "experiments": [
+        "benign"
+      ],
+      "catalog_sha256": "2d8bd3e46bc5400357bb095ee009e213b483a61b1c509595e4fc1e04bee9f8ab",
+      "catalog_path": "config/profiles/benign-x2.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "expense-summary-v1",
+          "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028",
+          "bytes": 9488
+        },
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        },
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-nonce-v1",
+          "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530",
+          "bytes": 262487
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 244709250,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true

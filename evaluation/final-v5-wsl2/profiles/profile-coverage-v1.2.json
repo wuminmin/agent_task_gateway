@@ -3,16 +3,16 @@
   "contracts_version": "final-v5-contracts-v1.12",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
   "coverage_scope": "catalog_bound_workload_cells",
-  "all_formal_cells": 163,
-  "catalog_bound_cells": 127,
+  "all_formal_cells": 166,
+  "catalog_bound_cells": 130,
   "control_only_cells": 36,
   "catalog_profile_exempt_cells": 0,
-  "mapped_catalog_bound_cells": 127,
+  "mapped_catalog_bound_cells": 130,
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
   "targeted_run_eligible_cells": 127,
-  "unresolved_cells": 127,
+  "unresolved_cells": 130,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
   "control_only_cell_ids": [
@@ -248,6 +248,52 @@
       ]
     },
     {
+      "profile_id": "profile-4150e35650c39ab2",
+      "alias": "benign-x4",
+      "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5",
+      "routable": false,
+      "targeted_run_eligible": false,
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-4150e35650c39ab2",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "profile_absent_from_activation_support_manifest",
+          "subject": "profile-4150e35650c39ab2",
+          "detail": "no live activation smoke has been recorded for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "57a57f0c885ed9ab961a1c5b1d1fae7ce9ccb8ca708f3ec984d2b1766af14a92",
+      "total_hot_bytes": 244709250,
+      "cells": [
+        "benign/benign-agent-trace-v1/27-statements/x4"
+      ]
+    },
+    {
       "profile_id": "profile-46b22367d1386567",
       "alias": "depth4-semantic-view",
       "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
@@ -315,6 +361,52 @@
       "total_hot_bytes": 126813361,
       "cells": [
         "footprint/refused-footprint-ladder-v1/1e5-rows/unlimited"
+      ]
+    },
+    {
+      "profile_id": "profile-57cd926b3fcbccde",
+      "alias": "benign-recipe",
+      "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8",
+      "routable": false,
+      "targeted_run_eligible": false,
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-57cd926b3fcbccde",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "profile_absent_from_activation_support_manifest",
+          "subject": "profile-57cd926b3fcbccde",
+          "detail": "no live activation smoke has been recorded for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "c913ed31ca8edab16bbb9bb37f1648ddb1ad22121871ced58987c54df7635efe",
+      "total_hot_bytes": 244446763,
+      "cells": [
+        "benign/benign-agent-trace-v1/27-statements/recipe"
       ]
     },
     {
@@ -557,6 +649,52 @@
       "total_hot_bytes": 126813361,
       "cells": [
         "footprint/refused-footprint-ladder-v1/1e5-rows/bounded"
+      ]
+    },
+    {
+      "profile_id": "profile-f08342e0b89058a9",
+      "alias": "benign-x2",
+      "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35",
+      "routable": false,
+      "targeted_run_eligible": false,
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-f08342e0b89058a9",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "profile_absent_from_activation_support_manifest",
+          "subject": "profile-f08342e0b89058a9",
+          "detail": "no live activation smoke has been recorded for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "2d8bd3e46bc5400357bb095ee009e213b483a61b1c509595e4fc1e04bee9f8ab",
+      "total_hot_bytes": 244709250,
+      "cells": [
+        "benign/benign-agent-trace-v1/27-statements/x2"
       ]
     },
     {
