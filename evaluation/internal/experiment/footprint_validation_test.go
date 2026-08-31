@@ -18,7 +18,7 @@ func validFootprintSample(t *testing.T, mode string) Sample {
 	if mode == "bounded" {
 		product, profile = finalv5footprint.BoundedProduct, finalv5footprint.BoundedProfile
 	}
-	evidence := &FootprintVerificationEvidence{Version: footprintEvidenceVersion,
+	evidence := &FootprintVerificationEvidence{Version: FootprintEvidenceVersion,
 		CorpusID: finalv5footprint.CorpusID, CorpusSHA256: finalv5footprint.CorpusSHA256(),
 		Product: product, BudgetProfile: profile,
 		BoundedMaxDependencyFacts: finalv5footprint.BoundedMaxDependencyFacts}

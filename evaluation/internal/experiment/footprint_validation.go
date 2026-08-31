@@ -7,7 +7,8 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/finalv5footprint"
 )
 
-const footprintEvidenceVersion = "taskgate-final-v5-footprint-evidence-v1"
+// FootprintEvidenceVersion names the footprint evidence wire contract.
+const FootprintEvidenceVersion = "taskgate-final-v5-footprint-evidence-v1"
 
 // ValidateFootprintEvidence is the adapter-side fail-closed gate for the
 // refused-footprint ladder: every rung must match the frozen corpus identity,
@@ -22,7 +23,7 @@ func ValidateFootprintEvidence(sample Sample) error {
 		return errors.New("footprint sample is outside the frozen ladder matrix")
 	}
 	evidence := sample.FootprintVerification
-	if evidence == nil || evidence.Version != footprintEvidenceVersion ||
+	if evidence == nil || evidence.Version != FootprintEvidenceVersion ||
 		evidence.CorpusID != finalv5footprint.CorpusID ||
 		evidence.CorpusSHA256 != finalv5footprint.CorpusSHA256() ||
 		evidence.BoundedMaxDependencyFacts != finalv5footprint.BoundedMaxDependencyFacts {

@@ -54,6 +54,14 @@ func (adapter *realAdapter) provisionExpenseTask(ctx context.Context, operationO
 // authority for its shared root and intersected budget.
 func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationObjective, product string,
 	columns []string, parentTaskID string) (provisionedTask, error) {
+	return adapter.provisionScopedCatalogTask(ctx, operationObjective, product, columns, parentTaskID,
+		map[string]any{"department": []string{"销售部"}})
+}
+
+// provisionScopedCatalogTask is provisionCatalogTask with a caller-selected
+// mandatory scope; the footprint ladder products scope on category.
+func (adapter *realAdapter) provisionScopedCatalogTask(ctx context.Context, operationObjective, product string,
+	columns []string, parentTaskID string, mandatoryScope map[string]any) (provisionedTask, error) {
 	if strings.TrimSpace(operationObjective) == "" || len(columns) == 0 {
 		return provisionedTask{}, errors.New("task objective and approved columns are required")
 	}
@@ -62,7 +70,6 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 	}
 	products := []string{product}
 	approvedColumns := map[string][]string{product: append([]string(nil), columns...)}
-	mandatoryScope := map[string]any{"department": []string{"销售部"}}
 	var created provisionedTask
 	arguments := map[string]any{
 		"objective": operationObjective, "data_products": products,
