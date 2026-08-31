@@ -505,7 +505,7 @@ func analyzeIntersection(document intersectionDocument, registry registryDocumen
 				"product-intersection pair %s intersection_count=%d, derived %d",
 				key, pair.IntersectionCount, len(shared)))
 		}
-		applicable := len(shared) != 0
+		applicable := finalv5profile.SameQueryLiveTestApplicable(left.Closure.Products, right.Closure.Products, shared)
 		if pair.SameQueryLiveTestApplicable != applicable {
 			result.Failures = append(result.Failures, fmt.Sprintf(
 				"product-intersection pair %s same_query_live_test_applicable=%t, derived %t",

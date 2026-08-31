@@ -363,7 +363,8 @@ func expectedIntersection(registry finalv5profile.Registry) (intersectionReport,
 				LeftProducts:  append([]string(nil), profiles[left].Closure.Products...),
 				RightProducts: append([]string(nil), profiles[right].Closure.Products...),
 				Intersection:  shared, IntersectionCount: len(shared),
-				SameQueryLiveTestApplicable: len(shared) > 0}
+				SameQueryLiveTestApplicable: finalv5profile.SameQueryLiveTestApplicable(
+					profiles[left].Closure.Products, profiles[right].Closure.Products, shared)}
 			if pair.SameQueryLiveTestApplicable {
 				report.OverlappingPairs++
 			}

@@ -184,6 +184,28 @@ type Registry struct {
 	Profiles         []Profile `json:"profiles"`
 }
 
+// SameQueryLiveTestApplicable is the single derivation of whether one profile
+// pair can run the frozen live same-query cross-profile test: one
+// provsql_orders query with expense_detail as the outside-Product negative
+// probe. The pair must share provsql_orders and neither side may publish
+// expense_detail (the benign-trace profiles do by design; their
+// cross-activation cache isolation is carried by each activation's own
+// isolation evidence). Every producer and verifier of the product
+// intersection derives applicability through this one function.
+func SameQueryLiveTestApplicable(leftProducts, rightProducts, shared []string) bool {
+	return nameInSet(shared, "provsql_orders") &&
+		!nameInSet(leftProducts, "expense_detail") && !nameInSet(rightProducts, "expense_detail")
+}
+
+func nameInSet(values []string, name string) bool {
+	for _, value := range values {
+		if value == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ExtendWithProfileOnlyRoutes overlays a reviewed profile Catalog's own
 // approval routes and budget profiles onto the live Catalog. A profile-only
 // route (the narrow three-Product ProvSQL route; the benign-trace arm routes)
