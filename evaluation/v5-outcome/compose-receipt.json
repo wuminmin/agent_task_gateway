@@ -23,17 +23,17 @@
       "service": "control-postgres"
     },
     {
-      "image_id": "sha256:7c7c29abb5446748287f933df324769e5827ab61258a59257b7b1c34c2d7feef",
+      "image_id": "sha256:4074ecc9db6add8d4810b3669f2431aa04c87c23d114dc0b87d1e62eb2bdc4b5",
       "reference": "taskbound-gateway-integration-gateway",
       "service": "gateway"
     },
     {
-      "image_id": "sha256:f02027c8bcf8f721bb64f2c096f9ee503d3bd650f5d7c292570dd8488d9e9c53",
+      "image_id": "sha256:1d4f37a2af3d21328935f93b11a1e0d72f843fbd45b354bcd11d279c61b3183e",
       "reference": "taskbound-gateway-integration-mcp-probe",
       "service": "mcp-probe"
     },
     {
-      "image_id": "sha256:9628517a00d9b565c27fd8673baac3f23e6da3b14de4c699318ca609ad54b916",
+      "image_id": "sha256:6e1d64d33e301bf3d0112950080c6dfce4c41de1bf402947c6ea817b25f138e8",
       "reference": "taskbound-gateway-integration-oa-demo",
       "service": "oa-demo"
     },
@@ -48,17 +48,17 @@
       "service": "result-object-store-init"
     },
     {
-      "image_id": "sha256:734ce8dd6e874a3a8e64eae07a2dc1589733178c94c88d839d33d1f6ff87de97",
+      "image_id": "sha256:0f6509105ef2d61a4ecf67e283d817241adccb1acfe632d205bbc528da1d83de",
       "reference": "taskbound-gateway-integration-snapshot-index-detail",
       "service": "snapshot-index-detail"
     },
     {
-      "image_id": "sha256:92ada1cf7aded64685797b642bfbd3e35d3e777d23679ab8f7e385190f389ec7",
+      "image_id": "sha256:7c9bfed1337cd152081a2a2edb3bb272f1b0cd5b56491d6b09042b50324bb809",
       "reference": "taskbound-gateway-integration-snapshot-index-summary",
       "service": "snapshot-index-summary"
     },
     {
-      "image_id": "sha256:9c029d6e7054d783960d25e37b59f72cffb47fd30b07c635386036906c842ce2",
+      "image_id": "sha256:b8b4a4a4829b635da44bd305c5a24ee18c2f8ca3450ceaf614a282aaac6d7004",
       "reference": "taskbound-gateway-integration-test-runner",
       "service": "test-runner"
     }
@@ -81,10 +81,10 @@
     ],
     "sha256": "1912dcc25611ec7c01b21a43687ea9b4c17e6b0af15fb4db5077f0e634297336"
   },
-  "executed_at": "2026-08-30T23:58:00Z",
+  "executed_at": "2026-08-31T16:48:07Z",
   "exit_code": 0,
   "raw_log": "evaluation/v5-outcome/raw/compose-e2e.log",
-  "raw_log_sha256": "d4a281b5e4d396193c1082ecfca6035255c062be99541bdf1085c20c2eaebdac",
+  "raw_log_sha256": "c908d72b330586d676cbdd04ca08ff05d882bbf72b567d3db95cd252ebe0750f",
   "schema_version": 2,
-  "submission_commit": "0c52ebb979b4bb644847fec85856a6031d9f6337"
+  "submission_commit": "00667c2288cdd1a64e7bb29cfb0efa2ac3d7cc69"
 }
