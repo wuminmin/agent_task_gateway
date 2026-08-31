@@ -107,9 +107,13 @@ func (adapter *footprintAdapter) runLadder(ctx context.Context, operation experi
 		return sample
 	}
 	for _, want := range adapter.manifest.Rungs {
+		// Every column the rung's SQL references must be approved: the ladder
+		// filter columns row_id and category plus the rung's aggregate columns
+		// (pilot-footprint-02: predicate references fail COLUMN_NOT_APPROVED).
+		approvedColumns := append([]string{"row_id", "category"}, want.Columns...)
 		created, err := adapter.real.provisionScopedCatalogTask(ctx,
 			fmt.Sprintf("Final V5 footprint ladder %s %s %s", operation.Mode, want.ID, operation.PairID),
-			product, append([]string(nil), want.Columns...), "",
+			product, approvedColumns, "",
 			map[string]any{"category": []string{"alpha", "beta", "gamma", "delta"}})
 		if err != nil {
 			return finish(), err
