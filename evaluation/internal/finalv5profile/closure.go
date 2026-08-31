@@ -198,10 +198,27 @@ func ExtendWithProfileOnlyRoutes(live, profileCatalog *catalog.Catalog) *catalog
 	extended := *live
 	extended.ApprovalRoutes = append([]catalog.ApprovalRoute(nil), live.ApprovalRoutes...)
 	extended.BudgetProfiles = append([]catalog.BudgetProfile(nil), live.BudgetProfiles...)
+	var declared []catalog.ApprovalRoute
 	for _, route := range profileCatalog.ApprovalRoutes {
 		if len(route.Products) == 0 || catalogRouteExists(&extended, route.Products) {
 			continue
 		}
+		declared = append(declared, route)
+	}
+	// The declared routes own their products' scoped-route exclusivity in the
+	// profile deployment; narrower live scoped routes over the same products
+	// are omitted from the overlay, mirroring the generator's projection.
+	if len(declared) > 0 {
+		kept := extended.ApprovalRoutes[:0]
+		for _, route := range extended.ApprovalRoutes {
+			if len(route.Products) > 0 && declaredRoutesIntersect(declared, route.Products) {
+				continue
+			}
+			kept = append(kept, route)
+		}
+		extended.ApprovalRoutes = kept
+	}
+	for _, route := range declared {
 		extended.ApprovalRoutes = append(extended.ApprovalRoutes, route)
 		if _, found := extended.LookupBudgetProfile(route.BudgetProfile); found {
 			continue
@@ -211,6 +228,19 @@ func ExtendWithProfileOnlyRoutes(live, profileCatalog *catalog.Catalog) *catalog
 		}
 	}
 	return &extended
+}
+
+func declaredRoutesIntersect(declared []catalog.ApprovalRoute, products []string) bool {
+	for _, route := range declared {
+		for _, left := range route.Products {
+			for _, right := range products {
+				if left == right {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func catalogRouteExists(document *catalog.Catalog, products []string) bool {
