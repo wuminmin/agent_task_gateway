@@ -532,6 +532,7 @@ config_source() {
     compiler) printf '%s' evaluation/final-v5-wsl2/config/compiler-scale.example.json ;;
     concurrency) printf '%s' evaluation/final-v5-wsl2/config/concurrency.example.json ;;
     rq5) printf '%s' evaluation/final-v5-wsl2/config/daily-publication.example.json ;;
+    footprint) printf '%s' evaluation/final-v5-wsl2/config/footprint.example.json ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
@@ -541,6 +542,7 @@ experiment_command() {
     rls) printf '%s' rls-adaptive ;; attack) printf '%s' adaptive-attacks ;;
     provsql) printf '%s' taskgate-provsql-pair ;; compiler) printf '%s' view-scale ;;
     concurrency) printf '%s' v5-concurrency ;; rq5) printf '%s' v5-rq5 ;;
+    footprint) printf '%s' v5-footprint ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
