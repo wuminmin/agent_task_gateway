@@ -8,9 +8,9 @@ import (
 func extensionProduct() Product {
 	return Product{
 		Name: "orders", StableRole: "orders", SourceNamespace: "sales.orders", Snapshot: "snapshot-1",
-		StableEntityKey: []string{"order_id"},
-		Columns:         map[string]struct{}{"order_id": {}, "status": {}, "amount": {}},
-		ColumnTypes:     map[string]string{"order_id": "integer", "status": "text", "amount": "numeric"},
+		StableEntityKey:  []string{"order_id"},
+		Columns:          map[string]struct{}{"order_id": {}, "status": {}, "amount": {}},
+		ColumnTypes:      map[string]string{"order_id": "integer", "status": "text", "amount": "numeric"},
 		ColumnCollations: map[string]string{"status": "C"}, CollationVersions: map[string]string{"status": "builtin"},
 		AllowedAggregates: map[string]struct{}{"count": {}, "sum": {}, "avg": {}},
 	}

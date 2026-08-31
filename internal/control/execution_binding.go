@@ -134,7 +134,7 @@ func (binding QueryExecutionBinding) Validate() error {
 // nullString and nullBytes send an absent pre-state as SQL NULL rather than as
 // an empty value.
 //
-// The distinction is the whole point of the column being nullable: '' and a
+// The distinction is the whole point of the column being nullable: ” and a
 // zero-length BYTEA are values a row can carry, and the CHECK constraints that
 // keep a present pre-state well-formed would have to be relaxed to admit them.
 // NULL is refused by those constraints only when the other column is non-NULL,
