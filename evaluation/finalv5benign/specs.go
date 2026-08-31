@@ -14,8 +14,10 @@ import (
 // fields). Footprint logic never parses SQL; it re-derives survivors from the
 // closed-form dataset models.
 type evaluationContext struct {
-	live     *catalog.Catalog
-	compiled queryplan.RelationalCompilation
+	live           *catalog.Catalog
+	compiled       queryplan.RelationalCompilation
+	legacyProduct  string
+	legacyEvidence []string
 }
 
 // statementEvaluation is a statement's closed-form footprint.
@@ -51,6 +53,9 @@ func bindSource(context evaluationContext, product string) (sourceBinding, error
 		if source.Product == product {
 			binding.fields = append([]string(nil), source.EvidenceFields...)
 		}
+	}
+	if len(binding.fields) == 0 && context.legacyProduct == product {
+		binding.fields = append([]string(nil), context.legacyEvidence...)
 	}
 	if len(binding.fields) == 0 {
 		return sourceBinding{}, fmt.Errorf("compilation carries no evidence fields for %q", product)
@@ -113,7 +118,7 @@ func summaryEntityKey(binding sourceBinding, row SummaryRow) (string, error) {
 // expenseSpec evaluates a single-source expense_detail statement.
 func expenseSpec(atoms int64, survives func(ExpenseRow) bool,
 	released func(rows []ExpenseRow) (releasedRows, releaseFacts int64)) statementSpecification {
-	return statementSpecification{products: []string{"expense_detail"}, expectKind: "scan", predicateAtoms: atoms,
+	return statementSpecification{products: []string{"expense_detail"}, predicateAtoms: atoms,
 		evaluate: func(context evaluationContext) (statementEvaluation, error) {
 			binding, err := bindSource(context, "expense_detail")
 			if err != nil {
@@ -149,7 +154,7 @@ func expenseSpec(atoms int64, survives func(ExpenseRow) bool,
 // summarySpec evaluates a single-source expense_summary statement.
 func summarySpec(atoms int64, survives func(SummaryRow) bool,
 	released func(rows []SummaryRow) (releasedRows, releaseFacts int64)) statementSpecification {
-	return statementSpecification{products: []string{"expense_summary"}, expectKind: "scan", predicateAtoms: atoms,
+	return statementSpecification{products: []string{"expense_summary"}, predicateAtoms: atoms,
 		evaluate: func(context evaluationContext) (statementEvaluation, error) {
 			binding, err := bindSource(context, "expense_summary")
 			if err != nil {

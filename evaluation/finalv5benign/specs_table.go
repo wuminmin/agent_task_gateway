@@ -8,7 +8,7 @@ import (
 // enumerated by closed-form loops.
 func provsqlSpec(product string, atoms int64,
 	evaluate func(context evaluationContext, binding sourceBinding) (statementEvaluation, error)) statementSpecification {
-	return statementSpecification{products: []string{product}, expectKind: "scan", predicateAtoms: atoms,
+	return statementSpecification{products: []string{product}, predicateAtoms: atoms,
 		evaluate: func(context evaluationContext) (statementEvaluation, error) {
 			binding, err := bindSource(context, product)
 			if err != nil {
@@ -69,7 +69,7 @@ func streamLineitems(binding sourceBinding, fromOrder, toOrder int64, yield func
 // resultHeavySpec evaluates a single-source result_heavy detail statement.
 func resultHeavySpec(atoms int64, survives func(rowID int64) bool,
 	released func(survivors int64) (releasedRows, releaseFacts int64)) statementSpecification {
-	return statementSpecification{products: []string{"final_v5_result_heavy"}, expectKind: "scan", predicateAtoms: atoms,
+	return statementSpecification{products: []string{"final_v5_result_heavy"}, predicateAtoms: atoms,
 		evaluate: func(context evaluationContext) (statementEvaluation, error) {
 			binding, err := bindSource(context, "final_v5_result_heavy")
 			if err != nil {

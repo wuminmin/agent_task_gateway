@@ -188,12 +188,18 @@ func classifyAndEvaluate(statement *Statement, live *catalog.Catalog, union *fac
 	var visibleSQL, provenanceSQL string
 	var evidenceFields []string
 	var compilationForEval queryplan.RelationalCompilation
+	var legacyEvidence []string
 	if lowered.Plan.From == nil {
 		product, found := products[lowered.Plan.Product]
 		if !found {
 			return fmt.Errorf("lowered to unapproved product %q", lowered.Plan.Product)
 		}
 		visibleSQL, err = queryplan.Compile(lowered.Plan, product)
+		if err == nil {
+			catalogProduct, _ := live.LookupProduct(lowered.Plan.Product)
+			legacyEvidence = legacyEvidenceFields(lowered.Plan, catalogProduct)
+			evidenceFields = legacyEvidence
+		}
 	} else {
 		var compiled queryplan.RelationalCompilation
 		compiled, err = queryplan.CompileRelational(lowered.Plan, products)
@@ -226,7 +232,8 @@ func classifyAndEvaluate(statement *Statement, live *catalog.Catalog, union *fac
 		}
 	}
 	statement.EvidenceFields = evidenceFields
-	evaluation, err := specification.evaluate(evaluationContext{live: live, compiled: compilationForEval})
+	evaluation, err := specification.evaluate(evaluationContext{live: live, compiled: compilationForEval,
+		legacyProduct: lowered.Plan.Product, legacyEvidence: legacyEvidence})
 	if err != nil {
 		return err
 	}
@@ -271,6 +278,40 @@ func firstErrorToken(err error) string {
 		text = text[:120]
 	}
 	return text
+}
+
+// legacyEvidenceFields mirrors queryplan.singleProductEvidenceFields: the
+// entity key, the product scopes, the plan's projected and grouped columns,
+// every filter column, and every non-star aggregate argument. The refused-
+// footprint ladder validated this rule live (charged dependency = survivors
+// x (1 + fields)).
+func legacyEvidenceFields(plan queryplan.QueryPlan, product catalog.Product) []string {
+	set := map[string]struct{}{}
+	for _, field := range product.EntityKey {
+		set[field] = struct{}{}
+	}
+	for _, field := range product.Scopes {
+		set[field] = struct{}{}
+	}
+	for _, field := range plan.Columns {
+		set[field] = struct{}{}
+	}
+	for _, field := range plan.GroupBy {
+		set[field] = struct{}{}
+	}
+	for _, filter := range plan.Filters {
+		set[filter.Column] = struct{}{}
+	}
+	for _, aggregate := range plan.Aggregates {
+		if aggregate.Column != "*" {
+			set[aggregate.Column] = struct{}{}
+		}
+	}
+	fields := make([]string, 0, len(set))
+	for field := range set {
+		fields = append(fields, field)
+	}
+	return sortedStrings(fields)
 }
 
 // factCollector buffers dependency fact hashes and summarizes them as an
