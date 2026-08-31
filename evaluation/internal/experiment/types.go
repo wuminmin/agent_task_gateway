@@ -551,6 +551,7 @@ type Sample struct {
 	RecoveryVerification      *RecoveryVerificationEvidence     `json:"recovery_verification,omitempty"`
 	RLSVerification           *RLSVerificationEvidence          `json:"rls_verification,omitempty"`
 	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
+	BenignVerification        *BenignVerificationEvidence       `json:"benign_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
 	ProvSQLVerification       *ProvSQLVerificationEvidence      `json:"provsql_verification,omitempty"`
 	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
@@ -2003,3 +2004,47 @@ type FootprintVerificationEvidence struct {
 	AcceptedRungs             int                     `json:"accepted_rungs"`
 	RefusedRungs              int                     `json:"refused_rungs"`
 }
+
+// BenignStepEvidence is one benign-trace statement execution: identity bound
+// to the frozen corpus, the observed accept/refuse outcome, the ledger
+// deltas, and the client-observed latency. Charged numbers and refusal
+// positions are recorded evidence, not a-priori assertions - the
+// false-refusal study reads them from here.
+type BenignStepEvidence struct {
+	Index                  int                 `json:"index"`
+	ID                     string              `json:"id"`
+	SQLSHA256              string              `json:"sql_sha256"`
+	Classification         string              `json:"classification"`
+	Accepted               bool                `json:"accepted"`
+	Rejected               bool                `json:"rejected"`
+	ObservedErrorCode      string              `json:"observed_error_code,omitempty"`
+	ClientMS               float64             `json:"client_ms"`
+	RequestIDHash          string              `json:"request_id_hash,omitempty"`
+	ReleasedRows           int64               `json:"released_rows"`
+	ChargedReleaseFacts    int64               `json:"charged_release_facts"`
+	ChargedDependencyFacts int64               `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts    int64               `json:"charged_outcome_facts"`
+	Before                 *RootLedgerSnapshot `json:"before,omitempty"`
+	After                  *RootLedgerSnapshot `json:"after,omitempty"`
+}
+
+// BenignVerificationEvidence binds one benign-trace sample to the frozen
+// finalv5benign corpus: the whole 27-statement trace on one root under one
+// recipe budget profile, statement by statement.
+type BenignVerificationEvidence struct {
+	Version             string               `json:"version"`
+	CorpusID            string               `json:"corpus_id"`
+	CorpusSHA256        string               `json:"corpus_sha256"`
+	BudgetName          string               `json:"budget_name"`
+	BudgetProfile       string               `json:"budget_profile"`
+	MaxReleaseFacts     int64                `json:"max_release_facts"`
+	MaxInfluenceFacts   int64                `json:"max_influence_facts"`
+	MaxOutcomeFacts     int64                `json:"max_outcome_facts"`
+	Steps               []BenignStepEvidence `json:"steps"`
+	AcceptedStatements  int                  `json:"accepted_statements"`
+	RefusedStatements   int                  `json:"refused_statements"`
+	FirstBudgetRefusal  int                  `json:"first_budget_refusal,omitempty"`
+	BudgetRefusals      int                  `json:"budget_refusals"`
+	FinalRoot           *RootLedgerSnapshot  `json:"final_root,omitempty"`
+}
+

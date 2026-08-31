@@ -420,6 +420,7 @@ func TestSampleV3SchemaMatchesCurrentGoWire(t *testing.T) {
 		"scale_verification":     reflect.TypeOf(ScaleVerificationEvidence{}),
 		"artifact_verification":  reflect.TypeOf(ArtifactVerificationEvidence{}),
 		"footprint_verification": reflect.TypeOf(FootprintVerificationEvidence{}),
+		"benign_verification": reflect.TypeOf(BenignVerificationEvidence{}),
 	} {
 		t.Run(propertyName, func(t *testing.T) {
 			branches, ok := objectMap(t, properties[propertyName], propertyName)["anyOf"].([]any)

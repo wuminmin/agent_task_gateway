@@ -348,6 +348,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "benign"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "benign_verification"
+        ],
+        "properties": {
+          "benign_verification": {
+            "$ref": "#/properties/benign_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2231,6 +2257,16 @@
         },
         {
           "$ref": "#/$defs/partialFootprintVerification"
+        }
+      ]
+    },
+    "benign_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/benignVerification"
+        },
+        {
+          "$ref": "#/$defs/partialBenignVerification"
         }
       ]
     }
@@ -5738,6 +5774,156 @@
           "product",
           "refused_rungs",
           "rungs",
+          "version"
+        ]
+      }
+    },
+    "benignStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "charged_release_facts",
+        "classification",
+        "client_ms",
+        "id",
+        "index",
+        "rejected",
+        "released_rows",
+        "sql_sha256"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sql_sha256": {
+          "type": "string"
+        },
+        "classification": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "request_id_hash": {
+          "type": "string"
+        },
+        "released_rows": {
+          "type": "integer"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "before": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "benignVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_statements",
+        "budget_name",
+        "budget_profile",
+        "budget_refusals",
+        "corpus_id",
+        "corpus_sha256",
+        "max_influence_facts",
+        "max_outcome_facts",
+        "max_release_facts",
+        "refused_statements",
+        "steps",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "budget_name": {
+          "type": "string"
+        },
+        "budget_profile": {
+          "type": "string"
+        },
+        "max_release_facts": {
+          "type": "integer"
+        },
+        "max_influence_facts": {
+          "type": "integer"
+        },
+        "max_outcome_facts": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/benignStep"
+          }
+        },
+        "accepted_statements": {
+          "type": "integer"
+        },
+        "refused_statements": {
+          "type": "integer"
+        },
+        "first_budget_refusal": {
+          "type": "integer"
+        },
+        "budget_refusals": {
+          "type": "integer"
+        },
+        "final_root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "partialBenignVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted_statements",
+          "budget_name",
+          "budget_profile",
+          "budget_refusals",
+          "corpus_id",
+          "corpus_sha256",
+          "final_root",
+          "first_budget_refusal",
+          "max_influence_facts",
+          "max_outcome_facts",
+          "max_release_facts",
+          "refused_statements",
+          "steps",
           "version"
         ]
       }
