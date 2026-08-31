@@ -233,7 +233,7 @@ func ResultHeavyColumnValue(rowID int64, column string) (sqlType, canonical stri
 	case "event_timestamp":
 		seconds := rowID - 1
 		micros := (rowID - 1) % 1000
-		return "timestamp", "ts:" + timestamp20200101(seconds, micros), nil
+		return "timestamp without time zone", "ts:" + timestamp20200101(seconds, micros), nil
 	case "description":
 		return "text", fmt.Sprintf("s:artifact-row-%d", rowID), nil
 	case "quantity":
@@ -249,7 +249,7 @@ func ResultHeavyColumnValue(rowID int64, column string) (sqlType, canonical stri
 	case "settled_date":
 		return "date", "d:" + addDays20200101((rowID-1+31)%3653), nil
 	case "processed_at":
-		return "timestamp", "ts:" + timestampNoon20200101((rowID-1)*60), nil
+		return "timestamp without time zone", "ts:" + timestampNoon20200101((rowID-1)*60), nil
 	case "region":
 		return "text", "s:" + resultHeavyRegions[(rowID-1)%5], nil
 	case "revision":
