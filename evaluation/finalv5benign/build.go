@@ -109,7 +109,7 @@ func finishManifest(manifest Manifest, union *factCollector) (Manifest, error) {
 	// footprint. Cumulative accounting is set-valued, so the trace union is
 	// the true requirement; the corpus records both, and a recipe run that
 	// refuses is exactly the recipe omission the study reports.
-	unionSummary, err := union.summarize("dependency-union")
+	unionSummary, err := union.summarize("union")
 	if err != nil {
 		return Manifest{}, err
 	}
