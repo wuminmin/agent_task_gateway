@@ -184,6 +184,60 @@ type Registry struct {
 	Profiles         []Profile `json:"profiles"`
 }
 
+// ExtendWithProfileOnlyRoutes overlays a reviewed profile Catalog's own
+// approval routes and budget profiles onto the live Catalog. A profile-only
+// route (the narrow three-Product ProvSQL route; the benign-trace arm routes)
+// is part of the profile declaration: it exists only in the generated profile
+// Catalog, so shared live Products keep their existing routing while the
+// profile's own deployment can resolve budgets the live Catalog does not
+// carry.
+func ExtendWithProfileOnlyRoutes(live, profileCatalog *catalog.Catalog) *catalog.Catalog {
+	if profileCatalog == nil {
+		return live
+	}
+	extended := *live
+	extended.ApprovalRoutes = append([]catalog.ApprovalRoute(nil), live.ApprovalRoutes...)
+	extended.BudgetProfiles = append([]catalog.BudgetProfile(nil), live.BudgetProfiles...)
+	for _, route := range profileCatalog.ApprovalRoutes {
+		if len(route.Products) == 0 || catalogRouteExists(&extended, route.Products) {
+			continue
+		}
+		extended.ApprovalRoutes = append(extended.ApprovalRoutes, route)
+		if _, found := extended.LookupBudgetProfile(route.BudgetProfile); found {
+			continue
+		}
+		if budget, found := profileCatalog.LookupBudgetProfile(route.BudgetProfile); found {
+			extended.BudgetProfiles = append(extended.BudgetProfiles, budget)
+		}
+	}
+	return &extended
+}
+
+func catalogRouteExists(document *catalog.Catalog, products []string) bool {
+	for _, candidate := range document.ApprovalRoutes {
+		if len(candidate.Products) > 0 && equalNameSets(candidate.Products, products) {
+			return true
+		}
+	}
+	return false
+}
+
+func equalNameSets(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftSorted := append([]string(nil), left...)
+	rightSorted := append([]string(nil), right...)
+	sort.Strings(leftSorted)
+	sort.Strings(rightSorted)
+	for index := range leftSorted {
+		if leftSorted[index] != rightSorted[index] {
+			return false
+		}
+	}
+	return true
+}
+
 // ComputeClosure derives the canonical minimal transitive Product closure
 // against the master Catalog. Structural gaps are reported as reasons rather
 // than errors, so a cell whose Product is not live yet still yields a
@@ -460,6 +514,15 @@ func Build(input BuildInput) ([]Profile, error) {
 			if !status.CatalogMaterializable {
 				if profileCatalog, found := input.ProfileCatalogs[closure.SHA256]; found {
 					status, budgets = EvaluateStatus(closure, reasons, profileCatalog, input.Hot,
+						input.ActivationSupported)
+				}
+			} else if !status.LiveRouteAvailable {
+				// A reviewed profile-only route is part of the profile
+				// declaration; when the live Catalog resolves no route for the
+				// closure, the committed profile Catalog's own routes may.
+				if profileCatalog, found := input.ProfileCatalogs[closure.SHA256]; found {
+					status, budgets = EvaluateStatus(closure, reasons,
+						ExtendWithProfileOnlyRoutes(input.Live, profileCatalog), input.Hot,
 						input.ActivationSupported)
 				}
 			}
