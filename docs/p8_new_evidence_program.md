@@ -91,3 +91,27 @@
 这是既有生产语义（三个产生站点读码核对），不改任何被测路径；改的是实验主张——两码都是暴露契约下的未计费拒绝，
 按站点区分并逐阶钉死。第 1 阶按语料精确计费获释放（1 release / 400 dependency / 6 outcome，标量 799819/2）。
 
+## (c3) 设计修订（2026-09-01，动工前；数据事实核查后）
+
+**语料现实**（实查 queries/ 与 config/catalog.yaml、db/init）：27 条可降低语句跨 5 产品 3 数据族，全部闭式可离线建模——
+expense 族冻结 10 行（00-schema.sql）、provsql 族 orders 50k/lineitem 250k/nonce 1k（01-fixture 闭式公式）、
+result_heavy 100k×16 列闭式（benchmark-v1-generate.sql）。
+
+**先验分类必须分三层**（可降低 ≠ 会释放）：
+1. **策略层拒绝**（预算无关，先验可判）：AVG 类（allowed_aggregates 无 avg——avg 批准属作者待办）、LIKE（q34，运算符 ~~ 不在产品面）、
+   其余按产品 allowed_operators/aggregates/functions 与 SELECT * 的处理逐条静态判定（用生产 lowering+policy 离线跑，不手判）。
+2. **授权但零释放**：谓词与数据不匹配（q03/q07/q37 英文部门值 vs 中文数据；q29 category=\'A\' vs alpha..delta；
+   任务 mandatory scope 与谓词交集为空）。释放 0 行，但仍消耗 B_Q 与 Outcome 原子。
+3. **授权且释放**：按数据模型静态算 release/dependency/outcome 足迹。
+
+**误拒指标定义**：误拒 = 三层中第 2、3 类（策略层已授权）语句在给定预算下被暴露预算拒绝的数量。
+第 1 类如实另列（\"policy-refused, budget-independent\"），不计入误拒也不从语料中删除（语料是未编辑的 agent 输出）。
+
+**配方预算（先验公式，语料静态量导出）**：B_R = Σ(明细类释放行×列)，B_D = max(单语句依赖足迹)，
+B_O = 语句数 + 不同谓词原子数，B_Q = 4·B_O；三套 profile：benign-recipe / benign-x2 / benign-x4，同一闭包
+（5 产品全集，新 profile 走阶梯同款激活流程）。每样本一根跑完整 27 条轨迹（考累计，不同于阶梯的每阶新根）。
+
+**实施切片**：A. 数据模型+离线分类器+足迹计算（finalv5benign 语料包，冻结 corpus-v1.json）；
+B. 证据信封+校验器+schema+adapter（复用 footprint 模式，独立 experiment id \'benign\'）；
+C. 声明+profile+激活+launcher 三处白名单+试点。
+
