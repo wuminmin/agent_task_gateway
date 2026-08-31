@@ -211,7 +211,7 @@ func validateProfileCampaignExperimentGate(campaignClass, experimentID string, s
 
 func profileCampaignExperiment(value string) bool {
 	switch value {
-	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint":
+	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign":
 		return true
 	default:
 		return false
@@ -300,6 +300,14 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 		}
 		if sample.System != "taskgate" || (sample.Mode != "bounded" && sample.Mode != "unlimited") {
 			return errors.New("footprint pass has the wrong mode/system shape")
+		}
+	case "benign":
+		if sample.TaskGateAcceptanceV3 != nil || sample.BenignVerification == nil {
+			return errors.New("benign pass must use benign verification without top-level v3 acceptance")
+		}
+		if sample.System != "taskgate" ||
+			(sample.Mode != "recipe" && sample.Mode != "x2" && sample.Mode != "x4") {
+			return errors.New("benign pass has the wrong mode/system shape")
 		}
 	default:
 		return errors.New("unknown experiment terminal shape")

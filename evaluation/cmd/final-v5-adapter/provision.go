@@ -62,14 +62,26 @@ func (adapter *realAdapter) provisionCatalogTask(ctx context.Context, operationO
 // mandatory scope; the footprint ladder products scope on category.
 func (adapter *realAdapter) provisionScopedCatalogTask(ctx context.Context, operationObjective, product string,
 	columns []string, parentTaskID string, mandatoryScope map[string]any) (provisionedTask, error) {
-	if strings.TrimSpace(operationObjective) == "" || len(columns) == 0 {
-		return provisionedTask{}, errors.New("task objective and approved columns are required")
-	}
 	if strings.TrimSpace(product) == "" {
 		return provisionedTask{}, errors.New("task product is required")
 	}
-	products := []string{product}
-	approvedColumns := map[string][]string{product: append([]string(nil), columns...)}
+	return adapter.provisionMultiProductTask(ctx, operationObjective, []string{product},
+		map[string][]string{product: append([]string(nil), columns...)}, parentTaskID, mandatoryScope)
+}
+
+// provisionMultiProductTask is the same real request/OA/Grant path for a task
+// that approves several Products at once (the benign trace approves five).
+func (adapter *realAdapter) provisionMultiProductTask(ctx context.Context, operationObjective string,
+	products []string, approvedColumns map[string][]string, parentTaskID string,
+	mandatoryScope map[string]any) (provisionedTask, error) {
+	if strings.TrimSpace(operationObjective) == "" || len(products) == 0 || len(approvedColumns) != len(products) {
+		return provisionedTask{}, errors.New("task objective and approved columns are required")
+	}
+	for _, name := range products {
+		if len(approvedColumns[name]) == 0 {
+			return provisionedTask{}, errors.New("task objective and approved columns are required")
+		}
+	}
 	var created provisionedTask
 	arguments := map[string]any{
 		"objective": operationObjective, "data_products": products,
