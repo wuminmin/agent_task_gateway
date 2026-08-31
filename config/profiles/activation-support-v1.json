@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.12",
-  "profile_registry_sha256": "caf3a95e980c0d4770a231446696893db2fbd62fe29163ce1399707da129c5c1",
+  "profile_registry_sha256": "a4d8465b935527fd69637294c50a1736d03f90b3fba8a8d939a3dd4bf32052e8",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "d8d681067a99683f3968cb28ac57819f1a167702c171ada487022512b0401888",
-  "outside_product_route_matrix_sha256": "79f62afbf4b2c5c4e7ef06fe9cf76d350b9f87b790346dc1963a751ea91a8dc5",
-  "semantic_cache_isolation_evidence_sha256": "c04a43ee42a758fdbf61bd292ab3be5eb76e972279faf401ef87ad1b537f1d31",
+  "activation_smoke_manifest_sha256": "87081a6be5dcbe0d5146f67d1259f9010d2612665fb5f9c94b76d0f74de4bba7",
+  "outside_product_route_matrix_sha256": "0938651c247f65888512f7aeb3c75917d13649a7c38e1ca00b9091f18de6f740",
+  "semantic_cache_isolation_evidence_sha256": "a7e2a7bd57d190f7b0deb8237d5e395a3750e6fffc20f01baae7774d707e6b57",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "de39cb8087db8deadb8f0b91d42616de51ed5bbe99fd3e965fdc4218e13fd650"
+        "8c4777e75acd43968e1a02c9d47423cd314bd35d76439a0353ab2bde2dd6677a"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "85e8b846fd440ae61732ad929b2662b89b816ed17bf97a8b19fee67fe388bc7c"
+        "eab196968e755a5f00228cf8fd9a321b84cb24e3d59e221c8d7616237abb99c9"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "b30255990fc5bc048b943e09abab12ecb5ea10435458c280ffe374c84d7091c4"
+        "d725173f4ba75c0eb8ddff787c73a12fd2bf95564533d6ae57367d43d7f7ac93"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d97de58c2799774995412e66ce68745d65c22160817f3966d1959db7ca3ccc02"
+        "a04096e73420d3588adeba35fb094fe4d998829ab064425dfe0124b12b9d1e97"
       ],
       "reason": ""
     },
@@ -88,7 +88,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "3614fbc046cc98d70cd97a6b6cd77efebf9302478ce6f3bf01733fc5508ed753"
+        "0ba6204377c0f826bf5519945cbba8f499070f75e4fd77dc6ee86c17c67acf9c"
       ],
       "reason": ""
     },
@@ -105,7 +105,23 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "e9d104d294bbbd5cab3bbb47b33bb127cfcf553f0bbcfa995e165131c3fdb7d9"
+        "647dc561eaa156f80012ac02f4dbf496fca340f3f2f46329793143fd3c3e9fcc"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-52504d68e0f7fa28",
+      "profile_alias": "footprint-unlimited",
+      "catalog_sha256": "4774967311cc4b4efa18c7d01333e37f03dfac86df3c4e602ddf5d350f5b6c1a",
+      "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6",
+      "profile_schema_attestation": "87a6d770b6a95fd9f7e41a6a6bc741d3c7ba42973e47e20050210c4803abf861",
+      "publication_identities": [
+        "final-v5-result-heavy-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "b970e8ec5950e2bae3b6bb4144720af13d91e462720dd1466a57885e2c85c228"
       ],
       "reason": ""
     },
@@ -122,7 +138,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "a8408770b203d6fb665b9b13ccb628753575eb379802205df7ba5a95bf54c00d"
+        "71bb19a9e0f996c791686f632ed63521ec0f5d502f7baefb4f8ec2000a1d8584"
       ],
       "reason": ""
     },
@@ -138,7 +154,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "873d9bc63cba66a6c70c5cd152ed8b9d86c57a1b94ee04d8ccc8732debb3d5c5"
+        "dfdebfd7a059a04f5f09b7899b939fa135855b8dd52799fd7b8c94aca226affb"
       ],
       "reason": ""
     },
@@ -156,7 +172,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "019742c57cf7d9db857efc45e9a8968377142bb4070751914b903ff6d7d29efe"
+        "0a4782dc87160a5c5a52be81998dafc48262f8a9428e5b15fded0c93d35672c3"
       ],
       "reason": ""
     },
@@ -172,7 +188,23 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "a79f9127b028fc3181602e4e26398499866ba8943e7eb8a560b4b5182646cc82"
+        "9f63316085eeca5aad3ce89da7eea1ff9b1a861273e374834cbadb90a7dd1ba2"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-ac3d38a970ae15e6",
+      "profile_alias": "footprint-bounded",
+      "catalog_sha256": "41db95bb01f447eb8c33177e94907ad738943eec245dee7759d67728b272b66e",
+      "closure_sha256": "ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c",
+      "profile_schema_attestation": "418738c7e62be973db8476fb29f461bd7ffb6e353c5f845c0bf75d16278475d7",
+      "publication_identities": [
+        "final-v5-result-heavy-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "16c9e7e7d5189948a926a56c1cfa4e714bb734356f8128b57ec5ddc18df2f69f"
       ],
       "reason": ""
     },
@@ -188,7 +220,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "f9d1c3f7898a6489adf8689b4395f42b954667d9924859d324b592b8dca053a6"
+        "05d095e28b12bead089e1e806f27ce2126f5348112268626033c31a583778812"
       ],
       "reason": ""
     }
