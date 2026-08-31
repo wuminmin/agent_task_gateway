@@ -190,10 +190,13 @@ func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
 		occurrences[expression] = occurrence + 1
 		columns = append(columns, "aggregate:"+expression+"#"+strconv.Itoa(occurrence))
 	}
-	for _, filter := range plan.Having {
-		value, _ := json.Marshal(filter.Value)
-		columns = append(columns, "having:"+filter.Column+" "+strings.ToUpper(strings.TrimSpace(filter.Op))+" "+string(value))
-	}
+	// HAVING identity deliberately does not appear here. Semantic columns are
+	// a positionally aligned per-result-column identity list (the width check
+	// in validateSemanticColumns and the ResultOrder reordering both assume
+	// it), and appending HAVING entries made every HAVING query fail closed
+	// with a width mismatch (pilot-benign-01). The HAVING predicate is part
+	// of the plan's typed normal form and plan digest, which the semantic
+	// replay key already binds.
 	return columns
 }
 
