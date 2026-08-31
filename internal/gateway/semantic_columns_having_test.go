@@ -52,6 +52,8 @@ func testNormalFormProduct() queryplan.Product {
 			"total_amount": {}, "request_count": {}},
 		ColumnTypes: map[string]string{"month": "text", "department": "text", "expense_type": "text",
 			"total_amount": "numeric", "request_count": "bigint"},
+		ColumnCollations: map[string]string{"month": "C", "department": "C", "expense_type": "C"},
+		CollationVersions: map[string]string{"month": "builtin", "department": "builtin", "expense_type": "builtin"},
 		AllowedAggregates: map[string]struct{}{"sum": {}, "count": {}},
 	}
 }
