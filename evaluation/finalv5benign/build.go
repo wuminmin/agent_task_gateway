@@ -258,7 +258,7 @@ func classifyAndEvaluate(statement *Statement, live *catalog.Catalog, union *fac
 }
 
 func policyCode(err error) string {
-	var typed *sqlpolicy.Error
+	var typed *sqlpolicy.PolicyError
 	if errors.As(err, &typed) {
 		return string(typed.Code)
 	}
