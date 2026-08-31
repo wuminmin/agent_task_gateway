@@ -1101,6 +1101,17 @@ for alias in "${selected_profiles[@]}"; do
       echo "P30-STAGE: cells=pass deployment=$deployment_key experiment=$experiment count=$(jq -s 'length' "$raw")"
     done
 
+    # Pilot diagnostics: retain the Gateway container log with the raw
+    # evidence. A refused statement's INTERNAL_ERROR names its cause only
+    # here; publication runs keep the failure-path capture unchanged.
+    if [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+      gateway_log_container="$("${current_compose[@]}" ps -q gateway)"
+      if [[ -n "$gateway_log_container" ]]; then
+        docker logs "$gateway_log_container" >"$current_dir/gateway.log" 2>&1 || true
+        chmod 600 "$current_dir/gateway.log" 2>/dev/null || true
+      fi
+    fi
+
     current_stage=cleanup
     cleanup_rq5
     "${current_compose[@]}" down --volumes --remove-orphans >/dev/null
