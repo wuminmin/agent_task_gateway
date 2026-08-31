@@ -417,8 +417,8 @@ func TestSampleV3SchemaMatchesCurrentGoWire(t *testing.T) {
 	}
 
 	for propertyName, evidenceType := range map[string]reflect.Type{
-		"scale_verification":    reflect.TypeOf(ScaleVerificationEvidence{}),
-		"artifact_verification": reflect.TypeOf(ArtifactVerificationEvidence{}),
+		"scale_verification":     reflect.TypeOf(ScaleVerificationEvidence{}),
+		"artifact_verification":  reflect.TypeOf(ArtifactVerificationEvidence{}),
 		"footprint_verification": reflect.TypeOf(FootprintVerificationEvidence{}),
 	} {
 		t.Run(propertyName, func(t *testing.T) {

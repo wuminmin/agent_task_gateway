@@ -24,7 +24,7 @@ func validFootprintSample(t *testing.T, mode string) Sample {
 		BoundedMaxDependencyFacts: finalv5footprint.BoundedMaxDependencyFacts}
 	for _, want := range manifest.Rungs {
 		rung := FootprintRungEvidence{Index: want.Index, ID: want.ID, Rows: want.Rows,
-			Columns: append([]string(nil), want.Columns...),
+			Columns:          append([]string(nil), want.Columns...),
 			DirectSQLSHA256:  sha256Hex([]byte(want.DirectSQL)),
 			LogicalSQLSHA256: sha256Hex([]byte(want.LogicalSQL(product))),
 			ClientMS:         1.5, RootTaskIDHash: strings.Repeat("a", 64),

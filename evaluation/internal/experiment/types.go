@@ -2003,4 +2003,3 @@ type FootprintVerificationEvidence struct {
 	AcceptedRungs             int                     `json:"accepted_rungs"`
 	RefusedRungs              int                     `json:"refused_rungs"`
 }
-
