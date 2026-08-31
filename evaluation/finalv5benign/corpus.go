@@ -98,10 +98,10 @@ type Manifest struct {
 	// max-single-statement Dependency budget.
 	TraceUnionDependencyFacts  int64  `json:"trace_union_dependency_facts"`
 	TraceUnionDependencySHA256 string `json:"trace_union_dependency_sha256,omitempty"`
-	PolicyRefused        int64 `json:"policy_refused"`
-	ZeroRelease          int64 `json:"zero_release"`
-	TotalReleaseFacts    int64 `json:"total_release_facts"`
-	MaxDependencyFacts   int64 `json:"max_dependency_facts"`
+	PolicyRefused              int64  `json:"policy_refused"`
+	ZeroRelease                int64  `json:"zero_release"`
+	TotalReleaseFacts          int64  `json:"total_release_facts"`
+	MaxDependencyFacts         int64  `json:"max_dependency_facts"`
 }
 
 //go:embed corpus-v1.json

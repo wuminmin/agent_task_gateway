@@ -210,7 +210,9 @@ var statementSpecifications = map[string]statementSpecification{
 			return groups, groups * 3
 		}),
 	"q16": summarySpec(2,
-		func(row SummaryRow) bool { return row.Department == "Sales" && len(row.Month) >= 5 && row.Month[:5] == "2026-" },
+		func(row SummaryRow) bool {
+			return row.Department == "Sales" && len(row.Month) >= 5 && row.Month[:5] == "2026-"
+		},
 		func(rows []SummaryRow) (int64, int64) {
 			groups := groupCount(rows, func(row SummaryRow) string { return row.Month })
 			return groups, groups * 3
