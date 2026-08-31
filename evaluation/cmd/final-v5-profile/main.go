@@ -478,7 +478,17 @@ func buildIntersection(registry finalv5profile.Registry) intersectionReport {
 				LeftAlias: live[left].Alias, RightAlias: live[right].Alias,
 				LeftProducts: live[left].Closure.Products, RightProducts: live[right].Closure.Products,
 				Intersection: shared, IntersectionCount: len(shared),
-				SameQueryLiveTestApplicable: len(shared) > 0}
+				// The frozen live same-query test runs one provsql_orders
+				// query and probes expense_detail as the outside-Product
+				// negative control, so it is constructible exactly when the
+				// pair shares provsql_orders and neither side publishes
+				// expense_detail. The benign-trace profiles publish
+				// expense_detail by design; their cross-activation cache
+				// isolation is carried by each activation's own C12/C14/C15
+				// evidence instead.
+				SameQueryLiveTestApplicable: containsName(shared, "provsql_orders") &&
+					!containsName(live[left].Closure.Products, "expense_detail") &&
+					!containsName(live[right].Closure.Products, "expense_detail")}
 			if pair.SameQueryLiveTestApplicable {
 				report.OverlappingPairs++
 			}
@@ -487,6 +497,15 @@ func buildIntersection(registry finalv5profile.Registry) intersectionReport {
 	}
 	report.PairCount = len(report.Pairs)
 	return report
+}
+
+func containsName(values []string, name string) bool {
+	for _, value := range values {
+		if value == name {
+			return true
+		}
+	}
+	return false
 }
 
 func intersect(left, right []string) []string {
