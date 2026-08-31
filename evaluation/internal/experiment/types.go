@@ -2032,19 +2032,18 @@ type BenignStepEvidence struct {
 // finalv5benign corpus: the whole 27-statement trace on one root under one
 // recipe budget profile, statement by statement.
 type BenignVerificationEvidence struct {
-	Version             string               `json:"version"`
-	CorpusID            string               `json:"corpus_id"`
-	CorpusSHA256        string               `json:"corpus_sha256"`
-	BudgetName          string               `json:"budget_name"`
-	BudgetProfile       string               `json:"budget_profile"`
-	MaxReleaseFacts     int64                `json:"max_release_facts"`
-	MaxInfluenceFacts   int64                `json:"max_influence_facts"`
-	MaxOutcomeFacts     int64                `json:"max_outcome_facts"`
-	Steps               []BenignStepEvidence `json:"steps"`
-	AcceptedStatements  int                  `json:"accepted_statements"`
-	RefusedStatements   int                  `json:"refused_statements"`
-	FirstBudgetRefusal  int                  `json:"first_budget_refusal,omitempty"`
-	BudgetRefusals      int                  `json:"budget_refusals"`
-	FinalRoot           *RootLedgerSnapshot  `json:"final_root,omitempty"`
+	Version            string               `json:"version"`
+	CorpusID           string               `json:"corpus_id"`
+	CorpusSHA256       string               `json:"corpus_sha256"`
+	BudgetName         string               `json:"budget_name"`
+	BudgetProfile      string               `json:"budget_profile"`
+	MaxReleaseFacts    int64                `json:"max_release_facts"`
+	MaxInfluenceFacts  int64                `json:"max_influence_facts"`
+	MaxOutcomeFacts    int64                `json:"max_outcome_facts"`
+	Steps              []BenignStepEvidence `json:"steps"`
+	AcceptedStatements int                  `json:"accepted_statements"`
+	RefusedStatements  int                  `json:"refused_statements"`
+	FirstBudgetRefusal int                  `json:"first_budget_refusal,omitempty"`
+	BudgetRefusals     int                  `json:"budget_refusals"`
+	FinalRoot          *RootLedgerSnapshot  `json:"final_root,omitempty"`
 }
-
