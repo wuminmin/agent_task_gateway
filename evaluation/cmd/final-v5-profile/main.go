@@ -513,6 +513,11 @@ func printDerivedClosures(root string) error {
 	}
 	groups := map[string]*group{}
 	for _, cell := range cells {
+		if cell.ProfileRequirement != finalv5profile.RequirementCatalogBound {
+			// Control-only cells never bind a Gateway Catalog; Build skips them
+			// the same way, so the review listing must not fail on them.
+			continue
+		}
 		closure, reasons, err := finalv5profile.ComputeClosure(master, cell.Products)
 		if err != nil {
 			return err
