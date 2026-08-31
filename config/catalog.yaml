@@ -434,7 +434,7 @@ products:
     stable_relation_role: final_v5_result_heavy
     scopes: [category]
     allowed_functions: []
-    allowed_operators: ["<=", "in"]
+    allowed_operators: ["=", "<="]
     allowed_aggregates: [sum]
     fields:
       - name: row_id
@@ -470,7 +470,7 @@ products:
     stable_relation_role: final_v5_result_heavy
     scopes: [category]
     allowed_functions: []
-    allowed_operators: ["<=", "in"]
+    allowed_operators: ["=", "<="]
     allowed_aggregates: [sum]
     fields:
       - name: row_id
