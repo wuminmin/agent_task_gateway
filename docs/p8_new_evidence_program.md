@@ -81,3 +81,13 @@
   新面：FootprintVerificationEvidence + sample-v3 条件块 + finalv5footprint 语料绑定 + adapter footprint.go + validator + 
   launcher 映射/example 配置/workloads 声明（slice c）。
 
+## 阶梯有界臂拒绝码修订（2026-09-01，pilot-footprint-04 实证）
+
+有界臂的拒绝有两个站点，码按阶先验可导出（`Rung.BoundedRefusalCode()`）：
+
+- 证据行跨度（阶的基行数）≤ Dependency 上限 400：预留期估算越界，拒 `EXPOSURE_BUDGET_EXHAUSTED`（第 2、3 阶，100 行）。
+- 跨度 > 400：完整来源证据在该预算下不可能产出，fail-closed 拒 `EXPOSURE_EVIDENCE_REQUIRED`，零计费（第 4–12 阶，≥1000 行；pilot-footprint-04 第 4 阶实录 0/0/0 计费）。
+
+这是既有生产语义（三个产生站点读码核对），不改任何被测路径；改的是实验主张——两码都是暴露契约下的未计费拒绝，
+按站点区分并逐阶钉死。第 1 阶按语料精确计费获释放（1 release / 400 dependency / 6 outcome，标量 799819/2）。
+

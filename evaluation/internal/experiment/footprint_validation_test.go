@@ -30,7 +30,7 @@ func validFootprintSample(t *testing.T, mode string) Sample {
 			ClientMS:         1.5, RootTaskIDHash: strings.Repeat("a", 64),
 			ExpectedDependencyFacts: want.Dependency.Cardinality}
 		if mode == "bounded" && want.BoundedRefused {
-			rung.Rejected, rung.ObservedErrorCode = true, "EXPOSURE_BUDGET_EXHAUSTED"
+			rung.Rejected, rung.ObservedErrorCode = true, want.BoundedRefusalCode()
 			evidence.RefusedRungs++
 		} else {
 			rung.Accepted = true
@@ -67,7 +67,10 @@ func TestFootprintLadderEvidenceBindsTheFrozenCorpus(t *testing.T) {
 		{"missing refusal", func(s *Sample) {
 			s.FootprintVerification.Rungs[3].Rejected = false
 			s.FootprintVerification.Rungs[3].Accepted = true
-		}, "must refuse"},
+		}, "refusal code"},
+		{"swapped refusal site code", func(s *Sample) {
+			s.FootprintVerification.Rungs[3].ObservedErrorCode = "EXPOSURE_BUDGET_EXHAUSTED"
+		}, "refusal code"},
 		{"zero client_ms", func(s *Sample) { s.FootprintVerification.Rungs[0].ClientMS = 0 }, "client_ms"},
 		{"drifted scalar", func(s *Sample) { s.FootprintVerification.Rungs[0].ObservedScalars[0] = "1/1" }, "scalars"},
 		{"charge drift", func(s *Sample) { s.FootprintVerification.Rungs[0].ChargedDependencyFacts++ }, "charges"},

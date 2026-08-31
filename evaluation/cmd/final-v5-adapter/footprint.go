@@ -149,7 +149,7 @@ func (adapter *footprintAdapter) runLadder(ctx context.Context, operation experi
 				return finish(), callErr
 			}
 			evidence.Rungs = append(evidence.Rungs, step)
-			if !wantRefused || structured.Code != "EXPOSURE_BUDGET_EXHAUSTED" {
+			if !wantRefused || structured.Code != want.BoundedRefusalCode() {
 				return finish(), &footprintInvariantError{reason: fmt.Sprintf(
 					"footprint rung %d rejection %q differs from the a-priori ladder design", want.Index, structured.Code)}
 			}

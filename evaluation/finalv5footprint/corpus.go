@@ -93,6 +93,22 @@ var LadderColumnSets = [][]string{
 	{"amount", "quantity", "unit_price", "tax_amount"},
 }
 
+// BoundedRefusalCode is the a-priori refusal code of a BoundedRefused rung.
+// The Gateway refuses at one of two sites: when the rung's evidence-row span
+// (its base rows) still fits the task's Dependency limit, the pre-execution
+// estimate crosses the remaining budget and the reservation refuses with
+// EXPOSURE_BUDGET_EXHAUSTED; when the span itself exceeds the Dependency
+// limit, complete provenance evidence can never be produced and the query
+// fails closed with EXPOSURE_EVIDENCE_REQUIRED, charging nothing. Both are
+// uncharged refusals under the exposure contract (observed on
+// pilot-footprint-04; rungs 2-3 vs rung 4).
+func (rung Rung) BoundedRefusalCode() string {
+	if rung.Rows > BoundedMaxDependencyFacts {
+		return "EXPOSURE_EVIDENCE_REQUIRED"
+	}
+	return "EXPOSURE_BUDGET_EXHAUSTED"
+}
+
 func (rung Rung) LogicalSQL(product string) string {
 	return strings.Replace(rung.DirectSQL, CanonicalTable, product, 1)
 }

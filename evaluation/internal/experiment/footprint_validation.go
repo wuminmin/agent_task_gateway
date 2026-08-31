@@ -64,10 +64,10 @@ func ValidateFootprintEvidence(sample Sample) error {
 		}
 		wantRefused := sample.Mode == "bounded" && want.BoundedRefused
 		if wantRefused {
-			if rung.Accepted || !rung.Rejected || rung.ObservedErrorCode != "EXPOSURE_BUDGET_EXHAUSTED" ||
+			if rung.Accepted || !rung.Rejected || rung.ObservedErrorCode != want.BoundedRefusalCode() ||
 				rung.ChargedReleaseFacts != 0 || rung.ChargedDependencyFacts != 0 || rung.ChargedOutcomeFacts != 0 ||
 				len(rung.ObservedScalars) != 0 {
-				return fmt.Errorf("footprint rung %d must refuse on the Dependency ceiling without charging", position+1)
+				return fmt.Errorf("footprint rung %d must carry its a-priori refusal code without charging", position+1)
 			}
 			refused++
 			continue
