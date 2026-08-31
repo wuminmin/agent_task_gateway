@@ -115,3 +115,14 @@ B_O = 语句数 + 不同谓词原子数，B_Q = 4·B_O；三套 profile：benign
 B. 证据信封+校验器+schema+adapter（复用 footprint 模式，独立 experiment id \'benign\'）；
 C. 声明+profile+激活+launcher 三处白名单+试点。
 
+### (c3) 依赖口径定论（2026-09-01，读代码 internal/queryplan/relational.go）
+
+companion（ProvenanceSQL）只应用 WHERE，不含 HAVING 与 LIMIT：依赖足迹 = WHERE 幸存基行 ×（1+evidence 字段数），
+与可见结果是否为空无关。后果：q25（HAVING 全排除，输出 0 行）仍计 250k 行依赖；q30（LIMIT 100）仍计全部 ~5.7 万幸存行；
+q28（WHERE 匹配 0 行）companion 0 行 → 依赖 0。evidence 字段集与 join 双源结构一律取自 CompileRelational 的
+Sources[].EvidenceFields，不手推。配方 B_D 由此为 max 单语句足迹（预计量级 ~1.1M，q23 连接）。
+分类链复用 harness_sql_test 的纯 Go 三链（QueryProductFromCatalog + Lower + Compile(Relational) + sqlpolicy.Authorize，
+live catalog 的产品面），良性任务 scope 取全包含集（dept 全三值/partition_key=1/category 全四值），不改变语句语义。
+语料 v1 钉：语句字节 sha、分类三层、释放行数与释放事实基数、依赖基数与集合摘要、谓词原子数；聚合标量不钉（RQ1 已覆盖正确性，
+(c3) 只测拒绝），如实记录该范围决定。
+
