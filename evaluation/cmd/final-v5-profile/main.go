@@ -490,7 +490,6 @@ func buildIntersection(registry finalv5profile.Registry) intersectionReport {
 	return report
 }
 
-
 func intersect(left, right []string) []string {
 	present := map[string]bool{}
 	for _, value := range right {
