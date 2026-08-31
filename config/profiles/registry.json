@@ -390,6 +390,70 @@
       "within_hot_limit": true
     },
     {
+      "profile_id": "profile-52504d68e0f7fa28",
+      "alias": "footprint-unlimited",
+      "closure": {
+        "products": [
+          "final_v5_footprint_unlimited_result_heavy"
+        ],
+        "publications": [
+          "final-v5-result-heavy-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category"
+        ],
+        "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-52504d68e0f7fa28",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-footprint-unlimited-v1"
+      ],
+      "workload_cells": [
+        "footprint/refused-footprint-ladder-v1/1e5-rows/unlimited"
+      ],
+      "experiments": [
+        "footprint"
+      ],
+      "catalog_sha256": "3a0d77eb01b1ee5da7afc96c4394d072ef56f713a0ca92a846044b88fedec1f2",
+      "catalog_path": "config/profiles/footprint-unlimited.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        }
+      ],
+      "total_hot_bytes": 126813361,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
       "profile_id": "profile-5b48ad2a02c5446d",
       "alias": "analytics-orders-lineitem",
       "closure": {
@@ -704,6 +768,70 @@
       ],
       "catalog_sha256": "e7232c7bfdc85b9c661f69f2e66638ab9fc70c607c05e1267b73af0d4ecc4256",
       "catalog_path": "config/profiles/result-heavy.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        }
+      ],
+      "total_hot_bytes": 126813361,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-ac3d38a970ae15e6",
+      "alias": "footprint-bounded",
+      "closure": {
+        "products": [
+          "final_v5_footprint_bounded_result_heavy"
+        ],
+        "publications": [
+          "final-v5-result-heavy-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category"
+        ],
+        "closure_sha256": "ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-ac3d38a970ae15e6",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-footprint-bounded-v1"
+      ],
+      "workload_cells": [
+        "footprint/refused-footprint-ladder-v1/1e5-rows/bounded"
+      ],
+      "experiments": [
+        "footprint"
+      ],
+      "catalog_sha256": "0bf304c0bb7a679d052e25f0808ff6d7734079ff54f8f0f73d46760417eeefdf",
+      "catalog_path": "config/profiles/footprint-bounded.catalog.yaml",
       "hot_artifacts": [
         {
           "publication": "final-v5-result-heavy-v1",
