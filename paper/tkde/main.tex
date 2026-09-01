@@ -100,12 +100,12 @@ budget, positive-output dependency footprint, query-outcome accounting
 
 \IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
 An adaptive agent adds, ``How much policy-defined exposure has this task
-acquired?'' Within one approved task, an agent may split projections, overlap
-pages, retry, rewrite, and delegate (each child grant human-approved)
-while individual queries remain legal,
-and per-query authorization and row limits do not state the root family's
-distinct cumulative exposure; BDG accounts that contract-defined quantity,
-not the agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
+acquired?'' Within one approved task, an agent may split projections,
+overlap pages, retry, rewrite, and delegate (each child grant
+human-approved) while individual queries remain legal, and per-query
+authorization and row limits do not state the root family's distinct
+cumulative exposure. BDG accounts that contract-defined quantity, not the
+agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
 allowed \cite{summers2026dataflow,summers2026passant}; conditional on
 authorization and any DFC check, BDG asks whether the next allowed execution
 fits the root's cumulative contract.
@@ -132,12 +132,12 @@ gap (Data Product MCP
 \cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}), but
 once a purpose is approved, per-query checks still do not state how much
 governed data the task has cumulatively released. BDG starts at that boundary
-as a brownfield-compatible data-egress layer at the governed serving tier:
-the reporting pipeline supplies immutable publications, the Catalog supplies
-Products and attested stable keys, identity and workflow systems supply
-subject, purpose, and approval, and BDG compiles these into a signed task
-contract settled at a model-independent database boundary; the raw lake is
-never exposed to the agent.
+as a brownfield-compatible data-egress layer at the governed serving tier.
+The reporting pipeline supplies immutable publications, the Catalog
+supplies Products and attested stable keys, and identity and workflow
+systems supply subject, purpose, and approval; BDG compiles these into a
+signed task contract settled at a model-independent database boundary, and
+the raw lake is never exposed to the agent.
 
 \system budgets the root task in three set-valued dimensions. \emph{Accounted
 result exposure} identifies selected result values (wire label \emph{release});
@@ -1240,7 +1240,7 @@ the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
 Baseline cells (sixteen workload/scale pairs with direct, novel, and the
 protocol-defined replay cells) a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
-times its direct PostgreSQL equivalent, and that cost follows the total Fact
+times its direct PostgreSQL equivalent. That cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSTwoRows{} grouped rows over
 \FinalVFivePublicationSTwoDependencyFacts{} dependencies in
