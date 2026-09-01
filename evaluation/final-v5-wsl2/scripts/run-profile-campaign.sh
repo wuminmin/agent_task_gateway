@@ -18,6 +18,23 @@ repetitions="${TASKGATE_CAMPAIGN_REPETITIONS:-}"
 diagnosis_mode="${TASKGATE_P68_CLIFF_DIAGNOSIS:-}"
 [[ -z "$diagnosis_mode" || "$diagnosis_mode" == "DIAGNOSIS-NOT-FOR-PUBLICATION" ]] || {
   echo "unknown P68 diagnosis mode" >&2; exit 2; }
+# Rigorous-pilot sample count: a pilot run with publication-grade per-cell N and
+# warmups (still campaign_class=pilot, publication_eligible=false; this is the
+# multi-deployment retained-campaign tier, NOT the sealed 172-cell protocol).
+# Extension experiments (counter/footprint/benign/adversary) use this to earn
+# statistical weight without appropriating the publication protocol flag.
+# The pilot invariant (evaluation/internal/experiment/types.go: at most three
+# samples per cell, one deployment) is deliberate and not weakened here. The
+# rigorous-pilot mode stays within it: up to three samples per cell, and the
+# three fresh deployments come from TASKGATE_CAMPAIGN_REPETITIONS=3. For the
+# deterministic frozen-table extension experiments, 3 deployments x 3 samples
+# is strong reproducibility evidence without publication-class machinery.
+rigor_samples="${TASKGATE_PILOT_SAMPLES:-}"
+if [[ -n "$rigor_samples" ]]; then
+  [[ "$rigor_samples" =~ ^[123]$ ]] || { echo "TASKGATE_PILOT_SAMPLES must be 1, 2, or 3 (pilot invariant)" >&2; exit 2; }
+  [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]] || { echo "TASKGATE_PILOT_SAMPLES is only valid for pilot class" >&2; exit 2; }
+  [[ -z "$diagnosis_mode" ]] || { echo "TASKGATE_PILOT_SAMPLES is incompatible with P68 diagnosis mode" >&2; exit 2; }
+fi
 if [[ -z "$repetitions" ]]; then
   repetitions=1
   [[ "$TASKGATE_EXPERIMENT_CLASS" != publication ]] || repetitions=3
@@ -975,9 +992,14 @@ for alias in "${selected_profiles[@]}"; do
            .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=5 | .samples=30 |
            .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
       elif [[ "$TASKGATE_EXPERIMENT_CLASS" == pilot ]]; then
+        pilot_warmups=0; pilot_samples=1
+        # Only the per-cell sample count rises (proven pilot-counter-05 ran at
+        # warmups=0); the three deployments come from repetitions.
+        if [[ -n "$rigor_samples" ]]; then pilot_samples="$rigor_samples"; fi
         jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
+          --argjson warmups "$pilot_warmups" --argjson samples "$pilot_samples" \
           '.campaign_class="pilot" | .pilot_kind="real_system" | .campaign_id=$campaign |
-           .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=0 | .samples=1 |
+           .submission_commit=$commit | .deployments=1 | .process_replicates=1 | .warmups=$warmups | .samples=$samples |
            .fresh_root_per_sample=true' "$(config_source "$experiment")" >"$config"
       else
         jq --arg campaign "$TASKGATE_CAMPAIGN_ID" --arg commit "$TASKGATE_SUBMISSION_COMMIT" \
