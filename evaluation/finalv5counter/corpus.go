@@ -58,8 +58,8 @@ var ArmProfiles = map[string]string{
 
 // StepOutcome is one step's a-priori expectation under one arm and ordering.
 type StepOutcome struct {
-	Position     int    `json:"position"`      // 1-based position in the ordering
-	SourceIndex  int    `json:"source_index"`  // the step's index in the natural corpus
+	Position     int    `json:"position"`     // 1-based position in the ordering
+	SourceIndex  int    `json:"source_index"` // the step's index in the natural corpus
 	StepID       string `json:"step_id"`
 	Accepted     bool   `json:"accepted"`
 	RefusalKind  string `json:"refusal_kind,omitempty"` // exposure | resource | archived
