@@ -496,12 +496,12 @@ $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
  \label{eq:outcome-fact}
 \end{equation}
 Repeated literals and supported rewrites thus reuse atom identities, while
-the composite commits to the normalized query, exact result observation, and
-complete atom set, so every distinct successful query, including every page
-of a paged result, adds one composite and $B_O$ therefore also caps the
-number of distinct successful queries; the Merkle-radix set stores $M_O(q)$, empty results and
-scalar zero remain explicit, and the signed grant bounds literal occurrences,
-unique atoms, and atom payloads before settlement.
+the composite commits to the normalized query, exact result observation,
+and complete atom set, so every distinct successful query (every page
+included) adds one composite and $B_O$ also caps distinct successful
+queries; the Merkle-radix set stores $M_O(q)$, empty results and scalar
+zero stay explicit, and the signed grant bounds literal occurrences, unique
+atoms, and payloads before settlement.
 
 \begin{proposition}[Fact identity well-definedness]
 \label{thm:fact-identity}
@@ -938,8 +938,8 @@ $\mathsf{Available}\Rightarrow\mathsf{Settled}$, but not conversely.
 Unlike request idempotence, semantic replay binds task/grant, typed normal
 form/parameters, Catalog/schema/publication/dictionaries, and every profile
 and encoding version; a hit skips Business/provenance SQL but still
-reauthorizes, charges resources, audits, receipts, and re-encrypts, any
-mismatch takes the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
+reauthorizes, meters, audits, receipts, and re-encrypts; any mismatch takes
+the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
 
 \subsection{Receipts and Failure Semantics}
 
