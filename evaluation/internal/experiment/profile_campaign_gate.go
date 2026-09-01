@@ -305,16 +305,16 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 		if sample.TaskGateAcceptanceV3 != nil || sample.BenignVerification == nil {
 			return errors.New("benign pass must use benign verification without top-level v3 acceptance")
 		}
+		if sample.System != "taskgate" ||
+			(sample.Mode != "recipe" && sample.Mode != "x2" && sample.Mode != "x4") {
+			return errors.New("benign pass has the wrong mode/system shape")
+		}
 	case "counter":
 		if sample.TaskGateAcceptanceV3 != nil || sample.CounterVerification == nil {
 			return errors.New("counter pass must use counter verification without top-level v3 acceptance")
 		}
 		if sample.System != "taskgate" {
 			return errors.New("counter pass has the wrong system shape")
-		}
-		if sample.System != "taskgate" ||
-			(sample.Mode != "recipe" && sample.Mode != "x2" && sample.Mode != "x4") {
-			return errors.New("benign pass has the wrong mode/system shape")
 		}
 	default:
 		return errors.New("unknown experiment terminal shape")
