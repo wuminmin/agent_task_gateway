@@ -405,12 +405,10 @@ $T$ or any delegated descendant. Then
  \end{aligned}
  \label{eq:publication-binding}
 \end{equation}
-The Catalog transitively binds the grant and FactID environment to that epoch;
-ledger state, replay metadata, result evidence, audit events, and receipts
-carry the corresponding publication and dictionary bindings. Execution,
-settlement, and replay fail closed if they differ. Consequently an active root
-cannot switch publications, even after the next cut becomes active for new
-approvals.
+The Catalog transitively binds the grant and FactID environment to that
+epoch; ledger state, replay metadata, evidence, audits, and receipts carry
+the same bindings, and execution, settlement, and replay fail closed if
+they differ, so an active root cannot switch publications.
 
 \subsection{Facts and Task State}
 
@@ -1089,12 +1087,10 @@ may release times their fields; $B_D$ the largest admitted aggregate's
 footprint (rows times argument fields), which for a full-Product aggregate
 equals the Product's fact count, so $B_D$ then protects only against
 reading further Products or columns; $B_O$ the expected pages plus distinct
-predicates; $B_Q$ a small multiple of $B_O$. The supplement works
-the campaign's bounded profile
-($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
-$B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}), the
-count-probe ladder, and
-a page sweep---a toy department, not a realistic-scale calibration.
+predicates; $B_Q$ a small multiple of $B_O$. The supplement works the campaign's
+bounded profile (its budgets and refusal point: Section~\ref{sec:evaluation}), the
+count-probe ladder, and a page sweep---a toy department, not a
+realistic-scale calibration.
 
 \section{System Realization}
 \label{sec:system}
