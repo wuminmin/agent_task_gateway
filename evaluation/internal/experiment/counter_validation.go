@@ -11,10 +11,11 @@ import (
 const CounterEvidenceVersion = "taskgate-final-v5-counter-evidence-v1"
 
 // counterRefusalCodes maps the corpus's a-priori refusal kinds to the wire
-// codes the production Gateway answers with.
+// codes the production Gateway answers with (pilot-counter-02: resource
+// crossings never refuse - they truncate and archive, so only exposure and
+// archived kinds exist).
 var counterRefusalCodes = map[string]string{
 	"exposure": "EXPOSURE_BUDGET_EXHAUSTED",
-	"resource": "BUDGET_EXHAUSTED",
 	"archived": "TASK_NOT_ACTIVE",
 }
 

@@ -61,15 +61,26 @@ var ArmProfiles = map[string]string{
 
 // StepOutcome is one step's a-priori expectation under one arm and ordering.
 type StepOutcome struct {
-	Position     int    `json:"position"`     // 1-based position in the ordering
-	SourceIndex  int    `json:"source_index"` // the step's index in the natural corpus
-	StepID       string `json:"step_id"`
-	Accepted     bool   `json:"accepted"`
-	RefusalKind  string `json:"refusal_kind,omitempty"` // exposure | resource | archived
+	Position    int    `json:"position"`     // 1-based position in the ordering
+	SourceIndex int    `json:"source_index"` // the step's index in the natural corpus
+	StepID      string `json:"step_id"`
+	Accepted    bool   `json:"accepted"`
+	// RefusalKind: exposure (refused uncharged, task stays active) or
+	// archived (a resource counter reached its ceiling at an earlier
+	// settlement and the task is closed; pilot-counter-02 showed resource
+	// crossings never refuse the crossing query - they truncate it).
+	RefusalKind  string `json:"refusal_kind,omitempty"`
 	ReleasedRows int64  `json:"released_rows"`
-	NovelRelease int64  `json:"novel_release"`
-	NovelDep     int64  `json:"novel_dependency"`
-	NovelOutcome int64  `json:"novel_outcome"`
+	// Truncated marks a row-counter crossing: the query is accepted with
+	// ReleasedRows clamped to the remaining row budget, the settlement
+	// reaches the ceiling, and the task archives. Its novel fact
+	// contributions are deliberately not modeled offline (the truncated
+	// composite has a new identity); the distinct totals below count fully
+	// accepted steps only.
+	Truncated    bool  `json:"truncated,omitempty"`
+	NovelRelease int64 `json:"novel_release"`
+	NovelDep     int64 `json:"novel_dependency"`
+	NovelOutcome int64 `json:"novel_outcome"`
 }
 
 // ArmTrace is the full a-priori outcome table of one arm x ordering cell.
@@ -261,9 +272,15 @@ func simulateArm(arm, ordering string, order []int, steps []finalv5rls.Step) (Ar
 		switch {
 		case archived:
 			outcomeRow.RefusalKind = "archived"
-		case queriesUsed+1 > maxQueries || rowsUsed+stepRows > maxRows:
-			// A resource crossing consumes the attempt and archives the task.
-			outcomeRow.RefusalKind = "resource"
+		case rowsUsed+stepRows > maxRows:
+			// A row-counter crossing truncates: the query is accepted with
+			// the remaining budget as its limit, the settlement reaches the
+			// ceiling, and the task archives (pilot-counter-02, step 58).
+			outcomeRow.Accepted = true
+			outcomeRow.Truncated = true
+			outcomeRow.ReleasedRows = maxRows - rowsUsed
+			rowsUsed = maxRows
+			trace.ReleasedRowTotal += outcomeRow.ReleasedRows
 			archived = true
 		case int64(len(release))+novelRelease > maxRelease ||
 			int64(len(dependency))+novelDep > maxDependency ||
@@ -278,8 +295,16 @@ func simulateArm(arm, ordering string, order []int, steps []finalv5rls.Step) (Ar
 			admit(outcome, step.Oracle.Outcome)
 			rowsUsed += stepRows
 			trace.ReleasedRowTotal += stepRows
+			if rowsUsed == maxRows {
+				archived = true
+			}
 		}
 		queriesUsed++
+		if queriesUsed == maxQueries {
+			// The query counter reaches its ceiling at this settlement and
+			// the task archives; later steps are refused as archived.
+			archived = true
+		}
 		if !outcomeRow.Accepted {
 			trace.RefusedSteps++
 			if trace.FirstRefusal == 0 {
