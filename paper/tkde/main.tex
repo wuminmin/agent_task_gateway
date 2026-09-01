@@ -278,8 +278,8 @@ Go/PostgreSQL differential, generated-plan, and fault-injection evidence.
 
 \subsection{Closest System Families}
 
-The supplement tabulates, for each family below, the controlled object,
-the horizon and persistent subject, and the enforcement/release coupling.
+The supplement tabulates each family's controlled object, horizon and
+persistent subject, and enforcement/release coupling.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
 whether a history determines forbidden data, and simulatable auditing also
@@ -890,24 +890,13 @@ Release/Dependency use segmented Roaring bitmaps, Outcome hashes enter an
 exact Merkle-radix set, and invalid handles, manifests, encodings, overflow,
 or truncation fail closed.
 
-\begin{proposition}[Exact bitmap refinement]
-\label{thm:bitmap-refinement}
-For canonical bitmaps $A$ and $B$ in one dictionary segment,
-$\operatorname{Decode}(A\mathbin{\mathrm{OR}}B)=
-\operatorname{Decode}(A)\cup\operatorname{Decode}(B)$,
-$\operatorname{Decode}(A\mathbin{\mathrm{ANDNOT}}B)=
-\operatorname{Decode}(A)\setminus\operatorname{Decode}(B)$, and
-$\operatorname{popcount}(A)=|\operatorname{Decode}(A)|$. For every successful
-query in the closed online algebra, decoding the streamed bitmap components
-yields exactly the release and dependency components of $\effect(q,D_s)$.
-\end{proposition}
-\emph{Argument.} Bijective decoding turns OR, ANDNOT, and popcount into exact
-set operations, and induction over the closed algebra substitutes ordinals
-for singleton facts without changing support or witness commitments
-(supplement).
-
+Decoding is exact: within one dictionary segment, bitmap OR, ANDNOT, and
+popcount correspond to set union, difference, and cardinality, and for
+every successful query in the closed online algebra the streamed bitmap
+components decode to exactly the release and dependency components of
+$\effect(q,D_s)$ (proposition and proof in the supplement).
 For Outcome, hash prefixes route immutable, content-addressed leaves and
-blocks, but membership always compares the full SHA-256 value. Physical
+blocks, but membership always compares the full SHA-256 value; physical
 leaf/block encodings are supplemental.
 
 \begin{proposition}[Exact incremental Outcome-set refinement]
@@ -921,9 +910,8 @@ $C_O\setminus\operatorname{Decode}(K_O)$ exactly. Any changed member, count,
 prefix, chunk, block, or root manifest changes a verified digest except with a
 SHA-256 collision.
 \end{proposition}
-\emph{Argument.} Prefix routing partitions the full-hash universe, so an
-inserted candidate affects only its own partitions; comparison is over all
-256 bits and the Merkle path authenticates reused partitions.
+\emph{Argument in the supplement} (prefix routing partitions the full-hash
+universe; comparison is over all 256 bits).
 
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
@@ -1058,7 +1046,8 @@ In every execution of this system, every committed head equals the
 componentwise union of the effects of exactly the queries whose swap
 succeeded and satisfies $|K_X|\le B_X$ for all $X\in\{R,D,O\}$; the
 property is unchanged when $K_X$ is represented by dictionary bitmaps or the
-Merkle-radix set (Propositions~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
+Merkle-radix set (Proposition~\ref{thm:outcome-radix-refinement} and the
+supplement's bitmap-refinement proposition).
 \end{property}
 \emph{Argument.} Induct on successful swaps in linearization order: the
 initial head is empty, each successful swap extends the head by exactly the
@@ -1106,8 +1095,8 @@ reading further Products or columns; $B_O$ the expected pages plus distinct
 predicates; $B_Q$ a small multiple of $B_O$. The supplement works
 the campaign's bounded profile
 ($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
-$B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}
-while row and query counters admit everything), the count-probe ladder, and
+$B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}), the
+count-probe ladder, and
 a page sweep---a toy department, not a realistic-scale calibration.
 
 \section{System Realization}
@@ -1430,7 +1419,7 @@ Arm & Accepted & First refusal & Distinct Dep. \\
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.34\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.30\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30,
   ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},

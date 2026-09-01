@@ -562,6 +562,17 @@ canonical fold length applies the same support-union argument to every node in
 an admitted join graph.
 \end{proof}
 
+\begin{proposition}[Exact bitmap refinement]
+For canonical bitmaps $A$ and $B$ in one dictionary segment,
+$\operatorname{Decode}(A\mathbin{\mathrm{OR}}B)=
+\operatorname{Decode}(A)\cup\operatorname{Decode}(B)$,
+$\operatorname{Decode}(A\mathbin{\mathrm{ANDNOT}}B)=
+\operatorname{Decode}(A)\setminus\operatorname{Decode}(B)$, and
+$\operatorname{popcount}(A)=|\operatorname{Decode}(A)|$. For every successful
+query in the closed online algebra, decoding the streamed bitmap components
+yields exactly the release and dependency components of $\effect(q,D_s)$.
+\end{proposition}
+
 \begin{proof}[Proof of Exact bitmap refinement]
 The first three equalities follow pointwise from the dictionary bijection and
 exact bitmap membership. For query derivation, structural induction follows
