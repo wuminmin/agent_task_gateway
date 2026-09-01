@@ -2,7 +2,7 @@
   "schema_version": 1,
   "corpus_id": "taskgate-final-v5-counter-comparator-corpus-v1",
   "workload_id": "counter-comparator-v1",
-  "product": "final_v5_counter_expense_detail",
+  "product": "final_v5_rls_unlimited_expense_detail",
   "rls_corpus_id": "taskgate-final-v5-rls-corpus-v1",
   "ordering_indexes": {
     "natural": [
