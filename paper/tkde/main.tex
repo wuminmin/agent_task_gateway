@@ -228,12 +228,11 @@ object and a second transaction records AVAILABLE/CONSUMED
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{Publication-time ordinals identify frozen Release/Dependency facts
-and an exact Merkle-radix set holds Outcome hashes; root-family accounting is
-atomic, Parquet publication is recoverable and fail-closed between PENDING and
-AVAILABLE, and a cache hit reuses a committed observation---saving the Fact
-charge and the business SQL, not latency---while authorization, metering,
-audit, receipt, and commit-before-release still run.}
+\caption{Publication-time ordinals identify frozen Release/Dependency
+facts and an exact Merkle-radix set holds Outcome hashes; root-family
+accounting is atomic, Parquet publication is recoverable and fail-closed
+between PENDING and AVAILABLE, and a replay hit reuses a committed
+observation (Section~\ref{sec:online}).}
 \label{fig:architecture-settlement}
 \end{figure*}
 
@@ -1169,7 +1168,8 @@ such oracles cannot detect specification errors or a shared misreading of
 PostgreSQL semantics, so we claim consistency with our oracle rather than
 independent validation, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
 cases are regression evidence, not statistical evidence; one check shares
-nothing with our specification: a pilot-class rerun expands ProvSQL's own
+nothing with our specification: a pilot-class rerun
+(\FinalVFiveProvSQLLeafSamples{} samples) expands ProvSQL's own
 circuit to its base tuples on the paired join cells and finds them equal,
 member by member, to the oracle's \FinalVFiveProvSQLLeafTotalRowFacts{}
 base-row facts, to which BDG's Dependency sets are linked in turn),
@@ -1382,16 +1382,21 @@ RLS admitting every query is definitional (no cumulative budget): the
 comparison shows where a set budget binds. The counter comparators are also \emph{executed} (retained
 pilot, supplement): the same trace under row-, query-, and release-set
 budgets fixed a priori by the same $\lfloor 0.7\,U\rfloor$ recipe per
-unit, in three orders each, released the full
+unit (unlike the supplement's campaign-derived counter replay, which is
+calibrated to the set ledger's stopping point), in three orders each,
+released the full
 \FinalVFiveCounterNaiveMinDep{}-fact Dependency union in every order; the
 exact floors capped release at \FinalVFiveCounterExactMaxDep{} in every
 order (Table~\ref{tab:counter-executed-main}).
 
 \begin{table}[!t]
 \centering
-\caption{Executed comparator arms (retained pilot): queries accepted,
-first refusal step, and final distinct Dependency facts, as
-natural\,/\,shuffled\,/\,novelty-first order.}
+\caption{Executed comparator arms (retained pilot; campaign class pilot,
+not publication evidence): queries accepted, first refusal step, and final
+distinct Dependency facts, as natural\,/\,shuffled\,/\,novelty-first
+order. An exposure refusal does not archive the task, so a first refusal
+at step 1 coexists with later acceptances; row/query-counter crossings
+instead truncate and archive (supplement).}
 \label{tab:counter-executed-main}
 \scriptsize
 \setlength{\tabcolsep}{3pt}
