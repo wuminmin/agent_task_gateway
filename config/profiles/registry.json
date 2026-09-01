@@ -761,7 +761,7 @@
       "experiments": [
         "counter"
       ],
-      "catalog_sha256": "ccd51dd7d0b86fe1173eb353c8baaa889831c408e44516df1d850bdaa7d6353e",
+      "catalog_sha256": "6adcee8f50423187551a47e646cdf794faed57db85e92e5914889d272803d60c",
       "catalog_path": "config/profiles/counter-exact.catalog.yaml",
       "hot_artifacts": [
         {
@@ -1144,7 +1144,7 @@
       "experiments": [
         "counter"
       ],
-      "catalog_sha256": "379dcec47966e0a714039c06fe8bb00266eef86def4d0a86aaa10d67eadde825",
+      "catalog_sha256": "cf24a6fd0bc755bcd03ff53b4c7387d77cecf0b139f069fc8c3cbd151f0d01fb",
       "catalog_path": "config/profiles/counter-queries.catalog.yaml",
       "hot_artifacts": [
         {
@@ -1211,7 +1211,7 @@
       "experiments": [
         "counter"
       ],
-      "catalog_sha256": "99caac03181a45ce6a5858e9cba55ea49422127054fdfeb566882f99339a0a3b",
+      "catalog_sha256": "a4141761cd6273dc3c5e7dcff5ac0a35b5634808dcabc7137e13a8e9f254f34a",
       "catalog_path": "config/profiles/counter-release.catalog.yaml",
       "hot_artifacts": [
         {
@@ -1375,7 +1375,7 @@
       "experiments": [
         "counter"
       ],
-      "catalog_sha256": "f772f52ed06bb58ca94345b9b31258bf986b80288cab61e7bf377ec7c2d04ffe",
+      "catalog_sha256": "ec36c2e4655b3e8ade05f86247db1d5029b01a2e321843dd309cc414440a3939",
       "catalog_path": "config/profiles/counter-rows.catalog.yaml",
       "hot_artifacts": [
         {
