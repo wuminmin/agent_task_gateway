@@ -85,9 +85,9 @@ single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
 within its set budgets, and costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
-a direct query, with settlement alone at
-\FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
-history.
+a direct query (per-cell medians over sixteen workload/scale pairs), with
+settlement alone at a median \FinalVFivePublicationScaleSettleMillionMS{}~ms
+at zero ledger overlap against a million-fact history.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -287,7 +287,11 @@ protects denial
 \cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable};
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
-reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
+reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp};
+DProvDB \cite{zhang2023dprovdb} keeps the closest shape---a persistent
+per-analyst cumulative budget---but meters DP privacy loss over noised
+views, where BDG's ledger is an exact set of declared identities with
+zero-charge replay and no noise.
 Statistical-database inference control studied trackers, query-set overlap,
 and cumulative auditing
 \cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness};
@@ -353,8 +357,8 @@ a 64-bit cell in 64 settled probes; $B_Q$ adds 128 refusal bits per task);
 and delegation fan-out,
 bounded by the shared root ledger (the delegated child's refusal). Four
 boundaries hold at this goal: it counts declared identities, not inference;
-only the Catalog tie-break keys of a page order are order-only (every
-\code{ORDER BY} column must be selected); every approved root and
+only the Catalog tie-break keys of a page order are order-only
+(the \code{ORDER BY} selection rule below); every approved root and
 publication epoch has fresh capacity, so release across days is bounded by
 the approval workflow, not by BDG; and the settlement decision is two
 data-dependent counter channels. A rejected attempt is a chosen membership
@@ -428,7 +432,9 @@ fields, and scopes; $S$ is the immutable publication/snapshot binding from
 Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
 dependency-footprint, and query-outcome ceilings together with the request
 budget $B_Q$ (the maximum number of settled or rejected attempts, an
-exposure parameter because it bounds refusals); and $C$ is the signed set of
+exposure parameter because it bounds refusals; a rejected attempt consumes
+one unit of $B_Q$ plus the rows and database time it reserved at admission,
+and charges no exposure set); and $C$ is the signed set of
 semantic and execution constraints and row/time guards.  In particular, $C$ binds the effect
 profile and closed QueryPlan language, type/collation versions, semantic-View
 contracts, delegation rules, replay identity, and result handling.  The
@@ -1171,7 +1177,8 @@ archived V4 run is reported only in the supplement), and RQ5 daily
 publication and retained routing
 (RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
 uses a complete signed profile. Medians and p95 are Type-7
-(linear-interpolation) quantiles over the stated samples; ProvSQL
+(linear-interpolation) quantiles \cite{hyndman1996quantiles} over the
+stated samples; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
 
@@ -1245,7 +1252,11 @@ campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationScaleNonProfileCells{} Scale and
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
 cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
-samples passing, with a verified Receipt on every governed arm.
+samples passing---a sample passes when all its per-sample invariant and
+oracle checks hold, a deterministic verification, not a statistical
+test---with a verified Receipt on every governed arm. Join widths and role
+counts the compiler admits beyond the measured cells are admitted, not
+measured (supplement).
 Table~\ref{tab:baseline-main} gives
 the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
 Baseline cells (sixteen workload/scale pairs, each with a direct and a novel
@@ -1263,7 +1274,7 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 more per Fact than S2, so Release materialization is at least as expensive
 per Fact as Dependency derivation. Settlement is not where exactness is
 paid: the Scale profile below settles against a million-Fact history in
-\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot samples per
+\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot sample per
 cell; not publication-class) splits execute-and-derive: the visible and
 companion SQL together take
 \FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
@@ -1316,9 +1327,9 @@ drains in \FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial
 control); a round of 50 under natural contention drains in
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS{}~ms p50 and
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95,
-i.e., \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{}
-contending requests per second through one root head, one of which settles
-novel work per round; every generated round met the contention condition (30
+i.e., \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{}--\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{}
+contending requests per second across the measured widths and modes through
+one root head, one of which settles novel work per round; every generated round met the contention condition (30
 per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
@@ -1398,9 +1409,15 @@ under both (supplement), so BDG composes with per-query authorization;
 that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
-it could pass. No counter-based arm was executed; the supplement replays
-row and query counters by admission arithmetic as an illustration only (a
-counter's release bound depends on query order, the set ledger's does not).
+it could pass. The counter comparators are also \emph{executed}, not only
+replayed: a retained pilot (campaign class pilot; supplement) ran the same
+trace end to end under row-, query-, and release-set budgets fixed a priori
+by the same $\lfloor 0.7\,U\rfloor$ recipe applied to each control's own
+unit, in three query orders each; all three comparator arms released the
+full \FinalVFiveCounterNaiveMinDep{}-fact distinct Dependency union in
+every order, while the exact set floors capped release at
+\FinalVFiveCounterExactMaxDep{} distinct facts in every order---order moves
+\emph{when} a counter refuses, not \emph{what} it has released.
 
 \begin{figure}[t]
 \centering
