@@ -112,6 +112,17 @@
    "submission_commit": "f654b0068c6b52e1dd897d455140f575321df8b2",
    "measured_samples": 2,
    "note": "Refused-footprint ladder, both arms, one deployment each, one measured sample per cell. Bounded: rung 1 released exactly the corpus footprint (1 Result / 400 Dependency / 6 Outcome facts, scalar 799819/2); rungs 2-3 refused EXPOSURE_BUDGET_EXHAUSTED at the reservation estimate, rungs 4-12 refused EXPOSURE_EVIDENCE_REQUIRED (evidence span above the Dependency limit) with zero charge. Unlimited: all 12 rungs released their exact corpus footprints (up to 700,000 Dependency facts at 100k rows x 4 columns, client 534 ms). Every charge and scalar matched the frozen corpus rung for rung."
+  },
+  {
+   "id": "pilot-benign-05",
+   "family": "benign",
+   "pilot_kind": "profile_campaign",
+   "path": "evaluation/final-v5-wsl2/raw/pilot-benign-05",
+   "campaign_evidence_sha256": "bc966add279f9345e169f300d939ea4439a53efda65db4274648d8fe3724f7c0",
+   "samples_sha256": "de824a0bf2751d87ae8513b9dc2fd3dc427c8a17c31e24405edadda49fa54ca1",
+   "submission_commit": "0deb05d0654c73309660a081629d079a4e620726",
+   "measured_samples": 3,
+   "note": "Benign agent-trace study, definitive run on the HAVING-fixed Gateway: the 27 unedited lowerable statements on one root per arm under the a-priori recipe budgets. Recipe arm: 21 accepted, 5 budget-independent policy refusals, exactly one budget refusal (q26 at position 19; the trace's novel Dependency union 1,456,837 exceeds the conservative recipe budget 1,450,000 by 0.47%). The x2 arm already eliminates every budget refusal (22 accepted, final union 1,456,837 Dependency facts); x4 identical. Cross-statement set-union accounting and HAVING/LIMIT positive-output semantics are visible in the per-step ledger deltas."
   }
  ]
 }
