@@ -121,10 +121,17 @@ func (adapter *counterAdapter) runTrace(ctx context.Context, operation experimen
 		products = append(products, decoy)
 		columns[decoy] = append([]string(nil), decoyColumns...)
 	}
+	scopes := map[string]any{"department": []string{"销售部"}}
+	for _, product := range products {
+		if product == "provsql_nonce" {
+			// partition_key is a scope only of the provsql decoys; approving
+			// it without such a product is an unapproved scope.
+			scopes["partition_key"] = []string{"1"}
+		}
+	}
 	created, err := adapter.real.provisionMultiProductTask(ctx,
 		fmt.Sprintf("Final V5 counter %s %s %s", operation.Mode, operation.Scale, operation.PairID),
-		products, columns, "",
-		map[string]any{"department": []string{"销售部"}, "partition_key": []string{"1"}})
+		products, columns, "", scopes)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
