@@ -851,20 +851,16 @@ HAVING), inner equijoin, union-distinct, and page. Online lowering
 admits one product, a connected 2--16-source equi-join graph, or two-branch
 union-distinct, optionally grouped; the SQL-AST path covers the first two and
 the semantic-View path eliminates a bounded nested DAG into them. Union is
-structured-plan only, pagination is one-product only, and ``online'' does not
-mean arbitrary SQL.
-
-\subsection{Canonical Join and Semantic-View Lowering}
-
-For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
-builder, which emits the multi-way join operator and the deterministic binary
-SQL/effect fold; unsupported joins, set trees, and pagination fail closed,
-and callers cannot supply roles, SQL fragments, FactIDs, or provenance. For
-semantic Views, one catalog snapshot checks definitions, interfaces, and
-dependency edges, expands safe acyclic Views to materialized leaves, and
-emits the same core; four digests (root definition, dependency closure,
-canonical plan, public interface) bind into the Grant and query, drift
-detected at recompilation requires a new approval, and execution resolves
+structured-plan only, pagination is one-product only, and ``online'' does
+not mean arbitrary SQL. For joins, the PostgreSQL AST and Catalog types
+feed the canonical $G_J$ builder, which emits the multi-way join operator
+and the deterministic binary SQL/effect fold; unsupported joins, set trees,
+and pagination fail closed, and callers cannot supply roles, SQL fragments,
+FactIDs, or provenance. For semantic Views, one catalog snapshot checks
+definitions, interfaces, and dependency edges, expands safe acyclic Views
+to materialized leaves, and emits the same core; four digests (root
+definition, dependency closure, canonical plan, public interface) bind into
+the Grant and query, drift requires a new approval, and execution resolves
 least-privilege terminal scopes before reservation.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
@@ -1079,16 +1075,22 @@ permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
 Section~\ref{sec:introduction} dismisses it charges a repeated outcome once
-and bounds no release size, which $B_R$ and $B_D$ do. A data owner derives
-the profile from purpose and Product: $B_R$ is the detail rows the purpose
-may release times their fields; $B_D$ the largest admitted aggregate's
-footprint (rows times argument fields), which for a full-Product aggregate
-equals the Product's fact count, so $B_D$ then protects only against
-reading further Products or columns; $B_O$ the expected pages plus distinct
-predicates; $B_Q$ a small multiple of $B_O$. The supplement works the campaign's
-bounded profile (its budgets and refusal point: Section~\ref{sec:evaluation}), the
-count-probe ladder, and a page sweep---a toy department, not a
-realistic-scale calibration.
+and bounds no release size, which $B_R$ and $B_D$ do. Which dimension binds
+depends on the purpose archetype. \emph{Detail review} (release named
+rows): $B_R$, sized as permitted rows times fields, binds, and $B_D$ tracks
+it. \emph{Single-Product aggregate reporting}: $B_D$ sized to the largest
+admitted aggregate's footprint equals the Product's fact count, so within
+that Product it degenerates and protects only against reading further
+Products or columns; $B_O$ (expected pages plus distinct predicates) is
+then the binding dimension, and the residual per-probe leakage is
+Section~\ref{sec:online}'s quantified channel ($B_Q$ refusal bits, one
+$|\Delta_X|$ per settled probe). \emph{Cross-Product join}: the joined
+footprint exceeds any single Product's, so $B_D$ binds again. In every
+archetype $B_Q$ is a small multiple of $B_O$; the accounting is compliance
+accounting with quantified probe capacity, not extraction resistance. The
+supplement works the campaign's bounded profile (its budgets and refusal
+point: Section~\ref{sec:evaluation}), the count-probe ladder, and a page
+sweep---a toy department, not a realistic-scale calibration.
 
 \section{System Realization}
 \label{sec:system}
