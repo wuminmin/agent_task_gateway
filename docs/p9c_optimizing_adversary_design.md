@@ -37,8 +37,8 @@ equivalent 步再加 amount 格；count 步 = dept+amount 格/行；释放 = 被
    tightened（B_D=12）：贪心按降序阈值逐行吸收（3 格/行），第 5 行被拒，distinct 依赖恰止于 12=B_D——
    **B_D 精确上界 distinct 事实而与查询序无关**；loosened 同 owner。
 
-两策略各在三个预算档跑：owner-derived（B_O=12/B_Q=24）、收紧（B_O=8/B_Q=16）、放松（B_O=18/B_Q=36），
-显示提取量随预算单调、且始终被 O(B_Q + B_O·log) 上界，不被轨迹拟合。
+两策略各在三个预算档跑（档定义见上：owner 10/18/12/24、tightened 10/12/8/16、loosened 24/18/24/48），
+显示提取量随预算单调、且始终被 ⌊B_O/2⌋ 比特与 B_D 个 distinct 事实上界，不被轨迹拟合。
 
 ## 头条断言（待实测复核后写入论文，先验期望）
 
