@@ -355,11 +355,10 @@ a 64-bit cell in 64 settled probes; $B_Q$ adds 128 refusal bits per task);
 and delegation fan-out,
 bounded by the shared root ledger (the delegated child's refusal). Four
 boundaries hold at this goal: it counts declared identities, not inference;
-only the Catalog tie-break keys of a page order are order-only
-(the \code{ORDER BY} selection rule below); every approved root and
-publication epoch has fresh capacity, so release across days is bounded by
-the approval workflow, not by BDG; and the settlement decision is two
-data-dependent counter channels. A rejected attempt is a chosen membership
+page order is order-only in the Catalog tie-break keys alone (the
+\code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds
+cross-day release by the approval workflow, not by BDG; and the settlement
+decision is two data-dependent counter channels. A rejected attempt is a chosen membership
 question over unaccounted facts answered by one bit, charged against $B_Q$
 only and never $B_O$, so rejection capacity is $\sum B_Q$ over the approved
 task tree, not $B_X$ (Section~\ref{sec:online}): under the default route
@@ -1142,13 +1141,12 @@ maps layers and gaps); among them a randomized root-family test settles
 \VFiveFamilyPropertySeeds{} random delegation trees (up to
 \VFiveFamilyPropertyMaxTasks{} tasks, \VFiveFamilyPropertyNarrowedTasks{}
 of them with ceilings drawn below their parent's) in sequential steps and
-concurrent bursts against the live Control store, checking after every step
-that the committed head equals a separately kept plain-set union in all
-three dimensions and never exceeds the root's or the settling task's
-ceiling, and that every sequential step is admitted or refused exactly as
-the ceiling rule predicts and charged exactly its novelty
-(\VFiveFamilyPropertyRefused{} refusals in all); it drives the settlement
-engine directly, not SQL lowering or the companion statement. We claim bounded
+concurrent bursts against the live Control store, checking after every
+step that the committed head equals a separately kept plain-set union in
+all three dimensions, never exceeds the root's or the settling task's
+ceiling, and matches the ceiling rule's admit/refuse decision and
+exact-novelty charge (\VFiveFamilyPropertyRefused{} refusals in all); it
+drives the settlement engine directly, not SQL lowering. We claim bounded
 model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}
@@ -1387,10 +1385,8 @@ whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
 afterwards, and ended at \FinalVFivePublicationRLSBoundedLedger{}. A control
 step outside the policy rows and the column grant is refused at the column
 under both (supplement), so BDG composes with per-query authorization;
-that RLS admits all \FinalVFivePublicationRLSQueries{}
-queries is definitional (it has no cumulative budget), so the comparison
-shows where a set budget binds, not that a per-query control fails a test
-it could pass. The counter comparators are also \emph{executed} (retained
+RLS admitting every query is definitional (no cumulative budget): the
+comparison shows where a set budget binds. The counter comparators are also \emph{executed} (retained
 pilot, supplement): the same trace under row-, query-, and release-set
 budgets fixed a priori by the same $\lfloor 0.7\,U\rfloor$ recipe per
 unit, in three orders each, released the full
