@@ -1,7 +1,7 @@
 {
   "compose_execution": {
     "receipt": "evaluation/v5-outcome/compose-receipt.json",
-    "receipt_sha256": "61eb37d2f64eb5a11dc732b04e90d40e3fc59511504881abb80a72c3a12dbfb2"
+    "receipt_sha256": "3a640809cbdfff2d73a4fa8ff24dbf253c53a5bc64cd7582a7c7a29c24285732"
   },
   "deterministic_set": {
     "duplicate_idempotent": true,
@@ -9,7 +9,7 @@
     "permutation_deterministic": true,
     "tamper_rejected": true
   },
-  "implementation_base_commit": "00667c2288cdd1a64e7bb29cfb0efa2ac3d7cc69",
+  "implementation_base_commit": "4e2f1e5032865dbfe46e2f87aa60cf2ec2ba47d8",
   "postgres_committed_graph": {
     "blocks_loaded": 1,
     "blocks_reused": 255,
@@ -38,7 +38,7 @@
     "packages_passed": 2,
     "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "2a902478daeb3f53d155508f0a692307d776e1aefdaf3778ce91c3347d3253ef",
+    "raw_log_sha256": "70abcc5c5214da550a64c534ff2bfdbefa7fb0cffabe1f6040ab41006225e8b7",
     "tests_failed": 0,
     "tests_passed": 12,
     "tests_skipped": 0
@@ -64,7 +64,7 @@
     "files": [
       {
         "path": "config/catalog.yaml",
-        "sha256": "97b1e8a1d66632a63ec330812866f13355788667d8a74710219cc4a6cbc123c8"
+        "sha256": "5cd0ad443fb92289aebe1e780c5e7152e5a0539c07fd7ab85649fcbe75aa02ba"
       },
       {
         "path": "go.mod",
@@ -132,7 +132,7 @@
       },
       {
         "path": "internal/gateway/query.go",
-        "sha256": "7c245edc347da8fb244bd82de58270c6b1203486a69f1fbee110b76bbf07e18b"
+        "sha256": "28799fb4d1d187253a1624006f7210c60f37cee94a767b707c1829da1016d46b"
       },
       {
         "path": "internal/gateway/query_test.go",
@@ -148,7 +148,7 @@
       },
       {
         "path": "internal/gateway/service.go",
-        "sha256": "0952fcff9a4bd8308a9729e181066f6d6b5bfe87e6d0bda9bf362bdc8fe5ffad"
+        "sha256": "2ae1e5212703aee46d38ff4406e846dd7ddbce78384c18a169bee793f7c76ca2"
       },
       {
         "path": "internal/queryplan/normalform.go",
@@ -187,7 +187,7 @@
         "sha256": "dbb5dfd5839feec55f102c4f02d2ff069e0312d99abd99812620dfd02ff87ffd"
       }
     ],
-    "sha256": "b1a0f4875ec768c6a1ba182513481e6c18c30d97d64568db341633223d233193"
+    "sha256": "03048796175ce04e4cee61446ba7754ba66ca3c3ad289a54a752d5c8d8fe2adc"
   },
-  "submission_commit": "00667c2288cdd1a64e7bb29cfb0efa2ac3d7cc69"
+  "submission_commit": "4e2f1e5032865dbfe46e2f87aa60cf2ec2ba47d8"
 }

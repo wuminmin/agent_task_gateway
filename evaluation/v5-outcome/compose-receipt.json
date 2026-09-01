@@ -6,8 +6,8 @@
     "promotion_recovery": true,
     "semantic_replay": true
   },
-  "catalog_file_sha256": "97b1e8a1d66632a63ec330812866f13355788667d8a74710219cc4a6cbc123c8",
-  "catalog_runtime_digest": "97b1e8a1d66632a63ec330812866f13355788667d8a74710219cc4a6cbc123c8",
+  "catalog_file_sha256": "5cd0ad443fb92289aebe1e780c5e7152e5a0539c07fd7ab85649fcbe75aa02ba",
+  "catalog_runtime_digest": "5cd0ad443fb92289aebe1e780c5e7152e5a0539c07fd7ab85649fcbe75aa02ba",
   "command": [
     "./scripts/integration-test.sh"
   ],
@@ -23,17 +23,17 @@
       "service": "control-postgres"
     },
     {
-      "image_id": "sha256:4074ecc9db6add8d4810b3669f2431aa04c87c23d114dc0b87d1e62eb2bdc4b5",
+      "image_id": "sha256:f0cf3cd4826ea357f6248a130db278c7c7ee30ee0bb9b42460ad1083437b201b",
       "reference": "taskbound-gateway-integration-gateway",
       "service": "gateway"
     },
     {
-      "image_id": "sha256:1d4f37a2af3d21328935f93b11a1e0d72f843fbd45b354bcd11d279c61b3183e",
+      "image_id": "sha256:4dba58d95081e0e4c53dafb29c1cfeef2be133cea58ce25c9f715c47d618e66b",
       "reference": "taskbound-gateway-integration-mcp-probe",
       "service": "mcp-probe"
     },
     {
-      "image_id": "sha256:6e1d64d33e301bf3d0112950080c6dfce4c41de1bf402947c6ea817b25f138e8",
+      "image_id": "sha256:3efef77a43bb73df4e5b379bf2b7d11f16673abaac3794bf21c836a8c1ce1c2b",
       "reference": "taskbound-gateway-integration-oa-demo",
       "service": "oa-demo"
     },
@@ -48,17 +48,17 @@
       "service": "result-object-store-init"
     },
     {
-      "image_id": "sha256:0f6509105ef2d61a4ecf67e283d817241adccb1acfe632d205bbc528da1d83de",
+      "image_id": "sha256:3e1c06c5b7d22ee0bb4b1e6a32b3dfc94830807cc51f385fd92e4d2f29ef6984",
       "reference": "taskbound-gateway-integration-snapshot-index-detail",
       "service": "snapshot-index-detail"
     },
     {
-      "image_id": "sha256:7c9bfed1337cd152081a2a2edb3bb272f1b0cd5b56491d6b09042b50324bb809",
+      "image_id": "sha256:ced637d2840c82a3ccbe996ebed7dd5e098243a84e640121531a951438b058a6",
       "reference": "taskbound-gateway-integration-snapshot-index-summary",
       "service": "snapshot-index-summary"
     },
     {
-      "image_id": "sha256:b8b4a4a4829b635da44bd305c5a24ee18c2f8ca3450ceaf614a282aaac6d7004",
+      "image_id": "sha256:8f32a34073a4133c540f2e32851fb45f28364e24af3da9f524db315b99ab35a4",
       "reference": "taskbound-gateway-integration-test-runner",
       "service": "test-runner"
     }
@@ -81,10 +81,10 @@
     ],
     "sha256": "1912dcc25611ec7c01b21a43687ea9b4c17e6b0af15fb4db5077f0e634297336"
   },
-  "executed_at": "2026-08-31T16:48:07Z",
+  "executed_at": "2026-09-01T01:48:41Z",
   "exit_code": 0,
   "raw_log": "evaluation/v5-outcome/raw/compose-e2e.log",
-  "raw_log_sha256": "c908d72b330586d676cbdd04ca08ff05d882bbf72b567d3db95cd252ebe0750f",
+  "raw_log_sha256": "119889ad57cea97f88921ab9e55a17f4466d866c4a3c751453f629ce806e4436",
   "schema_version": 2,
-  "submission_commit": "00667c2288cdd1a64e7bb29cfb0efa2ac3d7cc69"
+  "submission_commit": "4e2f1e5032865dbfe46e2f87aa60cf2ec2ba47d8"
 }
