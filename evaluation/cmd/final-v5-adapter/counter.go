@@ -25,6 +25,16 @@ type counterInvariantError struct{ reason string }
 
 func (err *counterInvariantError) Error() string { return err.reason }
 
+// counterRouteDecoys differentiate the four arms' exact product sets so each
+// can route to its own budget profile; decoy products are approved with their
+// entity keys only and never queried.
+var counterRouteDecoys = map[string]map[string][]string{
+	"exact":   {"provsql_nonce": {"nonce_id", "partition_key"}, "final_v5_attack_expense_detail": {"receipt_no", "amount"}},
+	"rows":    {"provsql_nonce": {"nonce_id", "partition_key"}},
+	"queries": {"final_v5_attack_expense_detail": {"receipt_no", "amount"}},
+	"release": {"final_v5_concurrency_expense_detail": {"receipt_no", "department"}},
+}
+
 func newCounterAdapter(ctx context.Context) (*counterAdapter, error) {
 	manifest, err := finalv5counter.Load()
 	if err != nil {
@@ -103,10 +113,18 @@ func (adapter *counterAdapter) runTrace(ctx context.Context, operation experimen
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	created, err := adapter.real.provisionScopedCatalogTask(ctx,
+	// Approval routes match exact product sets, so each arm requests its
+	// decoy-differentiated set; the decoys are never queried.
+	products := []string{finalv5counter.Product}
+	columns := map[string][]string{finalv5counter.Product: {"receipt_no", "amount"}}
+	for decoy, decoyColumns := range counterRouteDecoys[operation.Mode] {
+		products = append(products, decoy)
+		columns[decoy] = append([]string(nil), decoyColumns...)
+	}
+	created, err := adapter.real.provisionMultiProductTask(ctx,
 		fmt.Sprintf("Final V5 counter %s %s %s", operation.Mode, operation.Scale, operation.PairID),
-		finalv5counter.Product, []string{"receipt_no", "amount"}, "",
-		map[string]any{"department": []string{"销售部"}})
+		products, columns, "",
+		map[string]any{"department": []string{"销售部"}, "partition_key": []string{"1"}})
 	if err != nil {
 		return experiment.Sample{}, err
 	}

@@ -102,6 +102,26 @@ experiments:
       modes: [x4]
       products: [expense_detail, expense_summary, provsql_orders, provsql_lineitem, final_v5_result_heavy,
                  provsql_nonce, final_v5_attack_expense_detail]
+  # The comparator arms (docs/p8 a) execute the frozen adaptive trace on the
+  # RLS unlimited product under four a-priori budgeters; the arms' product
+  # sets differ by never-queried decoys so each routes to its own profile.
+  counter:
+    - workload_id: counter-comparator-v1
+      scales: [natural, shuffled-v1, novelty-first-v1]
+      modes: [exact]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_nonce, final_v5_attack_expense_detail]
+    - workload_id: counter-comparator-v1
+      scales: [natural, shuffled-v1, novelty-first-v1]
+      modes: [rows]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_nonce]
+    - workload_id: counter-comparator-v1
+      scales: [natural, shuffled-v1, novelty-first-v1]
+      modes: [queries]
+      products: [final_v5_rls_unlimited_expense_detail, final_v5_attack_expense_detail]
+    - workload_id: counter-comparator-v1
+      scales: [natural, shuffled-v1, novelty-first-v1]
+      modes: [release]
+      products: [final_v5_rls_unlimited_expense_detail, final_v5_concurrency_expense_detail]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders
