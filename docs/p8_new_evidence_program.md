@@ -152,3 +152,28 @@ HAVING/LIMIT 截断、聚合见证细则）是**测量结果**，进报告与补
 q23/q26 的 join 计费细则留作报告的机制注解（其不确定性不影响任何断言）。
 校验器不断言逐句计费数（只断言账本增量一致与拒绝零计费），故语料无需重生成。
 
+## (a) 比较臂详细设计（2026-09-01 定，预算先验冻结于实现之前）
+
+**问题**：审稿人问「三维精确集合记账相对朴素计数器买到了什么」。比较臂在同一冻结 100 步自适应轨迹
+（finalv5rls 语料）上执行四种预算器，报告各臂的停止点与停止前已释放的 distinct 事实量。
+
+**轨迹总量（语料离线重算，实跑 zz 测试 2026-09-01）**：100 步、总释放行 250（含重复）、
+U_R=10 / U_D=18 / U_O=27；既有精确臂 70% 床（R7/D12/O18）停于第 37 步（dependency 维）。
+
+**四臂与先验预算（同一 §5.2 的 70% 床配方，作用于各自的计数器）**：
+- `exact`：R=7 D=12 O=18（复刻既有 bounded 语义），rows=500、queries=110（不设限资源面）。
+- `rows`：max_rows=⌊0.7×250⌋=175，exposure 三维=10^6（有效不设限），queries=110。
+- `queries`：max_queries=⌊0.7×100⌋=70，rows=500，exposure=10^6。
+- `release`：max_release_facts=7（釋放集计数器单独臂），D/O=10^6，rows=500，queries=110。
+
+**顺序变体**：natural（语料原序）＋两个冻结排列 shuffled-v1（种子 20260901 的 Fisher-Yates）、
+novelty-first-v1（按单步新颖依赖降序、平局按原序）——排列写进语料并连同各臂先验停止点一并冻结
+（EvaluatePrefixes 对每个排列重算）。代理生成轨迹留作后续扩充（同 agentworkload 采集法，不阻塞本臂）。
+
+**落地形态（第三次同型剧本）**：dormant 扩展 experiment `counter`；新产品
+`final_v5_counter_expense_detail`（同一 10 行视图投影，entity receipt_no，scope department）；
+四臂 × 路由精确集选择用 decoy（nonce/attack/concurrency 各一）＋ profile-only 路由（benign 机制）；
+语料包 `finalv5counter`（排列+各臂先验停止点+逐步预期）；证据信封+校验器（钉：语料绑定、顺序、
+各步接受/拒绝与先验停止点一致——本实验的停止点是先验可判的，与 (c3) 不同）；adapter runner；
+launcher 三处白名单；三 profile 激活定点；pilot。
+
