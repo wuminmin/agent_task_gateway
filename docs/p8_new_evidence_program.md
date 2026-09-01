@@ -177,3 +177,10 @@ novelty-first-v1（按单步新颖依赖降序、平局按原序）——排列�
 各步接受/拒绝与先验停止点一致——本实验的停止点是先验可判的，与 (c3) 不同）；adapter runner；
 launcher 三处白名单；三 profile 激活定点；pilot。
 
+### (a) 落地形态修正（2026-09-01）：不建新产品
+
+新产品须进 master catalog（v1.12 index 哈希锁）——不必要的合约修订。比较臂直接复用 master 已有的
+`final_v5_rls_unlimited_expense_detail`（其面 receipt_no/department/amount、=/<=/>=、count 正是该轨迹所需），
+四臂闭包用 decoy 区分：exact={RLS_u,nonce,attack}、rows={RLS_u,nonce}、queries={RLS_u,attack}、
+release={RLS_u,concurrency}；预算档全部走 profile-only 路由。db/init 不加视图（已回滚），live schema digest 不动。
+

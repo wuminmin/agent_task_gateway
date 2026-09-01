@@ -22,9 +22,12 @@ const (
 	CorpusID      = "taskgate-final-v5-counter-comparator-corpus-v1"
 	SchemaVersion = 1
 	WorkloadID    = "counter-comparator-v1"
-	// Product is the counter experiment's own immutable projection of the
-	// frozen ten-row expense fixture.
-	Product = "final_v5_counter_expense_detail"
+	// Product is the trace's own Catalog product: the RLS unlimited
+	// projection, whose surface (receipt_no/department/amount, =/<=/>=,
+	// count) is exactly what the frozen trace exercises. Reusing it keeps
+	// the master Catalog untouched; the four arms differ only by budget
+	// profile, selected by exact-set routing with decoy products.
+	Product = "final_v5_rls_unlimited_expense_detail"
 
 	// The a-priori budgets: the same 70 percent floor recipe applied to each
 	// arm's own counter (docs/p8, frozen 2026-09-01 before implementation).
