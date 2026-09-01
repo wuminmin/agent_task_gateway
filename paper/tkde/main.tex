@@ -288,10 +288,9 @@ protects denial
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
 reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp};
-DProvDB \cite{zhang2023dprovdb} keeps the closest shape---a persistent
-per-analyst cumulative budget---but meters DP privacy loss over noised
-views, where BDG's ledger is an exact set of declared identities with
-zero-charge replay and no noise.
+DProvDB \cite{zhang2023dprovdb} is the closest shape---a persistent
+per-analyst cumulative budget---but meters DP loss over noised views, not
+an exact declared-identity set with zero-charge replay.
 Statistical-database inference control studied trackers, query-set overlap,
 and cumulative auditing
 \cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness};
@@ -526,8 +525,7 @@ $\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
 result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
 versioned profile $\pi$.  The latter are the base facts the inductive rules
-below select for successfully derived output rows and cells; they are not
-minimal causal provenance or all physical reads; the admitted language
+below select for successfully derived output rows and cells; the admitted language
 requires every \code{ORDER BY} column to be selected, so only the Catalog
 tie-break suffix of Page is order-only and outside this profile.
 $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
@@ -1252,17 +1250,14 @@ campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationScaleNonProfileCells{} Scale and
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
 cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
-samples passing---a sample passes when all its per-sample invariant and
-oracle checks hold, a deterministic verification, not a statistical
-test---with a verified Receipt on every governed arm. Join widths and role
-counts the compiler admits beyond the measured cells are admitted, not
-measured (supplement).
+samples passing (all per-sample invariant and oracle checks; deterministic,
+not statistical), with a verified Receipt on every governed arm;
+compiler-admitted join widths and role counts beyond the measured cells
+stay unmeasured (supplement).
 Table~\ref{tab:baseline-main} gives
 the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
-Baseline cells (sixteen workload/scale pairs, each with a direct and a novel
-cell plus the replay cells the protocol defines for it: ten semantic, nine
-idempotent, seven normalized-rewrite; Table~\ref{tab:baseline-main} shows
-the sixteen pairs) a novel governed query costs
+Baseline cells (sixteen workload/scale pairs with direct, novel, and the
+protocol-defined replay cells) a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
 times its direct PostgreSQL equivalent, and that cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
@@ -1275,15 +1270,13 @@ more per Fact than S2, so Release materialization is at least as expensive
 per Fact as Dependency derivation. Settlement is not where exactness is
 paid: the Scale profile below settles against a million-Fact history in
 \FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot sample per
-cell; not publication-class) splits execute-and-derive: the visible and
-companion SQL together take
-\FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
-at S1/SF1, S2/SF10, S6/100k-x16, while single-threaded Go-side ordinal
-consumption and witness merging take
-\FinalVFiveSubphaseGoSidePctSOneSFOne{}/\FinalVFiveSubphaseGoSidePctSTwoSFTen{}/\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
-of the phase (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
+cell; not publication-class; supplement table) splits execute-and-derive:
+single-threaded Go-side ordinal consumption and witness merging dominate
+(\FinalVFiveSubphaseGoSidePctSOneSFOne{}--\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
+of the phase,
+\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
 per Fact), so multi-second governed latency suits batch reporting agents,
-not interactive ones (supplement table).
+not interactive ones.
 
 \begin{table}[t]
 \centering
@@ -1409,15 +1402,13 @@ under both (supplement), so BDG composes with per-query authorization;
 that RLS admits all \FinalVFivePublicationRLSQueries{}
 queries is definitional (it has no cumulative budget), so the comparison
 shows where a set budget binds, not that a per-query control fails a test
-it could pass. The counter comparators are also \emph{executed}, not only
-replayed: a retained pilot (campaign class pilot; supplement) ran the same
-trace end to end under row-, query-, and release-set budgets fixed a priori
-by the same $\lfloor 0.7\,U\rfloor$ recipe applied to each control's own
-unit, in three query orders each; all three comparator arms released the
-full \FinalVFiveCounterNaiveMinDep{}-fact distinct Dependency union in
-every order, while the exact set floors capped release at
-\FinalVFiveCounterExactMaxDep{} distinct facts in every order---order moves
-\emph{when} a counter refuses, not \emph{what} it has released.
+it could pass. The counter comparators are also \emph{executed} (retained
+pilot, supplement): the same trace under row-, query-, and release-set
+budgets fixed a priori by the same $\lfloor 0.7\,U\rfloor$ recipe per
+unit, in three orders each, released the full
+\FinalVFiveCounterNaiveMinDep{}-fact Dependency union in every order; the
+exact floors capped release at \FinalVFiveCounterExactMaxDep{} in every
+order---order moves when a counter refuses, not what it releases.
 
 \begin{figure}[t]
 \centering
