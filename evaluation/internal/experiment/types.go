@@ -2084,4 +2084,3 @@ type CounterVerificationEvidence struct {
 	FirstRefusal  int                   `json:"first_refusal,omitempty"`
 	FinalRoot     *RootLedgerSnapshot   `json:"final_root,omitempty"`
 }
-
