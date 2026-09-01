@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-adversary-extraction-corpus-v1",
+  "workload_id": "adversary-extraction-v1",
+  "product": "final_v5_rls_unlimited_expense_detail",
+  "rls_corpus_id": "taskgate-final-v5-rls-corpus-v1",
+  "hidden_target": 1910,
+  "traces": [
+    {
+      "tier": "owner",
+      "strategy": "bisection",
+      "budget_profile": "final-v5-adversary-owner-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "bisect-owner-1024",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1024",
+          "threshold": 1024,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 4,
+          "novel_outcome": 2
+        },
+        {
+          "position": 2,
+          "step_id": "bisect-owner-1536",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1536",
+          "threshold": 1536,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 3,
+          "step_id": "bisect-owner-1792",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1792",
+          "threshold": 1792,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 4,
+          "step_id": "bisect-owner-1920",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1920",
+          "threshold": 1920,
+          "accepted": true,
+          "scalar_count": 0,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 5,
+          "step_id": "bisect-owner-1856",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1856",
+          "threshold": 1856,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 6,
+          "step_id": "bisect-owner-1888",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1888",
+          "threshold": 1888,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 7,
+          "step_id": "bisect-owner-1904",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1904",
+          "threshold": 1904,
+          "accepted": false,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 6,
+      "refused_steps": 1,
+      "recovered_lo": 1888,
+      "recovered_hi": 1920,
+      "recovered_bits": 6,
+      "distinct_release": 6,
+      "distinct_dependency": 4,
+      "distinct_outcome": 12
+    },
+    {
+      "tier": "owner",
+      "strategy": "greedy",
+      "budget_profile": "final-v5-adversary-owner-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "greedy-owner-0000",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 0 ORDER BY receipt_no ASC",
+          "threshold": 0,
+          "accepted": true,
+          "novel_release": 6,
+          "novel_dependency": 18,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 1,
+      "refused_steps": 0,
+      "distinct_release": 6,
+      "distinct_dependency": 18,
+      "distinct_outcome": 2
+    },
+    {
+      "tier": "tightened",
+      "strategy": "bisection",
+      "budget_profile": "final-v5-adversary-tight-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "bisect-tightened-1024",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1024",
+          "threshold": 1024,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 4,
+          "novel_outcome": 2
+        },
+        {
+          "position": 2,
+          "step_id": "bisect-tightened-1536",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1536",
+          "threshold": 1536,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 3,
+          "step_id": "bisect-tightened-1792",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1792",
+          "threshold": 1792,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 4,
+          "step_id": "bisect-tightened-1920",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1920",
+          "threshold": 1920,
+          "accepted": true,
+          "scalar_count": 0,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 5,
+          "step_id": "bisect-tightened-1856",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1856",
+          "threshold": 1856,
+          "accepted": false,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 4,
+      "refused_steps": 1,
+      "recovered_lo": 1792,
+      "recovered_hi": 1920,
+      "recovered_bits": 4,
+      "distinct_release": 4,
+      "distinct_dependency": 4,
+      "distinct_outcome": 8
+    },
+    {
+      "tier": "tightened",
+      "strategy": "greedy",
+      "budget_profile": "final-v5-adversary-tight-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "greedy-tightened-0000",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 0 ORDER BY receipt_no ASC",
+          "threshold": 0,
+          "accepted": false,
+          "novel_release": 6,
+          "novel_dependency": 18,
+          "novel_outcome": 2
+        },
+        {
+          "position": 2,
+          "step_id": "greedy-tightened-1910",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 1910 ORDER BY receipt_no ASC",
+          "threshold": 1910,
+          "accepted": true,
+          "novel_release": 1,
+          "novel_dependency": 3,
+          "novel_outcome": 2
+        },
+        {
+          "position": 3,
+          "step_id": "greedy-tightened-1680",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 1680 ORDER BY receipt_no ASC",
+          "threshold": 1680,
+          "accepted": true,
+          "novel_release": 1,
+          "novel_dependency": 3,
+          "novel_outcome": 2
+        },
+        {
+          "position": 4,
+          "step_id": "greedy-tightened-0960",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 960 ORDER BY receipt_no ASC",
+          "threshold": 960,
+          "accepted": true,
+          "novel_release": 1,
+          "novel_dependency": 3,
+          "novel_outcome": 2
+        },
+        {
+          "position": 5,
+          "step_id": "greedy-tightened-0880",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 880 ORDER BY receipt_no ASC",
+          "threshold": 880,
+          "accepted": true,
+          "novel_release": 1,
+          "novel_dependency": 3,
+          "novel_outcome": 2
+        },
+        {
+          "position": 6,
+          "step_id": "greedy-tightened-0553",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 553 ORDER BY receipt_no ASC",
+          "threshold": 553,
+          "accepted": false,
+          "novel_release": 1,
+          "novel_dependency": 3,
+          "novel_outcome": 2
+        },
+        {
+          "position": 7,
+          "step_id": "greedy-tightened-0320",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 320 ORDER BY receipt_no ASC",
+          "threshold": 320,
+          "accepted": false,
+          "novel_release": 2,
+          "novel_dependency": 6,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 4,
+      "refused_steps": 3,
+      "distinct_release": 4,
+      "distinct_dependency": 12,
+      "distinct_outcome": 8
+    },
+    {
+      "tier": "loosened",
+      "strategy": "bisection",
+      "budget_profile": "final-v5-adversary-loose-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "bisect-loosened-1024",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1024",
+          "threshold": 1024,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 4,
+          "novel_outcome": 2
+        },
+        {
+          "position": 2,
+          "step_id": "bisect-loosened-1536",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1536",
+          "threshold": 1536,
+          "accepted": true,
+          "scalar_count": 2,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 3,
+          "step_id": "bisect-loosened-1792",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1792",
+          "threshold": 1792,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 4,
+          "step_id": "bisect-loosened-1920",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1920",
+          "threshold": 1920,
+          "accepted": true,
+          "scalar_count": 0,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 5,
+          "step_id": "bisect-loosened-1856",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1856",
+          "threshold": 1856,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 6,
+          "step_id": "bisect-loosened-1888",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1888",
+          "threshold": 1888,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 7,
+          "step_id": "bisect-loosened-1904",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1904",
+          "threshold": 1904,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 8,
+          "step_id": "bisect-loosened-1912",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1912",
+          "threshold": 1912,
+          "accepted": true,
+          "scalar_count": 0,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 9,
+          "step_id": "bisect-loosened-1908",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1908",
+          "threshold": 1908,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 10,
+          "step_id": "bisect-loosened-1910",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1910",
+          "threshold": 1910,
+          "accepted": true,
+          "scalar_count": 1,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        },
+        {
+          "position": 11,
+          "step_id": "bisect-loosened-1911",
+          "direct_sql": "SELECT count(*) AS request_count FROM final_v5_rls.expense_detail WHERE amount \u003e= 1911",
+          "threshold": 1911,
+          "accepted": true,
+          "scalar_count": 0,
+          "novel_release": 1,
+          "novel_dependency": 0,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 11,
+      "refused_steps": 0,
+      "recovered_lo": 1910,
+      "recovered_hi": 1911,
+      "recovered_bits": 11,
+      "recovered_value": 1910,
+      "distinct_release": 11,
+      "distinct_dependency": 4,
+      "distinct_outcome": 22
+    },
+    {
+      "tier": "loosened",
+      "strategy": "greedy",
+      "budget_profile": "final-v5-adversary-loose-v1",
+      "steps": [
+        {
+          "position": 1,
+          "step_id": "greedy-loosened-0000",
+          "direct_sql": "SELECT receipt_no FROM final_v5_rls.expense_detail WHERE amount \u003e= 0 ORDER BY receipt_no ASC",
+          "threshold": 0,
+          "accepted": true,
+          "novel_release": 6,
+          "novel_dependency": 18,
+          "novel_outcome": 2
+        }
+      ],
+      "accepted_steps": 1,
+      "refused_steps": 0,
+      "distinct_release": 6,
+      "distinct_dependency": 18,
+      "distinct_outcome": 2
+    }
+  ]
+}
