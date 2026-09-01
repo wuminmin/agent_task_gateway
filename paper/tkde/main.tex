@@ -717,7 +717,7 @@ PostgreSQL aggregate result types. Non-associative
 floating SUM, unsupported casts, and overflow are undefined and settle
 nothing; the complete type domain and encoders are supplemental.
 
-\subsection{Annotated Bags and Complete Output Keys}
+\subsection{Annotated-Bag Evaluation and Effect Extraction}
 
 A relation is a typed PostgreSQL bag with unique occurrence keys and optional
 proven total order; rows and cells carry support $S$, positive witness
@@ -729,73 +729,49 @@ and every operator preserves
 \end{equation}
 Same-proof composition unions support and adds multiplicities; alternative
 proofs union support and take pointwise maximum, so alternatives are
-idempotent while join fanout remains visible. Row identity is
-$\operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k)$ with
-$H$ typed, length-delimited, and domain-separated: Scan uses the Catalog
-entity key, unary operators preserve keys, and join, union-distinct, and
-group bind their complete canonical child/class/group identities; derived
-Facts also bind source/snapshot, expression, value, and witness (key
-construction and collision checks are supplemental).
-
-\subsection{Operator Evaluation and Effect Extraction}
+idempotent while join fanout remains visible. Row identity
+$\operatorname{RID}(R,t)$ hashes the canonical schema, snapshot bundle, and
+complete operator-specific key material under a typed, domain-separated
+$H$ (construction and collision checks are supplemental).
 
 Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$: a failed
-premise yields no relation, effect, settlement, or release. A cell carries
-value, type, annotation pair $(S_a,W_a)$, normalized lineage expression, and
-an optional materialized release fact $\rho_a$; every rule constructs each
-output cell explicitly (complete rules, NULL/empty-input cases, and page
-bounds are in the supplement). Union is bag-aware and idempotent only when its typed tuples are proven
+premise yields no relation, effect, settlement, or release; every rule
+constructs each output cell explicitly (complete rules, NULL/empty-input
+cases, and page bounds are in the supplement). Union is bag-aware and idempotent only when its typed tuples are proven
 duplicate-free, grouping/distinct equivalence is \code{IS NOT DISTINCT FROM},
 floating-point \code{SUM} is rejected because the bag fixes no fold order,
 and pagination appends Catalog keys until the order is total; the relation is
 a partial function, not a semantics for arbitrary SQL.
-
-Finally, define materialization and the effect---they are not an implementation
-afterthought:
+Materialization $\operatorname{mat}(R,t,a)$ reuses a cell's pre-existing
+release fact when value, type, bundle, and support or expression/witness
+still validate, and otherwise mints the derived identity; the effect is
 \begin{align}
-\operatorname{new}(R,t,a)&=
- f_d(\mathcal B,t.k,N(x_a),\tau_a,v_a,W_a),\\
-\operatorname{mat}(R,t,a)&=
-\begin{cases}
-\rho_a,&\operatorname{valid}(\rho_a,R,t,a),\\
-\operatorname{new}(R,t,a),&\text{otherwise},
-\end{cases}\\
 \facts_R(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
 \facts_D(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
                 \bigcup_{t\in R,a\in V}S_a(t),\\
 \rieffect_\Pi(e,D,V)&=\operatorname{normalize}
-  \langle\facts_R(R,V),\facts_D(R,V)\rangle.       \label{eq:observe}
+  \langle\facts_R(R,V),\facts_D(R,V)\rangle,       \label{eq:observe}
 \end{align}
-Here $\Pi;D\vdash e\Downarrow R$; $S_r(t)$ is row $t$'s support, the base
-row facts and the predicate, join-key, group-key, and aggregate-argument cells
-its derivation read, and $S_a(t)$ is the support of its cell $a$;
-$\operatorname{valid}$ checks value, type and bundle, plus support for a base
-fact or expression/witness for a derived fact, against the pre-existing
-release fact.
-Thus query bags and witness multiplicity are retained during composition, while
-the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
+where $S_r(t)$ is row $t$'s support (the base row facts and the predicate,
+join-key, group-key, and aggregate-argument cells its derivation read) and
+$S_a(t)$ the support of its cell $a$. Query bags and witness multiplicity
+are retained during composition, while the two base ledgers are sets.
+Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
 visible row of a global aggregate; BDG nevertheless adds the tested predicate
 atoms and one composite outcome.
 
-\begin{proposition}[Representation closure and partial-function semantics]
+\begin{proposition}[Representation closure and dependency determinism]
 \label{thm:representation-closure}
-For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation has
-at most one result.  If $\Pi;D\vdash e\Downarrow R$, $R$ satisfies
-Eq.~\eqref{eq:anninv}, has canonical schema/bundle and unique row keys, and is a
-valid input to every well-typed parent rule.
+For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation
+has at most one result, satisfying Eq.~\eqref{eq:anninv} with canonical
+schema/bundle and unique row keys, valid as input to every well-typed
+parent rule; fixed $\Pi$, $e$, $D$, and visible set $V$ uniquely determine
+$\facts_D$ and $\rieffect_\Pi(e,D,V)$ whenever evaluation succeeds.
 \end{proposition}
-\emph{Proof in the supplement.}
-
-\begin{proposition}[Dependency determinism]
-\label{thm:dependency-determinism}
-Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
-uniquely determine the positive-output dependency-footprint FactSet $\facts_D$, and hence
-$\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
-\end{proposition}
-\emph{Proof in the supplement.}
+\emph{Proofs in the supplement.}
 
 
 \subsection{Conservation Properties}
@@ -851,12 +827,11 @@ Grant and Catalog; the implementation indexes a digest of this descriptor but
 verifies the bound metadata before accepting a hit. Descriptor equality fixes
 policy, publication, effect/View contracts, typed parameters, and normal form,
 hence all three effect sets, so exact replay has zero novelty; the converse is
-not claimed outside the stated rules. A semantic-View root $v$ compiles to a
-closed core term with a binding $\beta_v$ over root identity, resolved
-expressions, View contract, and predicate context; expansion over the
-accepted acyclic DAG preserves the visible bag and all three effect sets when
-the internal query retains $\beta_v$ (proof in the supplement), while a direct
-terminal query can carry different Outcome FactIDs.
+not claimed outside the stated rules. A semantic-View root compiles to a
+closed core term with a binding $\beta_v$; DAG expansion retaining
+$\beta_v$ preserves the visible bag and all three effect sets (proof in the
+supplement), while a direct terminal query can carry different Outcome
+FactIDs.
 
 \begin{proposition}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
