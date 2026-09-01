@@ -342,14 +342,13 @@ bounded governed release: within one approved root family on one publication
 epoch, no more than $B_X$ distinct FactIDs of each kind become
 \code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
 Four extraction patterns motivate the three budgets, three of them
-exercised by the evaluation: sweeping a Product page by page, bounded by
-$B_R$ (Section~\ref{sec:calibration}); aggregates that read far more base facts
-than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
-ladders, whose count of distinct settled predicates $B_O$ bounds but whose
-recovery it does not (under the default $B_O=128$ a binary search recovers
-a 64-bit cell in 64 settled probes; $B_Q$ adds 128 refusal bits per task);
-and delegation fan-out,
-bounded by the shared root ledger (the delegated child's refusal). Four
+exercised by the evaluation. Page-by-page sweeps are bounded by $B_R$
+(Section~\ref{sec:calibration}); aggregates that read far more base facts
+than a purpose warrants by $B_D$ (the adaptive trace); delegation fan-out
+by the shared root ledger (the delegated child's refusal). Probe ladders
+$B_O$ bounds in count but not in recovery: under the default $B_O=128$ a
+binary search recovers a 64-bit cell in 64 settled probes, and $B_Q$ adds
+128 refusal bits per task. Four
 boundaries hold at this goal: it counts declared identities, not inference;
 page order is order-only in the Catalog tie-break keys alone (the
 \code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds
@@ -905,17 +904,17 @@ universe; comparison is over all 256 bits).
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
 For one successful query (Fig.~\ref{fig:architecture-settlement}b) the
-enforcement layer reauthorizes and reserves resources and looks up semantic
-replay under the signed grant/publication binding; on a miss it executes the
-visible and ordinal statements in one Business-PG snapshot, derives all
+enforcement layer reauthorizes, reserves resources, and looks up semantic
+replay under the signed grant/publication binding. On a miss it executes
+the visible and ordinal statements in one Business-PG snapshot, derives all
 three effects, and stages encrypted Parquet (a hit loads a committed
-observation; staging is never AVAILABLE); one Control-PG transaction then
+observation; staging is never AVAILABLE). One Control-PG transaction then
 computes exact bitmap/full-hash novelty against the root head, rejects any
 $B_X$ excess, CASes all three manifests (conflicts reread and recompute
-every dimension), and settles resources, observation, PENDING intent, audit,
-and the signed receipt; a second transaction co-commits AVAILABLE and
-\code{QUERY_RESULT_CONSUMED} after verifying promotion to the canonical
-object, and only then returns the ID.
+every dimension), and settles resources, observation, PENDING intent,
+audit, and the signed receipt. A second transaction co-commits AVAILABLE
+and \code{QUERY_RESULT_CONSUMED} after verifying promotion to the
+canonical object, and only then returns the ID.
 
 Only root heads are mutable: pre-settlement failure rolls back heads,
 observations, intent, audits, cache, and receipt, while post-settlement
@@ -995,14 +994,15 @@ all budget dimensions may only narrow; every execution revalidates the signed
 parent grant and active ancestor chain; View-bound descendants inherit
 the parent's contracts and cannot add or replace one.
 
-All descendants resolve to one root ledger: if a parent and child request the
-same fact, only the first successful settlement accounts it, revoking the
-root blocks new descendant queries while a terminal request ID stays
+All descendants resolve to one root ledger: if a parent and child request
+the same fact, only the first successful settlement accounts it. Revoking
+the root blocks new descendant queries while a terminal request ID stays
 readable, and creating workers or task nodes cannot create fresh exposure
-capacity; every child grant is itself a human-approved authorization on the
-Catalog's route (the prototype's only mode is manual approval), so the tree's
-size, and the summed request budget of Proposition~\ref{prop:probing-bound},
-is set by approvals, not by the agent. \emph{Example (cont.).} A delegated
+capacity. Every child grant is itself a human-approved authorization on
+the Catalog's route (the prototype's only mode is manual approval), so the
+tree's size, and the summed request budget of
+Proposition~\ref{prop:probing-bound}, is set by approvals, not by the
+agent. \emph{Example (cont.).} A delegated
 child re-issuing the split $\pi_{id}$ of Section~\ref{sec:model} replays at
 $0/0/0$ against the shared ledger; a child attempting $\sigma_{dept='T'}$
 is refused by the same $\Delta_T$ computation. Settlement checks the settling task's own signed ceiling against
