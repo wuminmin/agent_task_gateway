@@ -123,6 +123,17 @@
    "submission_commit": "0deb05d0654c73309660a081629d079a4e620726",
    "measured_samples": 3,
    "note": "Benign agent-trace study, definitive run on the HAVING-fixed Gateway: the 27 unedited lowerable statements on one root per arm under the a-priori recipe budgets. Recipe arm: 21 accepted, 5 budget-independent policy refusals, exactly one budget refusal (q26 at position 19; the trace's novel Dependency union 1,456,837 exceeds the conservative recipe budget 1,450,000 by 0.47%). The x2 arm already eliminates every budget refusal (22 accepted, final union 1,456,837 Dependency facts); x4 identical. Cross-statement set-union accounting and HAVING/LIMIT positive-output semantics are visible in the per-step ledger deltas."
+  },
+  {
+   "id": "pilot-counter-05",
+   "family": "counter",
+   "pilot_kind": "profile_campaign",
+   "path": "evaluation/final-v5-wsl2/raw/pilot-counter-05",
+   "campaign_evidence_sha256": "9baf85fc363602f25a5c28e6a46f1a5df96f4fd0ad26f0d7226745a832b69ce1",
+   "samples_sha256": "4fa488ab97123f170424ed7ce91624c5e3ea5248abd6ce54c9daa2a11ea8497a",
+   "submission_commit": "767379b694bbe0069393dad538d12d3a9c5ed9aa",
+   "measured_samples": 12,
+   "note": "Comparator-arms study, definitive run: the frozen 100-step adaptive trace under four a-priori budgeters (exact three-dimension floors 7/12/18; row counter 175; query counter 70; release-set-only 7) in three frozen orderings. All twelve cells realized the frozen per-step outcome tables exactly (validator pins every accept/refuse, refusal-code family, released rows, and - for the ledger-metering arms - the final-root distinct totals). Headline: the exact floors cap distinct dependency exposure at 12 in every ordering, while the row, query, and release-set-only counters each leak the full 18-fact dependency set in every configuration; the row counter's crossing query is truncated (5 rows to 2 at step 58) rather than refused."
   }
  ]
 }
