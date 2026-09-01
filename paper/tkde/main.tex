@@ -430,10 +430,9 @@ where $P$ is the signed policy grant over the principal, data products,
 fields, and scopes; $S$ is the immutable publication/snapshot binding from
 Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
 dependency-footprint, and query-outcome ceilings together with the request
-budget $B_Q$ (the maximum number of settled or rejected attempts, an
-exposure parameter because it bounds refusals; a rejected attempt consumes
-one unit of $B_Q$ plus the rows and database time it reserved at admission,
-and charges no exposure set); and $C$ is the signed set of
+budget $B_Q$ (the maximum number of settled or rejected attempts; a
+rejection consumes one unit plus its admission-reserved rows and database
+time and charges no exposure set); and $C$ is the signed set of
 semantic and execution constraints and row/time guards.  In particular, $C$ binds the effect
 profile and closed QueryPlan language, type/collation versions, semantic-View
 contracts, delegation rules, replay identity, and result handling.  The
@@ -993,16 +992,15 @@ ambiguous connector outcomes charge resources but no exposure, and terminal
 replay returns the first status without re-executing.
 
 A rejected attempt returns only the code
-\code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count, or row); rejection
-charges no exposure---in particular no Outcome atom---and is recorded as a
-failed query (contributing no set, Definition~\ref{def:task-exposure}) that
-consumes one unit of the request budget $B_Q$ together with the rows and
-database time it \emph{reserved} at admission, not the observed count; the
-client receives only the code \code{EXPOSURE_BUDGET_EXHAUSTED}, and the
+\code{EXPOSURE_BUDGET_EXHAUSTED}---no dimension, count, or row (the
 dimension named in the evaluation tables is the oracle's projection, not a
-response field. So $B_Q$ is an exposure parameter, not a
-resource guard ($B_Q=110$ next to $B_O=18$ in Section~\ref{sec:delegation}
-allows six rejected questions per settled predicate).
+response field); it charges no exposure, in particular no Outcome atom, and
+is recorded as a failed query (contributing no set,
+Definition~\ref{def:task-exposure}) consuming $B_Q$ and its admission
+reservation (Section~\ref{sec:model}). So $B_Q$ is an exposure parameter,
+not a resource guard ($B_Q=110$ next to $B_O=18$ in
+Section~\ref{sec:delegation} allows six rejected questions per settled
+predicate).
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1091,9 +1089,8 @@ not a mechanized refinement.
 \label{sec:calibration}
 
 \textbf{Catalog-issued capacity.} The supplement's calibration table separates
-profile units from resource guards and from quantities they do not estimate;
-$B_Q$ belongs with the exposure units because it bounds rejected probes.
-These declarations are neither risk scores nor optimization targets: 1,000
+profile units from resource guards and from quantities they do not
+estimate. These declarations are neither risk scores nor optimization targets: 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
