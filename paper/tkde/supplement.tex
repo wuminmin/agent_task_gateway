@@ -1660,10 +1660,18 @@ Three retained studies close gaps the sealed campaign left open: no
 comparator control had been executed (only replayed by admission
 arithmetic), no benign non-adversarial agent trace had been measured under
 an a-priori budget, and latency at the footprint-refusal sites was
-uncharacterized. All three are campaign class \code{pilot}
-(\code{publication_eligible} \code{false}), registered in
-\filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json}
-(runs \code{pilot-counter-05}, \code{pilot-benign-05},
+uncharacterized. The evidence has three tiers, named at point of use: (i)
+the \emph{sealed publication campaign}, the frozen
+\FinalVFivePublicationTotalCells{}-cell protocol whose
+\code{publication_eligible} flag certifies passage through that fixed
+protocol; (ii) \emph{multi-deployment retained campaigns} like the
+comparator study below, run across three fresh deployments with sealed
+per-file digests but outside the fixed protocol, so honestly labelled
+campaign class \code{pilot} rather than appropriating the protocol flag;
+and (iii) \emph{single-deployment pilots}. The three studies here are
+class \code{pilot} (\code{publication_eligible} \code{false}), registered
+in \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json}
+(runs \code{pilot-counter-rigor-02}, \code{pilot-benign-05},
 \code{pilot-footprint-07}) with digest-bound corpora whose per-step
 expected-outcome tables were frozen before execution; each run's job was to
 show the deployed Gateway realizing exactly its frozen table, and each did.
@@ -1680,8 +1688,11 @@ query-count counter, and a release-set-only budget, each fixed a priori by
 the same $\lfloor 0.7\,U\rfloor$ recipe applied to that control's own unit
 (rows, steps, and distinct Release facts respectively) and frozen before
 execution. Each arm ran in three frozen orders: the trace's natural order, a
-seeded Fisher--Yates shuffle, and a novelty-first order. All twelve
-arm-by-order cells realized the frozen expectation table exactly, including
+seeded Fisher--Yates shuffle, and a novelty-first order, across three fresh
+deployments (\code{pilot-counter-rigor-02}, 36 measured samples). All
+twelve arm-by-order cells realized the frozen expectation table exactly in
+every one of the three deployments, with zero cross-deployment
+inconsistency, including
 the production resource-crossing semantics the pilot surfaced: a row- or
 query-budget crossing \emph{truncates} the crossing query (released rows
 clamp to the remaining budget), settles it, and archives the task at the
@@ -1701,9 +1712,10 @@ released by the end; only the set floors bound the released set itself.
 \begin{table}[t]
 \centering
 \caption{Executed counter comparator arms (retained pilot
-\code{pilot-counter-05}): per arm, queries accepted, first refusal step, and
-final distinct Dependency facts, each reported as
-natural\,/\,shuffled\,/\,novelty-first order.}
+\code{pilot-counter-rigor-02}, three fresh deployments, 36 measured
+samples, each deployment realizing this table identically): per arm,
+queries accepted, first refusal step, and final distinct Dependency facts,
+each reported as natural\,/\,shuffled\,/\,novelty-first order.}
 \label{tab:counter-executed-supp}
 \small
 \begin{tabular}{lccc}
