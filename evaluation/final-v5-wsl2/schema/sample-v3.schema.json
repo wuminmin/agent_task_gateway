@@ -374,6 +374,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "counter"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "counter_verification"
+        ],
+        "properties": {
+          "counter_verification": {
+            "$ref": "#/properties/counter_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2267,6 +2293,16 @@
         },
         {
           "$ref": "#/$defs/partialBenignVerification"
+        }
+      ]
+    },
+    "counter_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/counterVerification"
+        },
+        {
+          "$ref": "#/$defs/partialCounterVerification"
         }
       ]
     }
@@ -5923,6 +5959,138 @@
           "max_outcome_facts",
           "max_release_facts",
           "refused_statements",
+          "steps",
+          "version"
+        ]
+      }
+    },
+    "counterStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "charged_release_facts",
+        "client_ms",
+        "logical_sql_sha256",
+        "position",
+        "rejected",
+        "released_rows",
+        "source_index",
+        "step_id"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer"
+        },
+        "source_index": {
+          "type": "integer"
+        },
+        "step_id": {
+          "type": "string"
+        },
+        "logical_sql_sha256": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "released_rows": {
+          "type": "integer"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "before": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "counterVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_steps",
+        "arm",
+        "budget_profile",
+        "corpus_id",
+        "corpus_sha256",
+        "ordering",
+        "refused_steps",
+        "steps",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "arm": {
+          "type": "string"
+        },
+        "ordering": {
+          "type": "string"
+        },
+        "budget_profile": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/counterStep"
+          }
+        },
+        "accepted_steps": {
+          "type": "integer"
+        },
+        "refused_steps": {
+          "type": "integer"
+        },
+        "first_refusal": {
+          "type": "integer"
+        },
+        "final_root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "partialCounterVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted_steps",
+          "arm",
+          "budget_profile",
+          "corpus_id",
+          "corpus_sha256",
+          "final_root",
+          "first_refusal",
+          "ordering",
+          "refused_steps",
           "steps",
           "version"
         ]

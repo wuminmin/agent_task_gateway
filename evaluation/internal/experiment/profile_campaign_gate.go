@@ -211,7 +211,7 @@ func validateProfileCampaignExperimentGate(campaignClass, experimentID string, s
 
 func profileCampaignExperiment(value string) bool {
 	switch value {
-	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign":
+	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign", "counter":
 		return true
 	default:
 		return false
@@ -304,6 +304,13 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 	case "benign":
 		if sample.TaskGateAcceptanceV3 != nil || sample.BenignVerification == nil {
 			return errors.New("benign pass must use benign verification without top-level v3 acceptance")
+		}
+	case "counter":
+		if sample.TaskGateAcceptanceV3 != nil || sample.CounterVerification == nil {
+			return errors.New("counter pass must use counter verification without top-level v3 acceptance")
+		}
+		if sample.System != "taskgate" {
+			return errors.New("counter pass has the wrong system shape")
 		}
 		if sample.System != "taskgate" ||
 			(sample.Mode != "recipe" && sample.Mode != "x2" && sample.Mode != "x4") {

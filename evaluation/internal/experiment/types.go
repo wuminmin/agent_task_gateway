@@ -552,6 +552,7 @@ type Sample struct {
 	RLSVerification           *RLSVerificationEvidence          `json:"rls_verification,omitempty"`
 	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
 	BenignVerification        *BenignVerificationEvidence       `json:"benign_verification,omitempty"`
+	CounterVerification       *CounterVerificationEvidence      `json:"counter_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
 	ProvSQLVerification       *ProvSQLVerificationEvidence      `json:"provsql_verification,omitempty"`
 	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
@@ -2047,3 +2048,40 @@ type BenignVerificationEvidence struct {
 	BudgetRefusals     int                  `json:"budget_refusals"`
 	FinalRoot          *RootLedgerSnapshot  `json:"final_root,omitempty"`
 }
+
+// CounterStepEvidence is one comparator-arm step: identity bound to the
+// frozen corpus position, the a-priori expected outcome, and the observed
+// ledger deltas and latency.
+type CounterStepEvidence struct {
+	Position               int                 `json:"position"`
+	SourceIndex            int                 `json:"source_index"`
+	StepID                 string              `json:"step_id"`
+	LogicalSQLSHA256       string              `json:"logical_sql_sha256"`
+	Accepted               bool                `json:"accepted"`
+	Rejected               bool                `json:"rejected"`
+	ObservedErrorCode      string              `json:"observed_error_code,omitempty"`
+	ClientMS               float64             `json:"client_ms"`
+	ReleasedRows           int64               `json:"released_rows"`
+	ChargedReleaseFacts    int64               `json:"charged_release_facts"`
+	ChargedDependencyFacts int64               `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts    int64               `json:"charged_outcome_facts"`
+	Before                 *RootLedgerSnapshot `json:"before,omitempty"`
+	After                  *RootLedgerSnapshot `json:"after,omitempty"`
+}
+
+// CounterVerificationEvidence binds one comparator-arm sample to the frozen
+// finalv5counter corpus: the whole ordered trace on one root under one arm.
+type CounterVerificationEvidence struct {
+	Version       string                `json:"version"`
+	CorpusID      string                `json:"corpus_id"`
+	CorpusSHA256  string                `json:"corpus_sha256"`
+	Arm           string                `json:"arm"`
+	Ordering      string                `json:"ordering"`
+	BudgetProfile string                `json:"budget_profile"`
+	Steps         []CounterStepEvidence `json:"steps"`
+	AcceptedSteps int                   `json:"accepted_steps"`
+	RefusedSteps  int                   `json:"refused_steps"`
+	FirstRefusal  int                   `json:"first_refusal,omitempty"`
+	FinalRoot     *RootLedgerSnapshot   `json:"final_root,omitempty"`
+}
+

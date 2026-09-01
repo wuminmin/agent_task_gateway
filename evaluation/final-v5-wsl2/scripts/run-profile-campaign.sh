@@ -534,6 +534,7 @@ config_source() {
     rq5) printf '%s' evaluation/final-v5-wsl2/config/daily-publication.example.json ;;
     footprint) printf '%s' evaluation/final-v5-wsl2/config/footprint.example.json ;;
     benign) printf '%s' evaluation/final-v5-wsl2/config/benign.example.json ;;
+    counter) printf '%s' evaluation/final-v5-wsl2/config/counter.example.json ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
@@ -545,6 +546,7 @@ experiment_command() {
     concurrency) printf '%s' v5-concurrency ;; rq5) printf '%s' v5-rq5 ;;
     footprint) printf '%s' v5-footprint ;;
     benign) printf '%s' v5-benign ;;
+    counter) printf '%s' v5-counter ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
