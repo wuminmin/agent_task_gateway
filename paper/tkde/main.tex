@@ -1192,7 +1192,7 @@ and RQ5 are regenerated at the submission commit; the campaign is sealed at
 (\RQTwoExposureCases{} cases, \RQTwoExposureMismatches{} mismatches)
 requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, deterministic and as PostgreSQL race tests) covers
-split, page, retry, snapshot identity, joins/unions, delegation, and races;
+split, page, retry, snapshot identity, joins/unions, and delegation;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 a \FinalVFivePublicationRQFiveRows{}-row publication in
@@ -1409,7 +1409,7 @@ Arm & Accepted & First refusal & Distinct Dep. \\
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.30\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.26\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30,
   ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},
@@ -1515,10 +1515,10 @@ no production integration or practitioner study of budget calibration
 \section{Conclusion}
 
 \system provides profile-relative exact accounting of modeled Result,
-Dependency, and Outcome sets within one publication-bound root family, with
-theorems, bounded models, and executable tests behind the scoped claim that
-no governed artifact becomes \code{AVAILABLE} before atomic root-family
-settlement: a release layer that makes an approved policy enforceable as
+Dependency, and Outcome sets within one publication-bound root
+family---theorems, bounded models, and executable tests behind one scoped
+claim: no governed artifact becomes \code{AVAILABLE} before atomic
+root-family settlement. It makes an approved policy enforceable as
 autonomous querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}
