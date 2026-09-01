@@ -255,9 +255,9 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         if entry["family"] == "provsql_leaves":
             provsql_leaf_samples.extend(_load_profile_pilot(root, entry))
             continue
-        if entry["family"] in ("footprint", "benign"):
-            # The refused-footprint ladder and the benign agent-trace study
-            # (docs/p8 c2/c3). Retained and integrity-checked like every
+        if entry["family"] in ("footprint", "benign", "counter"):
+            # The refused-footprint ladder, the benign agent-trace study, and
+            # the comparator arms (docs/p8 c2/c3/a). Retained and integrity-checked like every
             # profile-campaign pilot; whether the manuscript cites their
             # numbers is a pending author scope decision, so no macro pools
             # them yet.
