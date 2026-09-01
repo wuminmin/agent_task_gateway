@@ -347,8 +347,7 @@ epoch, no more than $B_X$ distinct FactIDs of each kind become
 \code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
 Four extraction patterns motivate the three budgets, three of them
 exercised by the evaluation: sweeping a Product page by page, bounded by
-$B_R$ (budget arithmetic in Section~\ref{sec:calibration}, not a measured
-cell); aggregates that read far more base facts
+$B_R$ (Section~\ref{sec:calibration}); aggregates that read far more base facts
 than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
 ladders, whose count of distinct settled predicates $B_O$ bounds but whose
 recovery it does not (under the default $B_O=128$ a binary search recovers
@@ -364,9 +363,8 @@ data-dependent counter channels. A rejected attempt is a chosen membership
 question over unaccounted facts answered by one bit, charged against $B_Q$
 only and never $B_O$, so rejection capacity is $\sum B_Q$ over the approved
 task tree, not $B_X$ (Section~\ref{sec:online}): under the default route
-($B_O=B_Q=128$) one task can settle 128 distinct predicates and be refused
-128 times, and a $k$-task tree 128 settled predicates in total but $128k$
-refusals; a settled response returns
+($B_O{=}B_Q{=}128$) a $k$-task tree can settle 128 distinct predicates in
+total but take $128k$ refusals; a settled response returns
 the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $3\lceil\log_2
@@ -1504,9 +1502,7 @@ would need hundreds of gigabytes and hours per build and global aggregate,
 so the evaluated envelope is $10^5$--$10^6$-row Products.
 
 \textbf{Throughput scope.} Same-root settlement serializes on the head
-(\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
-\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} requests/s
-from width 10 to 50); multi-root throughput is unmeasured.
+(Section~\ref{sec:evaluation}); multi-root throughput is unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted:
 BDG validates bindings, supported semantics, and settlement, not policy
