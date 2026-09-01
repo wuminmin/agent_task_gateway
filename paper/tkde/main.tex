@@ -308,9 +308,8 @@ effects before release.
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
 Passant enforces optimizer-invariant aggregate predicates over each output
-tuple's provenance monomials (contributor thresholds, source combinations,
-grounding, prompt-bound flows BDG does not subsume); trajectory policy is
-its future work. BDG differs in temporal unit: DFC asks whether a flow is
+tuple's provenance monomials (flow shapes BDG does not subsume);
+trajectory policy is its future work. BDG differs in temporal unit: DFC asks whether a flow is
 allowed, BDG whether another allowed flow fits the cumulative contract
 across queries, retries, pages, rewrites, and descendants (composition not
 evaluated).
@@ -433,8 +432,8 @@ monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
 \emph{not} a component of the approved tuple.
 \end{definition}
 
-The release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
-index.  Its semantic environment is
+The release/dependency algebra treats a FactID as a semantic object (its
+SHA-256 is only a database index); its semantic environment is
 $\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
 version, admitted type domain, timezone, exact deterministic collation
 name/version map, immutable snapshot map, and catalog/lineage digest.  A
@@ -998,8 +997,8 @@ conservation is evaluated for human-approved trees. A child authorization
 signs both \code{root_task_id} and \code{parent_task_id}. Its human subject, catalog, datasource, schema, and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
 all budget dimensions may only narrow; every execution revalidates the signed
-parent grant and active ancestor chain; View-bound descendants inherit the
-parent's contract set and cannot add or replace a contract.
+parent grant and active ancestor chain; View-bound descendants inherit
+the parent's contracts and cannot add or replace one.
 
 All descendants resolve to one root ledger: if a parent and child request the
 same fact, only the first successful settlement accounts it, revoking the
