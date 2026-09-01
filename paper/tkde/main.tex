@@ -445,21 +445,22 @@ version, admitted type domain, timezone, exact deterministic collation
 name/version map, immutable snapshot map, and catalog/lineage digest.  A
 judgment is defined only for an \emph{admissible} $\Pi$: source schemas and
 entity keys are attested, every collatable field has a deterministic collation,
-and volatile expressions are absent.  Let $\nu$ be a catalog-owned source
-namespace (not a view alias), $s$ an immutable snapshot, $e$ a canonical stable
-entity key, $a$ a role-qualified field ID, $\tau\in\mathcal T$, and
+and volatile expressions are absent.  Let $\varpi$ be the versioned
+exposure-profile identifier (Section~\ref{sec:clearance-profile}), $\nu$ a
+catalog-owned source namespace (not a view alias), $s$ an immutable snapshot,
+$e$ a canonical stable entity key, $a$ a role-qualified field ID, $\tau\in\mathcal T$, and
 $C_\tau(v)$ its typed canonical value.  Base identities are
 
 \begin{align}
- f_{row}&=\langle\pi,\nu,s,e\rangle,\\
- f_{cell}&=\langle\pi,\nu,s,e,a,\tau,C_\tau(v)\rangle .
+ f_{row}&=\langle\varpi,\nu,s,e\rangle,\\
+ f_{cell}&=\langle\varpi,\nu,s,e,a,\tau,C_\tau(v)\rangle .
  \label{eq:fact}
 \end{align}
 
 A derived identity is
-$f_d=\langle\pi,\mathcal B,k_o,N_\pi(x),\tau,C_\tau(v),CW(W)\rangle$,
+$f_d=\langle\varpi,\mathcal B,k_o,N_\varpi(x),\tau,C_\tau(v),CW(W)\rangle$,
 where $\mathcal B=\operatorname{sort}\{(\nu,s)\}$ is the relation's snapshot
-bundle, $k_o$ is the canonical output-row entity key, $N_\pi(x)$ erases aliases
+bundle, $k_o$ is the canonical output-row entity key, $N_\varpi(x)$ erases aliases
 and normalizes the supported expression, and
 $W:\facts_{base}\rightharpoonup\mathbb N^+$
 is a finite-support witness multiset (the empty support is allowed); the
@@ -481,7 +482,7 @@ deduplication, let $k_a=\code{PREDICATE_ATOM}$ and define semantic atom
 objects before their physical keys:
 \begin{equation}
  \begin{aligned}
- a_i&=\langle k_a,\pi,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
+ a_i&=\langle k_a,\varpi,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
  A(q)&=\{a_i\mid a_i\in\operatorname{Atomize}(q)\}.
  \end{aligned}
  \label{eq:predicate-atoms}
@@ -494,7 +495,7 @@ Let $h_A$ commit the sorted $\operatorname{FactHash}_O$ values of $A(q)$ and
 $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
 \begin{equation}
  \begin{aligned}
- c_q&=\langle k_c,\pi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
+ c_q&=\langle k_c,\varpi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
  \facts_O(q)&=A(q)\cup\{c_q\},\\
  M_O(q)&=\{\operatorname{FactHash}_O(f)\mid f\in\facts_O(q)\}.
  \end{aligned}
@@ -521,7 +522,7 @@ For query $q$ over snapshot $D_s$, the exposure effect
 $\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
 result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
-versioned profile $\pi$.  The latter are the base facts the inductive rules
+versioned profile $\varpi$.  The latter are the base facts the inductive rules
 below select for successfully derived output rows and cells; the admitted language
 requires every \code{ORDER BY} column to be selected, so only the Catalog
 tie-break suffix of Page is order-only and outside this profile.
@@ -593,14 +594,14 @@ $|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
 \begin{definition}[Profile-relative clearance exactness]
 \label{def:profile-relative-exactness}
-For an approved $T=(P,S,B,C)$, $C$ binds one versioned Exposure Profile $\pi$.
+For an approved $T=(P,S,B,C)$, $C$ binds one versioned Exposure Profile $\varpi$.
 For any admissible $\Pi$ and successful query in the closed language, write
-$\facts_X^\pi(q)$ for the existing component $\facts_X(q,S)$ with its profile
+$\facts_X^\varpi(q)$ for the existing component $\facts_X(q,S)$ with its profile
 binding made explicit. BDG exactly computes the canonical Result, Dependency,
-and Outcome sets $\facts_R^\pi(q),\facts_D^\pi(q),\facts_O^\pi(q)$ and their
+and Outcome sets $\facts_R^\varpi(q),\facts_D^\varpi(q),\facts_O^\varpi(q)$ and their
 componentwise novelty
 \[
- \Delta_T^X(q)=\facts_X^\pi(q)\setminus\accounted_T^X,
+ \Delta_T^X(q)=\facts_X^\varpi(q)\setminus\accounted_T^X,
  \qquad X\in\{R,D,O\}.
 \]
 This definition fixes the scope of the word \emph{exact}: governance
@@ -611,9 +612,14 @@ empirically only as consistency with our reference implementations
 estimates of information content, knowledge, or privacy loss; BDG prevents
 unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
+\emph{Example (cont.).} Under budgets $B_R/B_D/B_O=6/12/7$ the five-row
+episode of Section~\ref{sec:model} ends with ledger totals $(6,12,7)$; a
+next query $\sigma_{dept='T'}$ needs new base and Outcome facts, so its
+$\Delta_T$ no longer fits, and it is refused uncharged---the ledger still
+reads $(6,12,7)$.
 Exactness rests on four accounting obligations, proved for the closed
 language in the supplement (O1--O4): (O1) every selected cell of a successful result
-has its materialized identity in $\facts_R$; (O2) $\facts_D^\pi$ is exactly
+has its materialized identity in $\facts_R$; (O2) $\facts_D^\varpi$ is exactly
 the declared inductive footprint (retained predicate fields, join keys, group
 keys, complete aggregate arguments), excluding rejected rows and non-output
 pages; (O3) the listed rewrites, projection splits, complete page partitions,
@@ -634,7 +640,7 @@ Let $\mathsf{AVAILABLE}(q)$ mean that $q$'s canonical artifact has reached the
 \code{AVAILABLE} state. For every modeled query and $X\in\{R,D,O\}$,
 \[
  \mathsf{AVAILABLE}(q)\Longrightarrow
- \facts_X^\pi(q)\subseteq\accounted_T^X
+ \facts_X^\varpi(q)\subseteq\accounted_T^X
  \ \wedge\ |\accounted_T^X|\leq B_X.
 \]
 \end{property}
@@ -798,9 +804,9 @@ The properties below cover only the stated operators and rewrites, not
 arbitrary equivalent SQL; the supplement proves Fact-set normalization and the
 restricted selection--projection invariance the rewrite tests use.
 
-\begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
+\begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\varpi}$]
 \label{def:nf}
-$NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
+$NF_{\Pi,\varpi}$ maps accepted, well-typed inputs to canonical terms under the
 one normal-form profile the task contract binds (rules R1--R6 below);
 equality is syntactic. Its typed digest is the query-semantic component of
 replay/outcome identity, distinct from final-ledger Fact-set
@@ -809,11 +815,11 @@ $\operatorname{normalize}$.
 
 \begin{theorem}[Typed normal-form soundness]
 \label{thm:nf-soundness}
-For admissible $\Pi$, fixed profile $\pi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
+For admissible $\Pi$, fixed profile $\varpi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
 algebra or accepted graph-lowerable SQL fragment, and the same visible field
 set $V$,
 \[
- NF_{\Pi,\pi}(q_1)=NF_{\Pi,\pi}(q_2)\Longrightarrow
+ NF_{\Pi,\varpi}(q_1)=NF_{\Pi,\varpi}(q_2)\Longrightarrow
  \effect_\Pi(q_1,D,V)=\effect_\Pi(q_2,D,V).
 \]
 This is not completeness for arbitrary equivalent SQL: normalization neither
@@ -833,10 +839,10 @@ it, Project preserves it only for an unchanged schema, Scan has none);
 per-rule effect-preservation lemma with these side conditions; RQ2's
 zero-charge guarantee covers exactly R1--R6.
 
-For a fixed approved task, let $\pi_T$ be the normal-form profile bound in
+For a fixed approved task, let $\varpi_T$ be the normal-form profile bound in
 $C$ and define the canonical replay descriptor
 \begin{equation}
- \operatorname{RK}_T(q)=\langle P,S,C,\pi_T,NF_{\Pi,\pi_T}(q),
+ \operatorname{RK}_T(q)=\langle P,S,C,\varpi_T,NF_{\Pi,\varpi_T}(q),
      \operatorname{params}_\Pi(q),\operatorname{encver}\rangle,
  \label{eq:replay-descriptor}
 \end{equation}
@@ -1044,7 +1050,10 @@ readable, and creating workers or task nodes cannot create fresh exposure
 capacity; every child grant is itself a human-approved authorization on the
 Catalog's route (the prototype's only mode is manual approval), so the tree's
 size, and the summed request budget of Proposition~\ref{prop:probing-bound},
-is set by approvals, not by the agent. Settlement checks the settling task's own signed ceiling against
+is set by approvals, not by the agent. \emph{Example (cont.).} A delegated
+child re-issuing the split $\pi_{id}$ of Section~\ref{sec:model} replays at
+$0/0/0$ against the shared ledger; a child attempting $\sigma_{dept='T'}$
+is refused by the same $\Delta_T$ computation. Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
@@ -1086,9 +1095,29 @@ not a mechanized refinement.
 \subsection{Budget Calibration}
 \label{sec:calibration}
 
-\textbf{Catalog-issued capacity.} The supplement's calibration table separates
-profile units from resource guards and from quantities they do not
-estimate. These declarations are neither risk scores nor optimization targets: 1,000
+\textbf{Catalog-issued capacity.} Table~\ref{tab:profile-calibration}
+separates profile units from resource guards and from quantities they do
+not estimate; unit weights enable exact set union, not harm or
+differential-privacy accounting. These declarations are neither risk scores nor optimization targets:
+
+\begin{table}[t]
+\centering
+\caption{Profile calibration boundary.}
+\label{tab:profile-calibration}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{L{0.16\columnwidth}L{0.42\columnwidth}L{0.30\columnwidth}}
+\toprule
+Budget & Governs & Does not represent \\
+\midrule
+$B_R$ & Distinct accounted Result Fact identities selected for publication & Knowledge value or privacy loss \\
+$B_D$ & Distinct profile-declared positive-output Dependency Facts & Minimal causes or all physical reads \\
+$B_O$ & Distinct canonical predicate atoms and query/result composites & Bits, entropy, or DP $\epsilon$ \\
+$B_Q$, rows, DB time & Request and resource availability & Semantic novelty or exposure deduplication \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
@@ -1403,30 +1432,50 @@ budgets fixed a priori by the same $\lfloor 0.7\,U\rfloor$ recipe per
 unit, in three orders each, released the full
 \FinalVFiveCounterNaiveMinDep{}-fact Dependency union in every order; the
 exact floors capped release at \FinalVFiveCounterExactMaxDep{} in every
-order.
+order (Table~\ref{tab:counter-executed-main}).
+
+\begin{table}[t]
+\centering
+\caption{Executed comparator arms (retained pilot): queries accepted,
+first refusal step, and final distinct Dependency facts, as
+natural\,/\,shuffled\,/\,novelty-first order.}
+\label{tab:counter-executed-main}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccc}
+\toprule
+Arm & Accepted & First refusal & Distinct Dep. \\
+\midrule
+\FinalVFiveCounterTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.18\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.34\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
-  xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
-  legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
-\addplot[blue, thick] coordinates {\FinalVFivePublicationRLSPrefixRelease};
-\addplot[red, thick] coordinates {\FinalVFivePublicationRLSPrefixDependency};
-\addplot[black!60!green, thick] coordinates {\FinalVFivePublicationRLSPrefixOutcome};
+  xmin=1, xmax=100, ymin=0, ymax=30,
+  ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},
+  legend pos=north west, legend columns=3,
+  legend style={font=\scriptsize, draw=none, fill=none}, grid=major, grid style={gray!25}]
+\addplot[blue, thick, mark=o, mark repeat=10, mark size=1.2pt] coordinates {\FinalVFivePublicationRLSPrefixRelease};
+\addplot[red, thick, mark=square*, mark repeat=10, mark size=1.1pt] coordinates {\FinalVFivePublicationRLSPrefixDependency};
+\addplot[black!60!green, thick, mark=triangle*, mark repeat=10, mark size=1.4pt] coordinates {\FinalVFivePublicationRLSPrefixOutcome};
 \legend{Release, Dependency, Outcome}
 \addplot[blue, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetRelease) (100,\FinalVFivePublicationRLSBudgetRelease)};
 \addplot[red, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetDependency) (100,\FinalVFivePublicationRLSBudgetDependency)};
 \addplot[black!60!green, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetOutcome) (100,\FinalVFivePublicationRLSBudgetOutcome)};
 \draw[gray, thick] (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,0) -- (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,30)
-  node[pos=0.85, right, font=\tiny, align=left] {bounded arm\\refuses};
+  node[pos=0.9, right, font=\scriptsize, align=left] {bounded arm\\refuses};
 \end{axis}
 \end{tikzpicture}
 \caption{Distinct governed facts obtained by the adaptive trace by query
-index (separate trace-union oracle; solid) against the bounded arm's
-budgets (dashed); BDG-bounded refuses at the first query whose prefix
-crosses a budget, where the trace stops.}
+index (separate trace-union oracle; solid, marked) against the bounded
+arm's budgets (dashed, at the marked y ticks); BDG-bounded refuses at the
+first query whose prefix crosses a budget, where the trace stops.}
 \label{fig:rls-trace}
 \end{figure}
 
