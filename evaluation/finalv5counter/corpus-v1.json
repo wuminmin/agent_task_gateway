@@ -1970,9 +1970,9 @@
           "position": 58,
           "source_index": 58,
           "step_id": "equiv-04-553-reversed",
-          "accepted": false,
-          "refusal_kind": "resource",
-          "released_rows": 0,
+          "accepted": true,
+          "released_rows": 2,
+          "truncated": true,
           "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 0
@@ -2440,13 +2440,13 @@
           "novel_outcome": 0
         }
       ],
-      "first_refusal": 58,
-      "accepted_steps": 57,
-      "refused_steps": 43,
+      "first_refusal": 59,
+      "accepted_steps": 58,
+      "refused_steps": 42,
       "distinct_release": 6,
       "distinct_dependency": 18,
       "distinct_outcome": 21,
-      "released_row_total": 173
+      "released_row_total": 175
     },
     {
       "arm": "queries",
@@ -3158,7 +3158,7 @@
           "source_index": 71,
           "step_id": "count-02-553",
           "accepted": false,
-          "refusal_kind": "resource",
+          "refusal_kind": "archived",
           "released_rows": 0,
           "novel_release": 0,
           "novel_dependency": 0,
@@ -6337,9 +6337,9 @@
           "position": 73,
           "source_index": 46,
           "step_id": "equiv-02-553-reversed",
-          "accepted": false,
-          "refusal_kind": "resource",
-          "released_rows": 0,
+          "accepted": true,
+          "released_rows": 3,
+          "truncated": true,
           "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 0
@@ -6642,13 +6642,13 @@
           "novel_outcome": 0
         }
       ],
-      "first_refusal": 73,
-      "accepted_steps": 72,
-      "refused_steps": 28,
+      "first_refusal": 74,
+      "accepted_steps": 73,
+      "refused_steps": 27,
       "distinct_release": 10,
       "distinct_dependency": 18,
       "distinct_outcome": 23,
-      "released_row_total": 172
+      "released_row_total": 175
     },
     {
       "arm": "queries",
@@ -7360,7 +7360,7 @@
           "source_index": 75,
           "step_id": "count-03-960",
           "accepted": false,
-          "refusal_kind": "resource",
+          "refusal_kind": "archived",
           "released_rows": 0,
           "novel_release": 0,
           "novel_dependency": 0,
@@ -10358,7 +10358,7 @@
           "source_index": 72,
           "step_id": "count-02-960",
           "accepted": false,
-          "refusal_kind": "resource",
+          "refusal_kind": "archived",
           "released_rows": 0,
           "novel_release": 0,
           "novel_dependency": 0,
@@ -11567,7 +11567,7 @@
           "source_index": 13,
           "step_id": "page-03-0",
           "accepted": false,
-          "refusal_kind": "resource",
+          "refusal_kind": "archived",
           "released_rows": 0,
           "novel_release": 0,
           "novel_dependency": 0,
