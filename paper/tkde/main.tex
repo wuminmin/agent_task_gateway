@@ -127,9 +127,8 @@ freshness over a changing database.
 Large enterprises already operate lakes or warehouses, reporting marts, Data
 Catalogs, identity directories, and approval workflows, but none turns one
 approved purpose into an enforceable contract across an agent's queries,
-retries, pages, and delegated subtasks. Marketplace-integrated agents
-close the discovery-and-request half of this gap (Data Product MCP checks
-a declared purpose against natural-language contracts before each query
+retries, pages, and delegated subtasks. Marketplace-integrated agents close the discovery-and-request half of this
+gap (Data Product MCP
 \cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}), but
 once a purpose is approved, per-query checks still do not state how much
 governed data the task has cumulatively released. BDG starts at that boundary
@@ -294,10 +293,9 @@ an exact declared-identity set with zero-charge replay.
 Statistical-database inference control studied trackers, query-set overlap,
 and cumulative auditing
 \cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness};
-BDG's Dependency ledger is an exact, provenance-derived, delegation- and
-publication-bound engineering of that lineage that bounds settled
-predicates, not inference, and its budget is a set of declared facts where
-PINQ's is $\epsilon$ \cite{mcsherry2009pinq}. Zero-novelty replay is the
+BDG's Dependency ledger is a provenance-derived engineering of that
+lineage: it bounds settled predicates, not inference, and its budget is a
+set of declared facts where PINQ's is $\epsilon$ \cite{mcsherry2009pinq}. Zero-novelty replay is the
 syntactic analogue of history-aware pricing, and
 Theorem~\ref{thm:nf-soundness} covers rules R1--R6 only, weaker than
 arbitrage-freedom. Why/where/how provenance
