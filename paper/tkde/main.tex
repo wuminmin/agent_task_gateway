@@ -1106,10 +1106,10 @@ same canonical plan or fails closed, so no path executes agent-authored
 text; results use AES-GCM and audits form a hash chain. BDG fronts the
 governed serving tier (lake $\rightarrow$ curated products $\rightarrow$
 immutable publications $\rightarrow$ BDG $\rightarrow$ agent) and replaces
-none of the lake, Catalog, IAM, OA/BPM, object store, RLS/DFC, or audit
-systems (supplement interface table; not a production deployment); OA/BPM
-may impose principal- or tenant-level issuance policies across roots while
-the ledger stays scoped to one root family. Crashes, concurrency, stale
+none of the surrounding lake, Catalog, IAM, OA/BPM, object-store, RLS/DFC,
+or audit systems (supplement interface table; not a production deployment);
+OA/BPM may impose cross-root issuance policies while the ledger stays
+scoped to one root family. Crashes, concurrency, stale
 bindings, replay, and promotion failure are in scope; compromised trusted
 authorities, direct bypass, colluding independent roots, and external-tool
 leakage are not.
@@ -1478,13 +1478,12 @@ frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries, and it is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
 admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
-even after rewriting comma joins to explicit joins, stopping first at
+(comma joins rewritten to explicit joins), stopping first at
 subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
 (\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
 reporting queries (four-source star joins with a grouped \code{SUM} lower;
-derived measures such as \code{lo_revenue - lo_supplycost} inside an
-aggregate, \code{OR} filters, and ordering by an aggregate alias do not;
+derived measures, \code{OR} filters, and aggregate-alias ordering do not;
 supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
