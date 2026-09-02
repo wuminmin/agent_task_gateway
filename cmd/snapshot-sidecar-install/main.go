@@ -185,7 +185,7 @@ func loadPublication(artifactDirectory, inputPath string) (publication, error) {
 }
 
 func readVerifiedFile(path string, descriptor snapshotbundle.FileDescriptor) ([]byte, error) {
-	if descriptor.Bytes <= 0 || descriptor.Bytes > 512<<20 {
+	if descriptor.Bytes <= 0 || descriptor.Bytes > snapshotbundle.DefaultPublicationLimits().MaxHotBytes {
 		return nil, errors.New("artifact descriptor is outside the installer limit")
 	}
 	payload, err := os.ReadFile(path)
