@@ -42,12 +42,12 @@ func MapV2(input RelationV2, specs []DerivedFieldSpecV2) (RelationV2, error) {
 		return input, nil
 	}
 	result := RelationV2{SnapshotBundle: append([]SnapshotBinding(nil), input.SnapshotBundle...),
-		CanonicalOrder: input.CanonicalOrder, Fields: append([]FieldDefinitionV2(nil), input.Fields...)}
+		CanonicalOrder: input.CanonicalOrder, Fields: append([]FieldV2(nil), input.Fields...)}
 	for _, spec := range specs {
 		if spec.OutputID == "" || spec.Expression == "" || spec.Tree == nil || !derivedExactTypeV2(spec.OutputType) {
 			return RelationV2{}, fmt.Errorf("%w: derived field spec is incomplete", ErrInvalid)
 		}
-		result.Fields = append(result.Fields, FieldDefinitionV2{ID: spec.OutputID, SQLType: spec.OutputType,
+		result.Fields = append(result.Fields, FieldV2{ID: spec.OutputID, SQLType: spec.OutputType,
 			Expression: spec.Expression})
 	}
 	for _, source := range input.Rows {
