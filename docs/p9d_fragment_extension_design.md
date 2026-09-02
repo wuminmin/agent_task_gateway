@@ -88,3 +88,10 @@ NewDerivedFactV2(bundle, member.key, spec.CanonicalExpression, SQLType, 可见�
 2. ordinalAggregateSpecs 的 DerivedArg 分支（Args 同上, CanonicalExpression=fn(N_arith), SQLType=AggregateOutputType(fn, exprType)）。
 3. gateway ordinal deriver 的 visible cell 组装处按 Args 并集参数格 witness（找 member.cells 填充点）；
    normalizeOrdinalProgram 校验面同步。
+
+## D6 域放宽（2026-09-02，实测驱动）：精确域内类型提升
+
+同型闭合把 q32（quantity bigint × unit_price numeric）拒了，而 PG 的 int×numeric→numeric 是精确运算。
+放宽为：全部操作数属精确域 {smallint,integer,bigint,numeric}；输出型 = numeric 若任一操作数为 numeric，
+否则 bigint（整数提升；重算侧 int64 溢出仍 fail-closed）。字面量继承输出型。q09/q20 仍拒（子查询、
+聚合间除法——超范围属正当界定）。多源（join 上的）派生算术留作后续版本，本版单产品。

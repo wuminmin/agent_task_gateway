@@ -56,15 +56,18 @@ func (l *lowerer) lowerDerivedExpr(expr *pg_query.A_Expr, location int32) (*quer
 	if err != nil {
 		return nil, err
 	}
+	// Exact-domain type promotion: any numeric operand promotes the whole
+	// expression to numeric; an all-integer expression computes in bigint
+	// (the offline re-computation still fails closed on int64 overflow).
 	unified := ""
 	for _, sqlType := range columnTypes {
-		if unified == "" {
-			unified = sqlType
-		}
-		if sqlType != unified {
-			return nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
-				"Derived arithmetic requires one common exact column type.", "SELECT", location, "",
-				"Combine columns of one exact Catalog type (for example numeric with numeric).")
+		switch sqlType {
+		case "numeric":
+			unified = "numeric"
+		case "smallint", "integer", "bigint":
+			if unified == "" {
+				unified = "bigint"
+			}
 		}
 	}
 	if unified == "" {

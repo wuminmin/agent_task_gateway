@@ -1099,11 +1099,17 @@ func validateDerivedTypes(derived DerivedColumn, product Product) error {
 	if err := ValidateArithShape(derived.Expr); err != nil {
 		return err
 	}
-	return walkDerivedOperands(derived.Expr, func(operand ArithOperand) error {
+	promoted := ""
+	err := walkDerivedOperands(derived.Expr, func(operand ArithOperand) error {
 		if operand.Column != "" {
-			natural, err := exposure.CanonicalSQLTypeV2(product.ColumnTypes[operand.Column])
-			if err != nil || natural != derived.SQLType {
-				return fmt.Errorf("derived operand %q must carry the declared exact type %q", operand.Column, derived.SQLType)
+			natural, naturalErr := exposure.CanonicalSQLTypeV2(product.ColumnTypes[operand.Column])
+			if naturalErr != nil || !derivedExactOperandType(natural) {
+				return fmt.Errorf("derived operand %q is outside the exact domain", operand.Column)
+			}
+			if natural == "numeric" {
+				promoted = "numeric"
+			} else if promoted == "" {
+				promoted = "bigint"
 			}
 		}
 		if operand.Literal != "" && operand.SQLType != derived.SQLType {
@@ -1111,6 +1117,13 @@ func validateDerivedTypes(derived DerivedColumn, product Product) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if promoted == "" || promoted != derived.SQLType {
+		return fmt.Errorf("derived type %q disagrees with the exact promotion %q", derived.SQLType, promoted)
+	}
+	return nil
 }
 
 func walkDerivedOperands(expr *DerivedExpr, visit func(ArithOperand) error) error {
@@ -1128,4 +1141,12 @@ func walkDerivedOperands(expr *DerivedExpr, visit func(ArithOperand) error) erro
 		}
 	}
 	return nil
+}
+
+func derivedExactOperandType(typeName string) bool {
+	switch typeName {
+	case "smallint", "integer", "bigint", "numeric":
+		return true
+	}
+	return false
 }
