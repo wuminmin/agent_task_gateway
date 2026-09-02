@@ -14,7 +14,7 @@ import (
 const (
 	ProvSQLManifestGeneratorVersion = "taskgate-final-v5-provsql-semantic-manifest-v1"
 
-	ProvSQLDatasetSpecSHA256       = "fa5180d4fc8ce3c57c64f93b3f48f0e5cdcdb62d3ae466d80e1e95431adb1a78"
+	ProvSQLDatasetSpecSHA256       = "52532741e9b303219656f0f3d3949ffbfc3cc77d16c4aa6dd54f41cea558c095"
 	ProvSQLCatalogSpecSHA256       = "d691a58ef73ac7746ad2eb926c6d5999aae9d2646a34c9f0513616e380f29a8d"
 	ProvSQLNormalizationSpecSHA256 = "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816"
 	ProvSQLCombinedQuerySpecSHA256 = "017c9a9e8b51ac41c9ee4a26e1e4f47c63934c170a37a4e7d066ba30bb4ac1fb"

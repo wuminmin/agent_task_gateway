@@ -248,8 +248,10 @@ REVOKE ALL ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy
 
 ALTER TABLE final_v5_benchmark.exposure_scale OWNER TO taskgate_snapshot_owner;
 ALTER TABLE final_v5_benchmark.result_heavy OWNER TO taskgate_snapshot_owner;
+ALTER TABLE final_v5_benchmark.scale_e7 OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.final_v5_exposure_scale OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.final_v5_result_heavy OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.final_v5_scale_e7 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l1 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l2 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l3 OWNER TO taskgate_snapshot_owner;
