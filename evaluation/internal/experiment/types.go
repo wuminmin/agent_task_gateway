@@ -552,6 +552,7 @@ type Sample struct {
 	RLSVerification           *RLSVerificationEvidence          `json:"rls_verification,omitempty"`
 	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
 	BenignVerification        *BenignVerificationEvidence       `json:"benign_verification,omitempty"`
+	Scale7Verification        *Scale7VerificationEvidence       `json:"scale7_verification,omitempty"`
 	CounterVerification       *CounterVerificationEvidence      `json:"counter_verification,omitempty"`
 	AdversaryVerification     *AdversaryVerificationEvidence    `json:"adversary_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
@@ -2005,6 +2006,43 @@ type FootprintVerificationEvidence struct {
 	Rungs                     []FootprintRungEvidence `json:"rungs"`
 	AcceptedRungs             int                     `json:"accepted_rungs"`
 	RefusedRungs              int                     `json:"refused_rungs"`
+}
+
+// Scale7RungEvidence is one SUM-ladder execution of the P9.E scale point:
+// identity bound to the frozen finalv5scale7 corpus, the observed charges
+// against a fresh root, exact scalars, and the client-observed latency.
+type Scale7RungEvidence struct {
+	Index                   int      `json:"index"`
+	ID                      string   `json:"id"`
+	Rows                    int64    `json:"rows"`
+	LogicalSQLSHA256        string   `json:"logical_sql_sha256"`
+	DirectSQLSHA256         string   `json:"direct_sql_sha256"`
+	Accepted                bool     `json:"accepted"`
+	ObservedErrorCode       string   `json:"observed_error_code,omitempty"`
+	ClientMS                float64  `json:"client_ms"`
+	ReplayClientMS          float64  `json:"replay_client_ms,omitempty"`
+	RootTaskIDHash          string   `json:"root_task_id_hash,omitempty"`
+	RequestIDHash           string   `json:"request_id_hash,omitempty"`
+	ChargedReleaseFacts     int64    `json:"charged_release_facts"`
+	ChargedDependencyFacts  int64    `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts     int64    `json:"charged_outcome_facts"`
+	ReplayChargedFacts      int64    `json:"replay_charged_facts"`
+	ExpectedDependencyFacts int64    `json:"expected_dependency_facts"`
+	ObservedScalars         []string `json:"observed_scalars,omitempty"`
+}
+
+// Scale7VerificationEvidence binds a scale-ladder sample to the frozen
+// evaluation/finalv5scale7 corpus.
+type Scale7VerificationEvidence struct {
+	Version            string              `json:"version"`
+	CorpusID           string              `json:"corpus_id"`
+	CorpusSHA256       string              `json:"corpus_sha256"`
+	Product            string              `json:"product"`
+	BudgetProfile      string              `json:"budget_profile"`
+	Mode               string              `json:"mode"`
+	MaxDependencyFacts int64               `json:"max_dependency_facts"`
+	Rungs              []Scale7RungEvidence `json:"rungs"`
+	AcceptedRungs      int                 `json:"accepted_rungs"`
 }
 
 // BenignStepEvidence is one benign-trace statement execution: identity bound
