@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 142,
+  "targeted_run_eligible_cells": 148,
   "unresolved_cells": 148,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -322,21 +322,15 @@
       "alias": "adversary-owner",
       "closure_sha256": "4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-4a29b3ffc7129007",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -346,18 +340,12 @@
       },
       "unresolved_reason": [
         {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-4a29b3ffc7129007",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
-        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "f0172ffb7888254c1abca1b57f9948b4052f634e635eae4b626f31a25a44bf8c",
+      "catalog_sha256": "bb1abc4137787597ba1da454c2d24445439c9e42e2c05153d1d8f202fff17309",
       "total_hot_bytes": 16619844,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/owner",
@@ -480,21 +468,15 @@
       "alias": "adversary-loosened",
       "closure_sha256": "68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-68ded13e09bfd6e1",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -504,18 +486,12 @@
       },
       "unresolved_reason": [
         {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-68ded13e09bfd6e1",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
-        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "d6e032a4de84f0a702c44e43a7ab64bc707b88e3d2afd50d47a8ecef180c6f7a",
+      "catalog_sha256": "ba64c82e71285c9b108e5dd8fb120ad1ee2ab6aeba2f9c81af1011e0f35c85f7",
       "total_hot_bytes": 117623914,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/loosened",
@@ -868,21 +844,15 @@
       "alias": "adversary-tightened",
       "closure_sha256": "f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f39ec7673d438fe9",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -892,18 +862,12 @@
       },
       "unresolved_reason": [
         {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-f39ec7673d438fe9",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
-        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "e7999b2ac6b6d03bf54a7afb9f6635e688d6357d5e1e622195a083fa4b36b370",
+      "catalog_sha256": "19c0ea5e27e4df81b87164c27e1e70fa01c81092731757e51d6cf350ab20ac76",
       "total_hot_bytes": 101020708,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/tightened",

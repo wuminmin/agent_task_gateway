@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.12",
-  "profile_registry_sha256": "ab76960c08918525d8d11080fcb129eeb0989d0fadea4884e5ad224ed064ce81",
+  "profile_registry_sha256": "c0df9d6489bfc0ce1773eed8cdc862be223286b1f06b3c3930cf7dae0d08a504",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "c3f41c7378824d1aad4d469e9ff71fb5399d62cc21bed81df51f0a49d8a2b06e",
-  "outside_product_route_matrix_sha256": "f649204def597064bc26c30b38df5725e6a0a382b469469c4f8837791dc82fbb",
-  "semantic_cache_isolation_evidence_sha256": "966f20e9ef29f885e03626983014804d268cbdc68fa217573a1012468db51570",
+  "activation_smoke_manifest_sha256": "5f8a005d08d4f89b23dc180a7ed081a4c193417c11b4276568f00e866ad9278b",
+  "outside_product_route_matrix_sha256": "01c5a756e59979f4c8e327c7095bac89af4648da013009e7a029f2dd499a3a14",
+  "semantic_cache_isolation_evidence_sha256": "4263eedd2b6b1a5b1d2961d52eb074befd25e618ce9649199be31c37e8fb94be",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d8f044ff12adef0f5f730ebe2b67e0f7d377d7b6df8e192e199b9158ab2f3ebe"
+        "cbf3b810578faf2cd0994813de300ceadd124963f7b7978a1538e3d8bb7dcf8e"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "0591dd654a7c1ba06e45dbc395bc2d6562ac306b5bf7ba54ad6d8f197d4648d0"
+        "a3603be9e1b1123e849204193fcb3e50084b3b108cab3da9f3842e27117e2391"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "c78289ca5cccc7b6de3b451adf407dd07f781c73c4320d6d798329a396d77793"
+        "5d387b14e39be91cbd83f2c508da5b730899c5fd1d77bff4cd8bc8ba5acd8502"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "ac2b2a8219c7f65594b56b0a23e3000fa0f5b60d32c47400420963c314197add"
+        "e6c540b74b70facfb36ed2d633fa4e8c580508c5dc35a9ba860134b25eeadcff"
       ],
       "reason": ""
     },
@@ -88,7 +88,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "16232f9eb7114342e04e68a621277bff3cdfe58843bb1214526bc438cd1a749b"
+        "e698ec9b1c33f0900d9ccdadc894ab4cb76c8f8aa758c31c81c8f3adfa6458ab"
       ],
       "reason": ""
     },
@@ -109,7 +109,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "9337a8563134b97ef2d15483f4e9b25e9fc2db4abd331dc2d90ea6c4713db459"
+        "6602a9fd02dfe03d7b4253d52854947e95b456b217985c5f073db54001d0cf45"
       ],
       "reason": ""
     },
@@ -126,7 +126,24 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "828c14171c138ba65aa9c0b31a536eab9340ec64eb232d6b9d40e05e6ef7bdfe"
+        "328ebd64faf248bc1b8612735b19d2b30ec9b153d681d4224decbc87ad0b1bfa"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-4a29b3ffc7129007",
+      "profile_alias": "adversary-owner",
+      "catalog_sha256": "bb1abc4137787597ba1da454c2d24445439c9e42e2c05153d1d8f202fff17309",
+      "closure_sha256": "4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8",
+      "profile_schema_attestation": "6618259b036e4332af9b70a685d422f2ef8c00de1c366c57bbd214dd9fe21978",
+      "publication_identities": [
+        "expense-detail-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "26303d3623c7f0efe936a923f72b01b264f940f9bec9977b3fd5480f073adefe"
       ],
       "reason": ""
     },
@@ -142,7 +159,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "10a69e061fb4d82d4c3e95206589dade6ec51a937b3c3b0f214afdd4b5ec8815"
+        "ba9bcfa7a4f938e10c60435bdefbf92317c47ca7752df6dc1e70e225848bc227"
       ],
       "reason": ""
     },
@@ -162,7 +179,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "b5e92cecc4e82972bf5e791e9c6c30eff606b1638a229d23631820344b0090ce"
+        "76b937473888e90a9a6b44101f0d01d1396753c5fdc48954ee7c9fe7750a4def"
       ],
       "reason": ""
     },
@@ -179,7 +196,25 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "63e096e315282ad51a42e9b04c17a8a7d9cb4dc8f6b7d2b59137a602a04db76f"
+        "48304528bb1f02d18a92c0fe48a8e4bfecda58716110838b86df3b83dfbd408f"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-68ded13e09bfd6e1",
+      "profile_alias": "adversary-loosened",
+      "catalog_sha256": "ba64c82e71285c9b108e5dd8fb120ad1ee2ab6aeba2f9c81af1011e0f35c85f7",
+      "closure_sha256": "68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340",
+      "profile_schema_attestation": "dd28118ae328822fb00e0ecc5393714e97f2a6daeb17569d3029b4448c5428e4",
+      "publication_identities": [
+        "expense-detail-v1",
+        "provsql-lineitem-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "832e714bd81f250dbb1acfaeaf5f7a923ccd215e32c5c6670eb0e7841ceb3967"
       ],
       "reason": ""
     },
@@ -196,7 +231,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "221f524fff04a032a5199ad83265755e3cc4e999747b84960e02774d232e7ce8"
+        "d167649225639bc6dd96c592332881431393f0ce4d6260c632ac64dccd491325"
       ],
       "reason": ""
     },
@@ -212,7 +247,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "11f261b7b86c61e0b4846103f0cd2cc2e8cd9c7a62d115c73f8b7cc86e5d5efa"
+        "1b80fd4659b14349c2ec703f4cd50812692fe708e3cc30cc28e8646017a38b03"
       ],
       "reason": ""
     },
@@ -230,7 +265,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "b5054f0ebfc356c2364be1adbd56b97282e57e9060fc3d6fb039930fa1103e0f"
+        "259d30af4009a1cfece0cea1174865b85db47260a1280d2f0bf86d7bdf611c44"
       ],
       "reason": ""
     },
@@ -246,7 +281,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "740a2d942b0569d29e8af1bfa3e4a02b6b1aa9791932a317a54139689e78c8a6"
+        "ab41105c8598102d6022b0544f4974adca6def71fac82248dface2fe1dd00adf"
       ],
       "reason": ""
     },
@@ -262,7 +297,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "ec4c5089a6a5fc04d7b9185b44fc1ebb0c13aa30a99008f5426d83927e92d4e3"
+        "9d7e8a9eaaa5f14916adf199169fbcbf7c2b24d105a3ccbcddb0d0a1e112f8fd"
       ],
       "reason": ""
     },
@@ -278,7 +313,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "8a07100170f38a3f411518b62efe053ef4d701a89b9436b7d814b761a5e405ca"
+        "eb748fc24c9a0a225a8458a3c5c74a019c560d80ea59fe24a3b1df4a2975b141"
       ],
       "reason": ""
     },
@@ -294,7 +329,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "5121420201aef3307d76a284c9a69e662e6c1d9c43d1de7a50be24ba4215b529"
+        "16492a94c4371060b72d43ecb1f6ffc0acc75590c61069d5e8228ba68f5e3db9"
       ],
       "reason": ""
     },
@@ -315,7 +350,24 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "571f8de2972e2c81a38a8f5a77afd070b14e95086ea2b0c0964ece82130be365"
+        "1a46fa21dd247e3e94848f2e39375a24229a428aef965e37ee06e0e1499ea42c"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-f39ec7673d438fe9",
+      "profile_alias": "adversary-tightened",
+      "catalog_sha256": "19c0ea5e27e4df81b87164c27e1e70fa01c81092731757e51d6cf350ab20ac76",
+      "closure_sha256": "f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd",
+      "profile_schema_attestation": "012d49bbc4d4a8d14fc2ab6100d59477b2d283bcc83131e8c7dc7f560a502ef8",
+      "publication_identities": [
+        "expense-detail-v1",
+        "provsql-lineitem-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "a99921ab23b076b518530d4bd2d6015e83bbaa202062c018407f86d9a3ee7825"
       ],
       "reason": ""
     },
@@ -332,7 +384,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "7c8aaaeab58df421ad29ca711b811d239eb60431c03aff82d9dfe3e5ed61e5c4"
+        "d2196a76ef5adfad8158f625b7d66bbdf0e501b502c184213c63de11bebead94"
       ],
       "reason": ""
     },
@@ -348,7 +400,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "076faf47a2553220ecedb6f05f1f59cd898f5d88536424b48c1c0bbac3f5eba9"
+        "d94646bd52927aa3f0d128a6aad6e714acee14387dd90374c39ec84dcd8dd674"
       ],
       "reason": ""
     }

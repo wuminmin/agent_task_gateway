@@ -510,16 +510,10 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-4a29b3ffc7129007",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -528,7 +522,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-adversary-owner-v1"
       ],
@@ -539,7 +533,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "f0172ffb7888254c1abca1b57f9948b4052f634e635eae4b626f31a25a44bf8c",
+      "catalog_sha256": "bb1abc4137787597ba1da454c2d24445439c9e42e2c05153d1d8f202fff17309",
       "catalog_path": "config/profiles/adversary-owner.catalog.yaml",
       "hot_artifacts": [
         {
@@ -805,16 +799,10 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-68ded13e09bfd6e1",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -823,7 +811,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-adversary-loosened-v1"
       ],
@@ -834,7 +822,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "d6e032a4de84f0a702c44e43a7ab64bc707b88e3d2afd50d47a8ecef180c6f7a",
+      "catalog_sha256": "ba64c82e71285c9b108e5dd8fb120ad1ee2ab6aeba2f9c81af1011e0f35c85f7",
       "catalog_path": "config/profiles/adversary-loosened.catalog.yaml",
       "hot_artifacts": [
         {
@@ -1480,16 +1468,10 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f39ec7673d438fe9",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1498,7 +1480,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-adversary-tightened-v1"
       ],
@@ -1509,7 +1491,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "e7999b2ac6b6d03bf54a7afb9f6635e688d6357d5e1e622195a083fa4b36b370",
+      "catalog_sha256": "19c0ea5e27e4df81b87164c27e1e70fa01c81092731757e51d6cf350ab20ac76",
       "catalog_path": "config/profiles/adversary-tightened.catalog.yaml",
       "hot_artifacts": [
         {

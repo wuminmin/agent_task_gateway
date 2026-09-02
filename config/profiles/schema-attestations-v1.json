@@ -4,7 +4,7 @@
   "contract_release": "final-v5-contracts-v1.12",
   "source": "travel_demo",
   "postgres_major_version": 16,
-  "generated_at": "2026-09-01T02:38:29Z",
+  "generated_at": "2026-09-02T01:06:59Z",
   "profiles": [
     {
       "profile_id": "profile-00bc8f7d5633f596",
@@ -119,6 +119,22 @@
       "generated_from_fresh_deployment": true
     },
     {
+      "profile_id": "profile-4a29b3ffc7129007",
+      "profile_alias": "adversary-owner",
+      "closure_sha256": "4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "f057b54332628237048d394566471514c2000f77b4e6d9ec0bed84cad26955f7",
+      "reporting_view_set_sha256": "f4f267a7af4a2b65948341220a9f40c37d77ff165f5b875b570ffe72a94afcce",
+      "reporting_views": [
+        "reporting.final_v5_rls_unlimited_expense_detail",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "6618259b036e4332af9b70a685d422f2ef8c00de1c366c57bbd214dd9fe21978",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
       "profile_id": "profile-52504d68e0f7fa28",
       "profile_alias": "footprint-unlimited",
       "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6",
@@ -165,6 +181,23 @@
         "reporting.provsql_orders"
       ],
       "schema_digest": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-68ded13e09bfd6e1",
+      "profile_alias": "adversary-loosened",
+      "closure_sha256": "68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "039457524b4bf038ba5ce0bfb7752182c7da931cebcd6fa64557b5cd538acdb5",
+      "reporting_view_set_sha256": "661d7501018f4ee2cae44518d58a1c33cd046f4f9c13e7e4c8d43f79ab826a6a",
+      "reporting_views": [
+        "reporting.final_v5_rls_unlimited_expense_detail",
+        "reporting.provsql_lineitem",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "dd28118ae328822fb00e0ecc5393714e97f2a6daeb17569d3029b4448c5428e4",
       "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
       "generated_from_fresh_deployment": true
     },
@@ -296,6 +329,22 @@
         "reporting.provsql_orders"
       ],
       "schema_digest": "7dc1e57da789f8e3d8681ff39d5d88b10ffc325eb1af808fc792a0f191f4c040",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-f39ec7673d438fe9",
+      "profile_alias": "adversary-tightened",
+      "closure_sha256": "f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "77c31d041b00480eba0f451bccc325d7fcd13b1643091ecd30740564ac58c70b",
+      "reporting_view_set_sha256": "e54d6199b0afc8e3b0e6ed1dc62ba22cbd36649dcb0748d87f8c713c70b749bd",
+      "reporting_views": [
+        "reporting.final_v5_rls_unlimited_expense_detail",
+        "reporting.provsql_lineitem"
+      ],
+      "schema_digest": "012d49bbc4d4a8d14fc2ab6100d59477b2d283bcc83131e8c7dc7f560a502ef8",
       "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
       "generated_from_fresh_deployment": true
     },
