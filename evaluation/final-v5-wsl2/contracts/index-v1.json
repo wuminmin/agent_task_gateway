@@ -56,7 +56,7 @@
     {
       "kind": "dataset_generator",
       "path": "sql/datasets/benchmark-v1-generate.sql",
-      "sha256": "52532741e9b303219656f0f3d3949ffbfc3cc77d16c4aa6dd54f41cea558c095"
+      "sha256": "402534b70f6251e452891bc1c57ed19e79637fcc27238c92f65a4f86b387a8ec"
     },
     {
       "kind": "dataset_probe",

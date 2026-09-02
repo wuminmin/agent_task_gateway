@@ -261,7 +261,7 @@ ALTER SCHEMA final_v5_benchmark OWNER TO taskgate_snapshot_owner;
 DO $reader_grants$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gateway_reader') THEN
-        EXECUTE 'GRANT SELECT ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy, reporting.final_v5_analytics_depth4_l1, reporting.final_v5_analytics_depth4_l2, reporting.final_v5_analytics_depth4_l3, reporting.final_v5_analytics_depth4 TO gateway_reader';
+        EXECUTE 'GRANT SELECT ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy, reporting.final_v5_scale_e7, reporting.final_v5_analytics_depth4_l1, reporting.final_v5_analytics_depth4_l2, reporting.final_v5_analytics_depth4_l3, reporting.final_v5_analytics_depth4 TO gateway_reader';
     END IF;
 END
 $reader_grants$;
