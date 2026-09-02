@@ -10,7 +10,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
-// benignAdapter runs the (c3) benign agent trace: the 27 frozen statements in
+// benignAdapter runs the (c3) benign agent trace: the 28 frozen statements in
 // question order on one fresh root per sample, under one of the three
 // a-priori recipe budget profiles. Refusal positions are the measurement, so
 // the runner records outcomes and fails only on protocol or corpus-identity
@@ -78,7 +78,7 @@ func (adapter *benignAdapter) Close() {
 func validBenignCell(operation experiment.AdapterOperation) bool {
 	_, knownMode := benignBudgetProfiles[operation.Mode]
 	return operation.ExperimentID == "benign" && operation.WorkloadID == finalv5benign.TraceWorkloadID &&
-		operation.Scale == "27-statements" && knownMode
+		operation.Scale == "28-statements" && knownMode
 }
 
 func (adapter *benignAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
