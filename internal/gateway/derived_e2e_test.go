@@ -28,7 +28,7 @@ func TestDerivedProjectionSettlesEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range grant.Core.DataProducts {
+	for _, name := range grant.ApprovedProducts {
 		product, found := harness.catalog.LookupProduct(name)
 		if !found {
 			t.Fatalf("catalog misses product %q", name)
