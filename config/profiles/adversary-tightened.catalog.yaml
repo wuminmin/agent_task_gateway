@@ -128,9 +128,10 @@ approval_routes:
     - sensitivity: medium
       products:
         - final_v5_rls_unlimited_expense_detail
+        - provsql_lineitem
       mode: manual
       approver: bob
-      budget_profile: final-v5-rls-unlimited-v1
+      budget_profile: final-v5-adversary-tightened-v1
 budget_profiles:
     - name: detail-manual-v5
       max_queries: 5
@@ -148,15 +149,17 @@ budget_profiles:
         max_unique_atoms_per_query: 4
         max_atom_payload_bytes: 4096
         max_total_atom_payload_bytes: 16384
-    - name: final-v5-rls-unlimited-v1
-      max_queries: 110
-      max_rows: 1000
+    # P9.C owner-derived tier (docs/p9c_optimizing_adversary_design.md):
+    # budgets come from the granted purpose, never from the adversary traces.
+    - name: final-v5-adversary-tightened-v1
+      max_queries: 16
+      max_rows: 500
       max_db_time: 10m0s
-      query_timeout: 5s
+      query_timeout: 5m0s
       task_ttl: 2h0m0s
-      max_release_facts: 1000
-      max_influence_facts: 1000
-      max_outcome_facts: 1000
+      max_release_facts: 10
+      max_influence_facts: 12
+      max_outcome_facts: 8
       exposure_profile_version: taskgate-exposure-v5
       predicate_footprint:
         version: taskgate-predicate-footprint-v1
