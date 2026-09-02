@@ -359,6 +359,7 @@ products:
         - =
         - <=
         - in
+        - '*'
       snapshot: final-v5-result-heavy-2026-v1
       snapshot_publication: final-v5-result-heavy-v1
       entity_key:
