@@ -847,6 +847,75 @@
       "within_hot_limit": true
     },
     {
+      "profile_id": "profile-69f6a064f1ef18ed",
+      "alias": "scale7",
+      "closure": {
+        "products": [
+          "final_v5_scale_e7"
+        ],
+        "publications": [
+          "final-v5-scale-e7-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category"
+        ],
+        "closure_sha256": "69f6a064f1ef18edad6f05548bda938f2367eab999594625bb58d707b406227f"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": false,
+        "live_route_available": false,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-69f6a064f1ef18ed",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "catalog_materializable",
+            "code": "hot_artifact_not_observed",
+            "subject": "final-v5-scale-e7-v1",
+            "detail": "no deployment has produced this Publication's HOT artifact"
+          },
+          {
+            "state": "live_route_available",
+            "code": "route_not_evaluable",
+            "detail": "the closure is not materializable, so no live route can be resolved"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": null,
+      "workload_cells": [
+        "scale7/scale7-ladder-v1/sum-ladder/direct",
+        "scale7/scale7-ladder-v1/sum-ladder/novel",
+        "scale7/scale7-ladder-v1/sum-ladder/replay"
+      ],
+      "experiments": [
+        "scale7"
+      ],
+      "catalog_sha256": "",
+      "catalog_path": "",
+      "hot_artifacts": null,
+      "total_hot_bytes": 0,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": false
+    },
+    {
       "profile_id": "profile-6cb70ae786fcd0ec",
       "alias": "counter-exact",
       "closure": {

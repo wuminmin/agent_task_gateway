@@ -3,16 +3,16 @@
   "contracts_version": "final-v5-contracts-v1.13",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
   "coverage_scope": "catalog_bound_workload_cells",
-  "all_formal_cells": 184,
-  "catalog_bound_cells": 148,
+  "all_formal_cells": 187,
+  "catalog_bound_cells": 151,
   "control_only_cells": 36,
   "catalog_profile_exempt_cells": 0,
-  "mapped_catalog_bound_cells": 148,
+  "mapped_catalog_bound_cells": 151,
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
   "targeted_run_eligible_cells": 148,
-  "unresolved_cells": 148,
+  "unresolved_cells": 151,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
   "control_only_cell_ids": [
@@ -496,6 +496,76 @@
       "cells": [
         "adversary/adversary-extraction-v1/bisection/loosened",
         "adversary/adversary-extraction-v1/greedy/loosened"
+      ]
+    },
+    {
+      "profile_id": "profile-69f6a064f1ef18ed",
+      "alias": "scale7",
+      "closure_sha256": "69f6a064f1ef18edad6f05548bda938f2367eab999594625bb58d707b406227f",
+      "routable": false,
+      "targeted_run_eligible": false,
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": false,
+        "live_route_available": false,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-69f6a064f1ef18ed",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "catalog_materializable",
+            "code": "hot_artifact_not_observed",
+            "subject": "final-v5-scale-e7-v1",
+            "detail": "no deployment has produced this Publication's HOT artifact"
+          },
+          {
+            "state": "live_route_available",
+            "code": "route_not_evaluable",
+            "detail": "the closure is not materializable, so no live route can be resolved"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "profile_absent_from_activation_support_manifest",
+          "subject": "profile-69f6a064f1ef18ed",
+          "detail": "no live activation smoke has been recorded for this profile"
+        },
+        {
+          "state": "catalog_materializable",
+          "code": "hot_artifact_not_observed",
+          "subject": "final-v5-scale-e7-v1",
+          "detail": "no deployment has produced this Publication's HOT artifact"
+        },
+        {
+          "state": "live_route_available",
+          "code": "route_not_evaluable",
+          "detail": "the closure is not materializable, so no live route can be resolved"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "",
+      "total_hot_bytes": 0,
+      "cells": [
+        "scale7/scale7-ladder-v1/sum-ladder/direct",
+        "scale7/scale7-ladder-v1/sum-ladder/novel",
+        "scale7/scale7-ladder-v1/sum-ladder/replay"
       ]
     },
     {
