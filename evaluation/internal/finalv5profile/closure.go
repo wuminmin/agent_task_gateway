@@ -193,8 +193,15 @@ type Registry struct {
 // isolation evidence). Every producer and verifier of the product
 // intersection derives applicability through this one function.
 func SameQueryLiveTestApplicable(leftProducts, rightProducts, shared []string) bool {
+	// The adversary tiers carry provsql_orders/lineitem as never-queried
+	// routing decoys under deliberately tiny owner-derived budgets, so the
+	// frozen provsql_orders probe cannot execute there; like the benign
+	// profiles, their cross-activation isolation is carried by each
+	// activation's own isolation evidence.
 	return nameInSet(shared, "provsql_orders") &&
-		!nameInSet(leftProducts, "expense_detail") && !nameInSet(rightProducts, "expense_detail")
+		!nameInSet(leftProducts, "expense_detail") && !nameInSet(rightProducts, "expense_detail") &&
+		!nameInSet(leftProducts, "final_v5_rls_unlimited_expense_detail") &&
+		!nameInSet(rightProducts, "final_v5_rls_unlimited_expense_detail")
 }
 
 func nameInSet(values []string, name string) bool {
