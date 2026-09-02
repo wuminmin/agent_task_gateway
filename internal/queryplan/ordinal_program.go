@@ -125,6 +125,9 @@ type OrdinalVisibleSpec struct {
 	SQLType             string `json:"sql_type"`
 	ResultEncoding      string `json:"result_encoding,omitempty"`
 	CanonicalExpression string `json:"canonical_expression"`
+	// Args are the evidence fields a P9.D derived projection reads; its
+	// dependency witness is their union (kind "derived" only).
+	Args []OrdinalFieldUse `json:"args,omitempty"`
 }
 
 type OrdinalGroupSpec struct {
@@ -145,6 +148,10 @@ type OrdinalAggregateSpec struct {
 	CanonicalExpression string          `json:"canonical_expression"`
 	WitnessMultiplicity uint64          `json:"witness_multiplicity"`
 	Distinct            bool            `json:"distinct,omitempty"`
+	// Args are the evidence fields a P9.D derived SUM argument reads
+	// (input_kind "derived" only); the aggregate's witness merges their
+	// union per contributing row.
+	Args []OrdinalFieldUse `json:"args,omitempty"`
 }
 
 // OrdinalWitnessRule is interpreted once per positive provenance member.
@@ -419,6 +426,25 @@ func singleVisibleSpecs(plan QueryPlan, product Product, bindings map[string]Ord
 		}
 		result = append(result, OrdinalVisibleSpec{Kind: "field", OutputID: column, ResultAlias: column,
 			FieldID: binding.FieldID, SQLType: binding.SQLType, CanonicalExpression: binding.CanonicalExpression})
+	}
+	for _, derived := range plan.Derived {
+		expression, err := NormalizeArithmeticInNamespace(derived.Expr, product.SourceNamespace)
+		if err != nil {
+			return nil, err
+		}
+		argSet := make(map[string]struct{})
+		collectDerivedColumns(derived.Expr, argSet)
+		arguments := make([]OrdinalFieldUse, 0, len(argSet))
+		for _, column := range sortedColumns(argSet) {
+			binding, present := bindings[column]
+			if !present {
+				return nil, fmt.Errorf("derived argument %q has no provenance binding", column)
+			}
+			arguments = append(arguments, fieldUse(binding, 1))
+		}
+		result = append(result, OrdinalVisibleSpec{Kind: "derived", OutputID: derived.Alias,
+			ResultAlias: derived.Alias, SQLType: derived.SQLType, CanonicalExpression: expression,
+			Args: arguments})
 	}
 	aggregates, err := ordinalAggregateSpecs(plan.Aggregates, product, bindings, func(alias string) string { return alias })
 	if err != nil {
@@ -910,6 +936,33 @@ func ordinalAggregateSpecs(aggregates []Aggregate, product Product, bindings map
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
 		spec := OrdinalAggregateSpec{Function: function, InputKind: "row", OutputID: aggregate.Alias,
 			ResultAlias: resultAlias(aggregate.Alias), SQLType: "bigint", CanonicalExpression: function + "(*)", WitnessMultiplicity: 1}
+		if aggregate.DerivedArg != nil {
+			expression, err := NormalizeArithmeticInNamespace(aggregate.DerivedArg, product.SourceNamespace)
+			if err != nil {
+				return nil, err
+			}
+			argSet := make(map[string]struct{})
+			collectDerivedColumns(aggregate.DerivedArg, argSet)
+			arguments := make([]OrdinalFieldUse, 0, len(argSet))
+			for _, column := range sortedColumns(argSet) {
+				binding, present := bindings[column]
+				if !present {
+					return nil, fmt.Errorf("derived aggregate argument %q has no provenance binding", column)
+				}
+				arguments = append(arguments, fieldUse(binding, 1))
+			}
+			spec.InputKind = "derived"
+			spec.Args = arguments
+			spec.SQLType = AggregateOutputType(function, aggregate.DerivedArg.SQLType)
+			spec.CanonicalExpression = function + "(" + expression + ")"
+			resultEncoding, err := canonicalAggregateResultEncoding(function, spec.SQLType, aggregate.ResultEncoding)
+			if err != nil {
+				return nil, err
+			}
+			spec.ResultEncoding = resultEncoding
+			result = append(result, spec)
+			continue
+		}
 		if aggregate.Column != "*" {
 			binding, present := bindings[aggregate.Column]
 			if !present {
