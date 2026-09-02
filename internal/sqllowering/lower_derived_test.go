@@ -15,7 +15,6 @@ func derivedLowerProduct() queryplan.Product {
 		ColumnCollations: map[string]string{"region": "en_US.utf8"},
 		CollationVersions: map[string]string{"region": "2.36"},
 		AllowedAggregates: map[string]struct{}{"sum": {}, "count": {}},
-		AllowedOperators:  map[string]struct{}{"=": {}},
 	}
 }
 
