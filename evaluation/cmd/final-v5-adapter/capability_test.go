@@ -405,6 +405,9 @@ func onlyDefaultLowBenchmarkProducts(policy catalog.TaskPolicy) bool {
 	frozen := map[string]bool{
 		"provsql_orders": true, "provsql_lineitem": true, "provsql_nonce": true,
 		"final_v5_analytics_depth4": true, "expense_summary": true,
+		// The P9.E scale7 Product is low-sensitivity and so joins the
+		// default-low closure; its scoped route is checked separately.
+		"final_v5_scale_e7": true,
 	}
 	if len(policy.Products) == 0 {
 		return false
