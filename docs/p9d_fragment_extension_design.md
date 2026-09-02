@@ -47,3 +47,15 @@ SSB 的 derived measure（lo_revenue-lo_supplycost）解锁若干；TPC-H 仍多
 
 先在 tkde-review-revisions 落代码+两端测试（门禁绿），再作为扩展实验/或直接在现有 lowerability 语料上重跑（离线，无需 binding），
 可接纳率数字进论文。catalog 若需新派生测度产品，并入 P9.G 批次。相关: [[docs/p9_new_evidence_program.md]]。
+
+## 施工分片（2026-09-02 细化，承 Explore 地图；每片全绿提交）
+
+- **D1 queryplan 层**: QueryPlan 加派生射影槽(DerivedColumn{Expr *DerivedExpr, Alias})、Aggregate 加派生参数槽; 法向式版本策略——含算术的查询用新常量 taskgate-query-normal-form-v5, 无算术查询字节不变(V3/V4 哈希与重放身份零扰动); Compile 的 SQL 发射; 单测。
+- **D2 lower.go 接线**: lowerSelect 第四分支(A_Expr {+,-,*,/} over ColumnRef/A_Const/嵌套→DerivedExpr, lower.go:176 前), lowerAggregate 接受派生单参(:476 前); float/未知算子/深度 fail-closed 原码不变; 单测含全部拒绝路径。
+- **D3 exposure+gateway**: algebra_v2 加 MapV2(镜像 :749-758 聚合格循环, per-row: Value=PG 返回值, Expression=N_arith, ReleaseFact=nil, Support/Witness=参数格并集); deriveObservationV2 + deriveRelationalObservationV2 接线; physicalquery/preparation 视需传派生列; 单测。
+- **D4 三镜像**: generatedalgebra reference.go 派生分支 + campaign.go 生成 draw + production.go MapV2 映射; make eval-generated-algebra 全跑 0 mismatch。
+- **D5 门禁**: DB suite + go test ./evaluation/... + vet。
+- **D6 可接纳率重跑**: make eval-tpch/ssb/agent-workload-lowerability; finalv5benign build.go 冻结报告漂移检查与 corpus_test 27 钉连锁更新(若 agent 集接纳数变)——benign 语料重冻需同轮记台账; 宏(\TPCH*/\SSB*/\AgentWorkload*)经链重跑。
+- **D7 论文**: §9/§1/摘要覆盖率措辞按新实测更新(对价裁减守 12 页)。
+
+版本策略依据: NormalFormVersion 注释"Existing V4 tasks must never have their normal-form or outcome hashes reinterpreted"——新算子节点只能进新版本常量, 且只对含算术的查询启用。
