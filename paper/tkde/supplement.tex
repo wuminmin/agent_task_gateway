@@ -2227,8 +2227,8 @@ statements were lowered unedited through the production lowerer
 aggregates, two-source equijoins, and multi-column filters.
 Table~\ref{tab:agent-workload} names the first rejection of the others:
 a scalar function such as \code{to_char} in the projection
-(\AgentWorkloadFunctionQueries{}), arithmetic in the projection
-(\AgentWorkloadArithmeticQueries{}), a comparison whose right-hand side is
+(\AgentWorkloadFunctionQueries{}), division or a scalar subquery inside a
+derived projection (\AgentWorkloadArithmeticQueries{}), a comparison whose right-hand side is
 a column, an expression, or a scalar subquery rather than a literal
 (\AgentWorkloadLiteralQueries{}), a \code{BETWEEN}/\code{LIKE} predicate
 (\AgentWorkloadPredicateQueries{}), an \code{OR} disjunction
@@ -2238,8 +2238,10 @@ a column, an expression, or a scalar subquery rather than a literal
 exact-numeric \code{AVG}, and \code{COUNT(DISTINCT)} were rejected by the
 first pass of this study; their Dependency rules already existed (Select's
 above the group, the Product's column list, SUM/COUNT's argument column) and
-the lowerer, compiler, algebra, and oracle now admit them, which is where
-the \AgentWorkloadLowerable{} of \AgentWorkloadQueries{} stands.
+the lowerer, compiler, algebra, and oracle now admit them. A later pass
+added the derived-cell rule, admitting single-Product exact-typed
+$\{+,-,\times\}$ arithmetic projections; that is where the
+\AgentWorkloadLowerable{} of \AgentWorkloadQueries{} stands.
 Table~\ref{tab:constructs-supp} classifies the constructs still rejected:
 those whose Dependency rule already exists in the fragment (engineering
 gaps) and those that would need a new rule (fundamental to the accounting).
@@ -2258,7 +2260,7 @@ Dependency rule applies) or needs a new rule.}
 Construct & Class & Dependency rule \\
 \midrule
 scalar functions in projections & engineering (per function) & the argument columns; only attested deterministic functions \\
-arithmetic in projections/aggregates & new rule & derived cells: Release identity of an expression over several columns \\
+division / multi-source arithmetic & new rule & the single-Product exact $\{+,-,\times\}$ case is admitted as derived cells; division's scale semantics and cross-source expressions remain open \\
 comparison to a column, expression, or subquery & new rule & two-cell predicate atoms; a scalar subquery is a nested effect \\
 \code{OR} in \code{WHERE} & new rule & disjunctive witnesses: predicate-cell facts per satisfied disjunct \\
 \code{BETWEEN} over text & new rule & collation-dependent range atoms \\

@@ -255,7 +255,9 @@ three-source joins evaluated end to end; up to 16 roles admitted by the
 compiler), two-branch
 union, grouping with HAVING and the admitted aggregates (COUNT, COUNT
 DISTINCT, SUM, MIN, MAX, exact AVG), into which bounded nested Views
-flatten; no arithmetic, scalar functions, OR, subqueries, or outer joins
+flatten, and single-Product exact-typed binary arithmetic projections
+($+$, $-$, $\times$) settled as derived cells; no scalar functions,
+division, OR, subqueries, or outer joins
 (Section~\ref{sec:limits} measures the consequence); (3)
 profile-relative novelty, exact by the declared rules and verified as
 consistent with our reference implementation, and
@@ -1492,17 +1494,19 @@ subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
 (\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
 reporting queries (four-source star joins with a grouped \code{SUM} lower;
-derived measures, \code{OR} filters, and aggregate-alias ordering do not;
+multi-source derived measures, \code{OR} filters, and aggregate-alias
+ordering do not;
 supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
-the rest stop first at scalar functions, projection arithmetic,
-non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
+the rest stop first at scalar functions, division or a subquery inside
+arithmetic, non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
 \code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING},
-\code{SELECT *}, exact \code{AVG}, and \code{COUNT(DISTINCT)} are now
-admitted under existing Dependency rules; arithmetic, non-literal
-comparisons, \code{OR}, and outer joins need new rules (derived cells,
-two-cell atoms, disjunctive witnesses, null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
+\code{SELECT *}, exact \code{AVG}, \code{COUNT(DISTINCT)}, and
+single-Product $\{+,-,\times\}$ arithmetic projections (settled as derived
+cells) are now admitted; non-literal comparisons, \code{OR}, and outer
+joins need new rules (two-cell atoms, disjunctive witnesses,
+null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 
