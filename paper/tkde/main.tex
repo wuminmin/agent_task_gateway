@@ -280,8 +280,8 @@ The supplement tabulates each family's controlled object, horizon and
 persistent subject, and enforcement/release coupling.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
-whether a history determines forbidden data, and simulatable auditing also
-protects denial
+determines whether a history fixes forbidden data; simulatable auditing
+also protects denial
 \cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable};
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
@@ -1357,7 +1357,8 @@ probe is refused with \FinalVFivePublicationAttackThresholdRejectionCode{},
 so the agent learned \FinalVFivePublicationAttackThresholdAnswered{} of
 \FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
 bit while the direct arm answered all three (supplement); the corpus is
-preregistered, not a search over strategies.
+preregistered, and the strategy space is probed by the executed adversary
+study above.
 
 \textbf{Adaptive trace against per-query control.} The RLS profile replays
 one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
@@ -1420,7 +1421,7 @@ Arm & Accepted & First refusal & Distinct Dep. \\
 \begin{figure}[!t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.26\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.24\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30,
   ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},
