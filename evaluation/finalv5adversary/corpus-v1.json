@@ -31,7 +31,7 @@
           "accepted": true,
           "scalar_count": 2,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -67,7 +67,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -79,7 +79,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -90,7 +90,7 @@
           "threshold": 1904,
           "accepted": false,
           "released_rows": 0,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         }
@@ -100,7 +100,7 @@
       "recovered_lo": 1888,
       "recovered_hi": 1920,
       "recovered_bits": 6,
-      "distinct_release": 6,
+      "distinct_release": 3,
       "distinct_dependency": 4,
       "distinct_outcome": 12
     },
@@ -152,7 +152,7 @@
           "accepted": true,
           "scalar_count": 2,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -187,7 +187,7 @@
           "threshold": 1856,
           "accepted": false,
           "released_rows": 0,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         }
@@ -197,7 +197,7 @@
       "recovered_lo": 1792,
       "recovered_hi": 1920,
       "recovered_bits": 4,
-      "distinct_release": 4,
+      "distinct_release": 3,
       "distinct_dependency": 4,
       "distinct_outcome": 8
     },
@@ -315,7 +315,7 @@
           "accepted": true,
           "scalar_count": 2,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -351,7 +351,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -363,7 +363,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -375,7 +375,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -387,7 +387,7 @@
           "accepted": true,
           "scalar_count": 0,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -399,7 +399,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -411,7 +411,7 @@
           "accepted": true,
           "scalar_count": 1,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         },
@@ -423,7 +423,7 @@
           "accepted": true,
           "scalar_count": 0,
           "released_rows": 1,
-          "novel_release": 1,
+          "novel_release": 0,
           "novel_dependency": 0,
           "novel_outcome": 2
         }
@@ -434,7 +434,7 @@
       "recovered_hi": 1911,
       "recovered_bits": 11,
       "recovered_value": 1910,
-      "distinct_release": 11,
+      "distinct_release": 3,
       "distinct_dependency": 4,
       "distinct_outcome": 22
     },
