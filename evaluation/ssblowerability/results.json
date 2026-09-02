@@ -149,9 +149,9 @@
       "queries": 13,
       "lowerable": 2,
       "by_reason": {
-        "SQL_NOT_LOWERABLE/AGGREGATE_EXPRESSION_UNSUPPORTED": 6,
         "SQL_NOT_LOWERABLE/BOOLEAN_OPERATOR_UNSUPPORTED": 2,
         "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 6,
         "SQL_NOT_LOWERABLE/QUERYPLAN_VALIDATION_FAILED": 2
       },
       "results": [
@@ -160,9 +160,9 @@
           "sql_sha256": "de0210aa35ae0992b51b5818d7bffd86a349541dff5f84b9d18d12c5ced5a2e9",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         },
         {
@@ -170,9 +170,9 @@
           "sql_sha256": "1da089402b7631b384124d000ae27352b624a47463b246c48032f69e3fa9a4f1",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         },
         {
@@ -180,9 +180,9 @@
           "sql_sha256": "06e8f80d39b4335930e596376d52fc3079f1a9d2c5caf7db8b4b5ab745b6dbfb",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         },
         {
@@ -252,9 +252,9 @@
           "sql_sha256": "c2823e1f720687515eaf809c19ecad2e78ff7bce1b786a6887f9acb1118c04ad",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         },
         {
@@ -262,9 +262,9 @@
           "sql_sha256": "f9c0d8f519e0d6213fe6381ebb348b9e7de7bff0644bfc1c6d2a28dd756e9a9d",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         },
         {
@@ -272,9 +272,9 @@
           "sql_sha256": "22790fa532ffcf1b7e3795c388088a302f4794ed901d76172f4c91c23e87a41e",
           "lowerable": false,
           "code": "SQL_NOT_LOWERABLE",
-          "reason": "AGGREGATE_EXPRESSION_UNSUPPORTED",
+          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "Aggregate expressions must be direct approved columns.",
+          "message": "Derived arithmetic is admitted over one approved product only.",
           "from_sources": 1
         }
       ]

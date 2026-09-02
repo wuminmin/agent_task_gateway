@@ -6,7 +6,7 @@
       "variant": "as-written",
       "directory": "evaluation/agentworkload/queries",
       "queries": 40,
-      "lowerable": 27,
+      "lowerable": 28,
       "by_reason": {
         "JOIN_TYPE_UNSUPPORTED/LEFT_JOIN_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/AGGREGATE_UNSUPPORTED": 3,
@@ -15,7 +15,7 @@
         "SQL_NOT_LOWERABLE/FILTER_PREDICATE_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/HAVING_LITERAL_UNSUPPORTED": 1,
         "SQL_NOT_LOWERABLE/PAGINATION_UNSUPPORTED": 1,
-        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 3
+        "SQL_NOT_LOWERABLE/PROJECTION_EXPRESSION_UNSUPPORTED": 2
       },
       "results": [
         {
@@ -77,7 +77,7 @@
           "code": "SQL_NOT_LOWERABLE",
           "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "A projection must be an approved column or an approved aggregate.",
+          "message": "Only binary +, -, and * are admitted in a derived projection.",
           "from_sources": 1
         },
         {
@@ -159,7 +159,7 @@
           "code": "SQL_NOT_LOWERABLE",
           "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
           "clause": "SELECT",
-          "message": "A projection must be an approved column or an approved aggregate.",
+          "message": "Only binary +, -, and * are admitted in a derived projection.",
           "from_sources": 1
         },
         {
@@ -243,11 +243,7 @@
         {
           "query": "q32",
           "sql_sha256": "bacad16a97a31a3d357214063a40355b5bab8c93340b828dd836c3be17eb246c",
-          "lowerable": false,
-          "code": "SQL_NOT_LOWERABLE",
-          "reason": "PROJECTION_EXPRESSION_UNSUPPORTED",
-          "clause": "SELECT",
-          "message": "A projection must be an approved column or an approved aggregate.",
+          "lowerable": true,
           "from_sources": 1
         },
         {
