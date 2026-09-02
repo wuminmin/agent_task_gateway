@@ -130,7 +130,7 @@
     {
       "tier": "tightened",
       "strategy": "bisection",
-      "budget_profile": "final-v5-adversary-tight-v1",
+      "budget_profile": "final-v5-adversary-tightened-v1",
       "steps": [
         {
           "position": 1,
@@ -204,7 +204,7 @@
     {
       "tier": "tightened",
       "strategy": "greedy",
-      "budget_profile": "final-v5-adversary-tight-v1",
+      "budget_profile": "final-v5-adversary-tightened-v1",
       "steps": [
         {
           "position": 1,
@@ -293,7 +293,7 @@
     {
       "tier": "loosened",
       "strategy": "bisection",
-      "budget_profile": "final-v5-adversary-loose-v1",
+      "budget_profile": "final-v5-adversary-loosened-v1",
       "steps": [
         {
           "position": 1,
@@ -441,7 +441,7 @@
     {
       "tier": "loosened",
       "strategy": "greedy",
-      "budget_profile": "final-v5-adversary-loose-v1",
+      "budget_profile": "final-v5-adversary-loosened-v1",
       "steps": [
         {
           "position": 1,
