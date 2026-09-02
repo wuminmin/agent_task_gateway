@@ -1484,19 +1484,18 @@ governance units, not bits; BDG omits rejected rows, non-output
 groups/pages, rank-only inputs, correlations, background knowledge, and
 physical reads, and provides neither minimal causality nor differential
 privacy (channels and fresh capacity: Section~\ref{sec:model}). \textbf{Query and identity scope.} Evidence uses
-frozen, manifest-proven publications; the closed fragment fails closed on
-richer joins, sets, paging, negation, recursion, and subqueries, and it is a
+frozen, manifest-proven publications; the closed fragment is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
 admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
-(comma joins rewritten to explicit joins), stopping first at
-subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
-(\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
+(comma joins rewritten to explicit joins; first rejections: subqueries
+\TPCHSubqueryQueries{}, arithmetic \TPCHArithmeticQueries{}, multi-product
+\code{LIMIT}), and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
-reporting queries (four-source star joins with a grouped \code{SUM} lower;
-multi-source measures, \code{OR} filters, and alias ordering do not;
-supplement tables); SQL written by an off-the-shelf LLM assistant from the
-Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
-unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
+reporting queries (star joins with grouped \code{SUM} lower; multi-source
+measures, \code{OR}, and alias ordering do not; supplement tables);
+LLM-written SQL from the Product sheet alone lowers unedited in
+\AgentWorkloadLowerable{} of \AgentWorkloadQueries{} cases
+(\AgentWorkloadLowerablePct\%);
 the rest stop first at scalar functions, division or a subquery inside
 arithmetic, non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
 \code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING}, \code{SELECT *},
