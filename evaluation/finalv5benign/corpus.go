@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CorpusID      = "taskgate-final-v5-benign-trace-corpus-v1"
+	CorpusID      = "taskgate-final-v5-benign-trace-corpus-v2"
 	SchemaVersion = 1
 	// TraceWorkloadID names the (c3) benign-trace workload.
 	TraceWorkloadID = "benign-agent-trace-v1"
@@ -104,7 +104,7 @@ type Manifest struct {
 	MaxDependencyFacts         int64  `json:"max_dependency_facts"`
 }
 
-//go:embed corpus-v1.json
+//go:embed corpus-v2.json
 var corpusBytes []byte
 
 // CorpusSHA256 returns the digest of the embedded frozen corpus bytes.

@@ -7,7 +7,7 @@ func TestGeneratedPlansAgreeWithProduction(t *testing.T) {
 	if report.Mismatches != 0 || report.HashMismatches != 0 || len(report.Failures) != 0 {
 		t.Fatalf("differential campaign failed: %+v", report)
 	}
-	for _, kind := range []string{"project", "group", "global", "join", "select", "page"} {
+	for _, kind := range []string{"project", "group", "global", "join", "select", "page", "derived", "derived_mixed"} {
 		if report.Coverage[kind] == 0 {
 			t.Fatalf("no coverage for %s: %+v", kind, report.Coverage)
 		}

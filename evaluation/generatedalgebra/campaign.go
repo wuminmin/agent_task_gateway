@@ -71,14 +71,21 @@ func GeneratePlan(rng *rand.Rand) Plan {
 		// nullable numeric amount domain (exercising NULL propagation).
 		if !plan.Join && plan.Page == nil && rng.Intn(3) == 0 {
 			ops := []string{"add", "sub", "mul"}
-			if rng.Intn(2) == 0 {
+			switch rng.Intn(3) {
+			case 0:
 				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
 					LeftField: "expense.days", RightLiteral: int64(rng.Intn(9) + 1), HasLiteral: true,
 					OutputID: "derived_days", SQLType: "bigint"})
-			} else {
+			case 1:
 				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
 					LeftField: "expense.amount", RightField: "expense.amount",
 					OutputID: "derived_amount", SQLType: "numeric"})
+			default:
+				// Mixed exact-domain promotion: bigint days with nullable
+				// numeric amount computes in numeric (D6 promotion rule).
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.days", RightField: "expense.amount",
+					OutputID: "derived_mixed", SQLType: "numeric"})
 			}
 		}
 	case 1:
@@ -209,6 +216,9 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 				report.Coverage["derived"]++
 				if plan.Derived[0].SQLType == "numeric" {
 					report.Coverage["derived_nullable"]++
+				}
+				if spec := plan.Derived[0]; !spec.HasLiteral && spec.LeftField != spec.RightField {
+					report.Coverage["derived_mixed"]++
 				}
 			}
 			reference, err := Evaluate(expenses, departments, plan)

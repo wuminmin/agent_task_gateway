@@ -14,7 +14,7 @@ import (
 func main() {
 	workload := flag.String("agent-workload", "evaluation/agentworkload", "agent workload directory")
 	liveCatalog := flag.String("catalog", "config/catalog.yaml", "live catalog path")
-	out := flag.String("out", "evaluation/finalv5benign/corpus-v1.json", "corpus output path")
+	out := flag.String("out", "evaluation/finalv5benign/corpus-v2.json", "corpus output path")
 	flag.Parse()
 	manifest, err := finalv5benign.BuildManifest(finalv5benign.BuildInput{
 		AgentWorkloadDir: *workload, LiveCatalogPath: *liveCatalog})

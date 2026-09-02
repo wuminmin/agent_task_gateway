@@ -38,8 +38,8 @@ func TestBenignCorpusInvariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Statements) != 27 {
-		t.Fatalf("corpus carries %d statements, the frozen lowerability report admits 27", len(manifest.Statements))
+	if len(manifest.Statements) != 28 {
+		t.Fatalf("corpus carries %d statements, the frozen lowerability report admits 28", len(manifest.Statements))
 	}
 	if manifest.AuthorizedStatements+manifest.PolicyRefused != int64(len(manifest.Statements)) {
 		t.Fatal("classification counts do not partition the corpus")

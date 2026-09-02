@@ -315,6 +315,13 @@ var statementSpecifications = map[string]statementSpecification{
 		}
 		return released, released * 17 // row fact + sixteen cells
 	}),
+	// q32: derived line_total = quantity * unit_price over the first five
+	// thousand rows; per released row one row fact, three base cells, and
+	// one derived Release minted at settlement.
+	"q32": resultHeavySpec(1, func(rowID int64) bool { return rowID <= 5000 },
+		func(survivors int64) (int64, int64) {
+			return survivors, survivors * 5 // row fact + three cells + derived release
+		}),
 	// q34 (LIKE) is expected to be chain-refused.
 	"q34": resultHeavySpec(1, func(int64) bool { return false },
 		func(int64) (int64, int64) { return 0, 0 }),
