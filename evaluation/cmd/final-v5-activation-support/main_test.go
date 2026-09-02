@@ -67,6 +67,7 @@ func TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles(t *test
 		"analytics-orders": true, "footprint-bounded": true, "footprint-unlimited": true,
 		"benign-recipe": true, "benign-x2": true, "benign-x4": true,
 		"counter-exact": true, "counter-rows": true, "counter-queries": true, "counter-release": true,
+		"adversary-owner": true, "adversary-tightened": true, "adversary-loosened": true,
 	}
 
 	seen := map[string]bool{}
@@ -490,11 +491,11 @@ func TestCommittedRegistryMatchesTheManifest(t *testing.T) {
 			t.Errorf("%s: routable is not derived", profile.Alias)
 		}
 	}
-	if supported != 20 {
-		t.Errorf("registry reports %d activation-supported profiles, want 20", supported)
+	if supported != 23 {
+		t.Errorf("registry reports %d activation-supported profiles, want 23", supported)
 	}
-	if eligible != 20 {
-		t.Errorf("registry reports %d targeted-run-eligible profiles, want 20", eligible)
+	if eligible != 23 {
+		t.Errorf("registry reports %d targeted-run-eligible profiles, want 23", eligible)
 	}
 	if routable != 0 {
 		t.Errorf("registry reports %d routable profiles, want 0", routable)
