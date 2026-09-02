@@ -205,6 +205,12 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 			if plan.Page != nil {
 				report.Coverage["page"]++
 			}
+			if len(plan.Derived) > 0 {
+				report.Coverage["derived"]++
+				if plan.Derived[0].SQLType == "numeric" {
+					report.Coverage["derived_nullable"]++
+				}
+			}
 			reference, err := Evaluate(expenses, departments, plan)
 			if err != nil {
 				report.Failures = append(report.Failures, fmt.Sprintf("reference: %v (%+v)", err, plan))
