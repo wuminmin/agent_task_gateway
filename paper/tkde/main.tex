@@ -348,7 +348,12 @@ than a purpose warrants by $B_D$ (the adaptive trace); delegation fan-out
 by the shared root ledger (the delegated child's refusal). Probe ladders
 $B_O$ bounds in count but not in recovery: under the default $B_O=128$ a
 binary search recovers a 64-bit cell in 64 settled probes, and $B_Q$ adds
-128 refusal bits per task. Four
+128 refusal bits per task; an executed adversary study (retained pilot,
+supplement) realizes this bound live---recovery capped at $\lfloor
+B_O/2\rfloor$ bits under owner-derived tiers
+(\FinalVFiveAdversaryOwnerBits{}/\FinalVFiveAdversaryTightenedBits{}
+bits), exact recovery only under a loosened grant, and greedy extraction
+stopped exactly at $B_D$. Four
 boundaries hold at this goal: it counts declared identities, not inference;
 page order is order-only in the Catalog tie-break keys alone (the
 \code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds

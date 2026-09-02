@@ -1653,7 +1653,7 @@ Arm & Answered & Refused at & Rows & Ledger & Stop reason \\
 \end{tabular}
 \end{table}
 
-\section{Retained Pilot Studies: Executed Comparators, a Benign Agent Trace, and the Refused-Footprint Ladder}
+\section{Retained Pilot Studies: Executed Comparators, a Benign Agent Trace, the Refused-Footprint Ladder, and an Optimizing Adversary}
 \label{sec:retained-pilot-studies}
 
 Three retained studies close gaps the sealed campaign left open: no
@@ -1672,7 +1672,7 @@ and (iii) \emph{single-deployment pilots}. The three studies here are
 class \code{pilot} (\code{publication_eligible} \code{false}), registered
 in \filepath{evaluation/final-v5-wsl2/pilot-evidence-v1.json}
 (runs \code{pilot-counter-rigor-02}, \code{pilot-benign-05},
-\code{pilot-footprint-07}) with digest-bound corpora whose per-step
+\code{pilot-footprint-07}, \code{pilot-adversary-04}) with digest-bound corpora whose per-step
 expected-outcome tables were frozen before execution; each run's job was to
 show the deployed Gateway realizing exactly its frozen table, and each did.
 
@@ -1776,6 +1776,57 @@ across the whole ladder, while accepted unlimited rungs grow to
 \FinalVFiveFootprintAcceptedMSMax{}~ms: at both sites the refusal precedes
 footprint derivation, so refusal latency does not scale with the refused
 footprint at these sites.
+
+\subsection{An optimizing adversary under owner-derived budgets}
+\label{sec:adversary-supp}
+
+Two frozen extraction strategies attack the ten-row expense fixture's
+hidden sales maximum on one fresh root per cell, under three budget tiers
+derived from the granted purpose by the owner recipe of the main text's
+Budget Calibration section---never from the traces being evaluated.
+\emph{Bisection} adaptively binary-searches the hidden value with
+\code{count(*)} threshold probes over an a-priori $[0,2048)$ domain (11
+accepted probes recover it exactly); \emph{greedy} maximizes distinct
+Dependency facts, widest listing first. Per-step outcomes were frozen by
+simulation over the independent oracle before execution; all six
+tier-by-strategy cells realized their frozen tables identically in each of
+three fresh deployments (\code{pilot-adversary-04}, 18 measured samples,
+zero cross-deployment inconsistency).
+
+Table~\ref{tab:adversary-supp} reports the cells. Each accepted probe
+charges a data-independent two novel Outcome facts (one atom, one
+composite), so threshold recovery is capped at
+$\lfloor B_O/2\rfloor$ bits---\FinalVFiveAdversaryOwnerBits{} bits under
+the owner tier ($B_O=12$), \FinalVFiveAdversaryTightenedBits{} under the
+tightened tier ($B_O=8$)---and refusals after $B_O$ exhaustion answer a
+data-independent question, leaking no further data bits at this probe
+shape. Only the loosened tier ($B_O=24$) admits all 11 probes and recovers
+the hidden value (\FinalVFiveAdversaryRecoveredValue{}) exactly. Greedy
+distinct-Dependency extraction ends exactly at $B_D$ in every attempted
+order (\FinalVFiveAdversaryOwnerGreedyDep{} at owner/loosened, the whole
+granted universe; \FinalVFiveAdversaryTightenedGreedyDep{} at the
+tightened tier's $B_D=12$). The study also pinned a production identity
+fact live: an aggregate's Release identity binds expression, value, and
+witness commitment but not the predicate literal, so two thresholds with
+the same count over the same rows reuse one Release fact.
+
+\begin{table}[t]
+\centering
+\caption{Optimizing adversary (retained pilot \code{pilot-adversary-04},
+three fresh deployments each realizing this table identically): per
+owner-derived tier, bisection accepted/refused probes, recovered bits, the
+proven interval or exact value, and greedy accepted/refused with final
+distinct Dependency facts.}
+\label{tab:adversary-supp}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Tier & Probes & Bits & Recovered & Greedy & Distinct Dep. \\
+\midrule
+\FinalVFiveAdversaryTableBody
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{ProvSQL Base-Tuple Cross-Check (Pilot)}
 \label{sec:provsql-leaves-supp}
