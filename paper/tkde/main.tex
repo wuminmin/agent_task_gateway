@@ -72,14 +72,13 @@ ledger is settled atomically before any result becomes retrievable. The
 guarantee is bounded \emph{release}: within one root family and publication
 epoch no more than the approved number of distinct declared facts of each
 kind becomes available, whatever admitted sequence the agent issues; it does
-not bound inference from answered or refused predicates. Accounting is
-exact with respect to the declared rules, a property we verify as
-consistency with our own reference implementations (plus one third-party
-base-tuple check); it covers a closed
-reporting fragment (connected equijoins, grouping, bounded unions, nested
-Views) whose coverage of agent-written reporting SQL is limited
-(\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
-statements lower unedited). Immutable ordinals, compressed
+not bound inference from answered or refused predicates. Accounting is exact
+with respect to the declared rules---verified as consistency with our
+reference implementations plus one third-party base-tuple check---over a
+closed reporting fragment (connected equijoins, grouping, bounded unions,
+nested Views, derived-cell arithmetic) that admits
+\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
+reporting statements unedited. Immutable ordinals, compressed
 bitmaps, and a Merkle-radix set make novelty exact at $10^6$ facts. A sealed
 single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
