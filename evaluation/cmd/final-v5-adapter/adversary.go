@@ -153,7 +153,9 @@ func (adapter *adversaryAdapter) runTrace(ctx context.Context, operation experim
 		return experiment.Sample{}, err
 	}
 	if created.RootTaskID != created.TaskID || created.BudgetProfile != tier.BudgetProfile {
-		return experiment.Sample{}, &adversaryInvariantError{reason: "adversary task provisioning selected an unexpected budget profile"}
+		return experiment.Sample{}, &adversaryInvariantError{reason: fmt.Sprintf(
+			"adversary task provisioning selected budget profile %q, tier %q expects %q",
+			created.BudgetProfile, tier.Name, tier.BudgetProfile)}
 	}
 	evidence := &experiment.AdversaryVerificationEvidence{
 		Version: experiment.AdversaryEvidenceVersion, CorpusID: finalv5adversary.CorpusID,
