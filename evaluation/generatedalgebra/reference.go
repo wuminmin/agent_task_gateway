@@ -81,6 +81,8 @@ type Plan struct {
 	GroupKeyVisible bool
 	Aggregates      []Aggregate
 	Having          *Having // optional post-group filter (group/global only)
+	// Derived are P9.D arithmetic projections (project kind, single relation).
+	Derived []DerivedProjection
 }
 
 // DerivedProjection is one P9.D arithmetic projection in the differential
