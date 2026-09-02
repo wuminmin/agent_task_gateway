@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.12",
-  "profile_registry_sha256": "c0df9d6489bfc0ce1773eed8cdc862be223286b1f06b3c3930cf7dae0d08a504",
+  "profile_registry_sha256": "b64db5bd6c3dc0bf5917a5978347c64f133069e834c1651b9d8aa3d03e39b862",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "5f8a005d08d4f89b23dc180a7ed081a4c193417c11b4276568f00e866ad9278b",
-  "outside_product_route_matrix_sha256": "01c5a756e59979f4c8e327c7095bac89af4648da013009e7a029f2dd499a3a14",
-  "semantic_cache_isolation_evidence_sha256": "4263eedd2b6b1a5b1d2961d52eb074befd25e618ce9649199be31c37e8fb94be",
+  "activation_smoke_manifest_sha256": "95f691074c946948e9dc68b2b122b91945dca086d6e4794844c097c7874c0b8b",
+  "outside_product_route_matrix_sha256": "560776ce9042c23a4bf43261236f5037b90f3df570850f0a5a181f74212877c1",
+  "semantic_cache_isolation_evidence_sha256": "9c000733071075ae94e17e23c4a43af1c9356ab4034522fbfbfd079a4d1b47b5",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "cbf3b810578faf2cd0994813de300ceadd124963f7b7978a1538e3d8bb7dcf8e"
+        "916615aa684cb753bcdf338b6e31285f25351d67bdbc30452655d45ced790695"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "a3603be9e1b1123e849204193fcb3e50084b3b108cab3da9f3842e27117e2391"
+        "3b35213ec8b53e312bf0df41d26e5784e57acf60a7884bc25965986b47b57339"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "5d387b14e39be91cbd83f2c508da5b730899c5fd1d77bff4cd8bc8ba5acd8502"
+        "5cfa2352d06aca1f90c24a12a2bd20edd44abdfbe92eae6a056c2396caeb5775"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "e6c540b74b70facfb36ed2d633fa4e8c580508c5dc35a9ba860134b25eeadcff"
+        "4806f6308d7ef5dfc5a38c1d528996654c13f68ecb383a9816923de0c05c0708"
       ],
       "reason": ""
     },
@@ -88,14 +88,14 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "e698ec9b1c33f0900d9ccdadc894ab4cb76c8f8aa758c31c81c8f3adfa6458ab"
+        "947103181360742d8c32b97286077350b9aa5edf609ba89b8e15c7e86b67a677"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-4150e35650c39ab2",
       "profile_alias": "benign-x4",
-      "catalog_sha256": "e68add17798f25fc055e626ca4c76f58068c0f734f340b4ba732ca904f1bba2d",
+      "catalog_sha256": "c363fe2c7999800b8d825656d7fdef1b7e73cf12988e83e8413bac7e989c65ef",
       "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5",
       "profile_schema_attestation": "5bf3cbc1f3bacb2e2d35fb21ea83cb672bf16b97d1d9f60aa3a927654c3079c3",
       "publication_identities": [
@@ -109,7 +109,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "6602a9fd02dfe03d7b4253d52854947e95b456b217985c5f073db54001d0cf45"
+        "6739607f2d3046ab9768f499329a60242bef12bd69805111df5dec85390e6cc0"
       ],
       "reason": ""
     },
@@ -126,7 +126,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "328ebd64faf248bc1b8612735b19d2b30ec9b153d681d4224decbc87ad0b1bfa"
+        "757487d786bf433ccac1e4b869fd6b8f184787ba6a2520fbd5c2883a8fdec231"
       ],
       "reason": ""
     },
@@ -143,7 +143,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "26303d3623c7f0efe936a923f72b01b264f940f9bec9977b3fd5480f073adefe"
+        "3f3f1a5d0e98ca8b05813c44d6df907b9a0f0cf3c7bae8023046454799ce32c5"
       ],
       "reason": ""
     },
@@ -159,14 +159,14 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "ba9bcfa7a4f938e10c60435bdefbf92317c47ca7752df6dc1e70e225848bc227"
+        "a71287b13c79d889a892bd429ebb7d4b7c1c589eec8778d0ad7069fb60c494fa"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-57cd926b3fcbccde",
       "profile_alias": "benign-recipe",
-      "catalog_sha256": "768acdff269e5043916d5cbfe05dcb288b0ac83fcfc75ba192733cbd7a4287fd",
+      "catalog_sha256": "90c076008e3636334041389da4861fb84d7f64c6a86b39376f28fcd7d5370247",
       "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8",
       "profile_schema_attestation": "983139e67998d6237163a2c6661ced66be62851a74fd79c23ce42508ac250a77",
       "publication_identities": [
@@ -179,7 +179,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "76b937473888e90a9a6b44101f0d01d1396753c5fdc48954ee7c9fe7750a4def"
+        "2e84afe2b0e747de24a46d8724a4fc41226616f59917cb40849741d3e5ac1762"
       ],
       "reason": ""
     },
@@ -196,7 +196,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "48304528bb1f02d18a92c0fe48a8e4bfecda58716110838b86df3b83dfbd408f"
+        "c8405ada34c170d43d8e9651ae330784c893d35a16e0fc6babd5788b3b908a64"
       ],
       "reason": ""
     },
@@ -214,7 +214,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "832e714bd81f250dbb1acfaeaf5f7a923ccd215e32c5c6670eb0e7841ceb3967"
+        "71e55d382b237d579d5d3663b3cba5da50180b45bdb005b9d1fc031133760d43"
       ],
       "reason": ""
     },
@@ -231,7 +231,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d167649225639bc6dd96c592332881431393f0ce4d6260c632ac64dccd491325"
+        "7227b794ba276f3a7219a96f6cdb0e220e0b816c64bac003388a179cc1472199"
       ],
       "reason": ""
     },
@@ -247,7 +247,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "1b80fd4659b14349c2ec703f4cd50812692fe708e3cc30cc28e8646017a38b03"
+        "d88d9c3b84bc1fd21b25289f1dec7bc9fc831bb682e597654c175f7996ea39f5"
       ],
       "reason": ""
     },
@@ -265,14 +265,14 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "259d30af4009a1cfece0cea1174865b85db47260a1280d2f0bf86d7bdf611c44"
+        "1f62c0ca588afe82f5ff39ce5906f2caf15b44fc05f5748e89d067eead06a2e4"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-a86cd4df5cad6e26",
       "profile_alias": "result-heavy",
-      "catalog_sha256": "e7232c7bfdc85b9c661f69f2e66638ab9fc70c607c05e1267b73af0d4ecc4256",
+      "catalog_sha256": "e5911cdd704b60051d415077396fe3900f1548bc87e2756d0139ca2964142042",
       "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
       "profile_schema_attestation": "ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70",
       "publication_identities": [
@@ -281,7 +281,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "ab41105c8598102d6022b0544f4974adca6def71fac82248dface2fe1dd00adf"
+        "47538ef4f3363ded283ce04ecf43290136e14430e2d818c7f2f6b7989b286b68"
       ],
       "reason": ""
     },
@@ -297,7 +297,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "9d7e8a9eaaa5f14916adf199169fbcbf7c2b24d105a3ccbcddb0d0a1e112f8fd"
+        "f7f60db418441673da90c10c9a48c4ae10ebdbc79eef92a4af5ad2eab584fa89"
       ],
       "reason": ""
     },
@@ -313,7 +313,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "eb748fc24c9a0a225a8458a3c5c74a019c560d80ea59fe24a3b1df4a2975b141"
+        "c086e3b75b1e4593370f2c3e1610e164d56c89589ca33e65d25ba8c6bc4ea5f1"
       ],
       "reason": ""
     },
@@ -329,14 +329,14 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "16492a94c4371060b72d43ecb1f6ffc0acc75590c61069d5e8228ba68f5e3db9"
+        "320ca3322c46784fd78e863a145e6954d54183a5954d41a156761e1e9f82b032"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-f08342e0b89058a9",
       "profile_alias": "benign-x2",
-      "catalog_sha256": "82418ee6bcdf9cc8b84b56031e5ba0da726c4b9964c68baf93a7da8d8454aa9b",
+      "catalog_sha256": "2f27bb5e5437f96aabaa0a5182dc3537c27cd9565a6dc322a7d65af9a246ec00",
       "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35",
       "profile_schema_attestation": "7dc1e57da789f8e3d8681ff39d5d88b10ffc325eb1af808fc792a0f191f4c040",
       "publication_identities": [
@@ -350,7 +350,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "1a46fa21dd247e3e94848f2e39375a24229a428aef965e37ee06e0e1499ea42c"
+        "1fe9102c758a41770c103b43b0eaa58141d9330154434e5592805ff6be1fb662"
       ],
       "reason": ""
     },
@@ -367,7 +367,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "a99921ab23b076b518530d4bd2d6015e83bbaa202062c018407f86d9a3ee7825"
+        "8b1368a2b8aa959935d750802f534f723b606f8ad973ee3c31ffc91ef697398c"
       ],
       "reason": ""
     },
@@ -384,7 +384,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d2196a76ef5adfad8158f625b7d66bbdf0e501b502c184213c63de11bebead94"
+        "5a61844037dc60744f7db0f19edc9406ad3f238596f009c3d68e95c46b82be6c"
       ],
       "reason": ""
     },
@@ -400,7 +400,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d94646bd52927aa3f0d128a6aad6e714acee14387dd90374c39ec84dcd8dd674"
+        "28d54c0ebdd800c6a6cc7d4bd8174eb6e48039eaea73e650b3431a64c370db7e"
       ],
       "reason": ""
     }

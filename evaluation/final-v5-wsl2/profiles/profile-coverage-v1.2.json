@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 127,
+  "targeted_run_eligible_cells": 148,
   "unresolved_cells": 148,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -252,21 +252,15 @@
       "alias": "benign-x4",
       "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_evidence_catalog_drift",
-            "subject": "profile-4150e35650c39ab2",
-            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -275,12 +269,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_evidence_catalog_drift",
-          "subject": "profile-4150e35650c39ab2",
-          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -403,21 +391,15 @@
       "alias": "benign-recipe",
       "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_evidence_catalog_drift",
-            "subject": "profile-57cd926b3fcbccde",
-            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -426,12 +408,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_evidence_catalog_drift",
-          "subject": "profile-57cd926b3fcbccde",
-          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -677,21 +653,15 @@
       "alias": "result-heavy",
       "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_evidence_catalog_drift",
-            "subject": "profile-a86cd4df5cad6e26",
-            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -700,12 +670,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_evidence_catalog_drift",
-          "subject": "profile-a86cd4df5cad6e26",
-          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -846,21 +810,15 @@
       "alias": "benign-x2",
       "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_evidence_catalog_drift",
-            "subject": "profile-f08342e0b89058a9",
-            "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -869,12 +827,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_evidence_catalog_drift",
-          "subject": "profile-f08342e0b89058a9",
-          "detail": "the recorded activation smoke ran against a different profile Catalog digest"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
