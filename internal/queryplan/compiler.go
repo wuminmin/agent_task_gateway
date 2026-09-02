@@ -119,6 +119,9 @@ type Aggregate struct {
 	ResultEncoding string `json:"result_encoding,omitempty"`
 	// Distinct is COUNT(DISTINCT column); no other aggregate admits it.
 	Distinct bool `json:"distinct,omitempty"`
+	// DerivedArg is a P9.D arithmetic aggregate argument (SUM over an exact
+	// derived measure). When set, Column must be empty; only SUM admits it.
+	DerivedArg *DerivedExpr `json:"derived_arg,omitempty"`
 }
 
 // AggregateSQLArgument renders the aggregate's argument list for SQL emission.
@@ -219,6 +222,30 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		fn := strings.ToLower(aggregate.Function)
 		if _, ok := product.AllowedAggregates[fn]; !ok || !safeIdentifier(fn) {
 			return "", fmt.Errorf("aggregate %q is not allowed", aggregate.Function)
+		}
+		if aggregate.DerivedArg != nil {
+			if fn != "sum" || aggregate.Column != "" || aggregate.Distinct {
+				return "", errors.New("a derived aggregate argument is admitted for plain SUM only")
+			}
+			expression, err := DerivedSQL(aggregate.DerivedArg, func(column string) (string, error) {
+				if err := allowedColumn(column, product); err != nil {
+					return "", err
+				}
+				return quoteIdentifier(column), nil
+			})
+			if err != nil {
+				return "", err
+			}
+			if !safeIdentifier(aggregate.Alias) {
+				return "", errors.New("aggregate alias is invalid")
+			}
+			if _, duplicate := selectNames[aggregate.Alias]; duplicate {
+				return "", fmt.Errorf("duplicate select name %q", aggregate.Alias)
+			}
+			selectNames[aggregate.Alias] = struct{}{}
+			aggregateSQL[aggregate.Alias] = fn + "(" + expression + ")"
+			selects = append(selects, fn+"("+expression+") AS "+quoteIdentifier(aggregate.Alias))
+			continue
 		}
 		argument := ""
 		if aggregate.Column == "*" {

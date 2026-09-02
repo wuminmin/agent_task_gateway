@@ -72,3 +72,42 @@ func TestDerivedTypeDomainFailsClosed(t *testing.T) {
 		t.Fatal("unapproved column must fail closed at Compile")
 	}
 }
+
+func TestDerivedAggregateArgument(t *testing.T) {
+	product := derivedTestProduct()
+	margin := &DerivedExpr{Op: ArithSub, SQLType: "numeric", Operands: []ArithOperand{
+		{Column: "price", SQLType: "numeric"}, {Column: "qty", SQLType: "numeric"},
+	}}
+	plan := QueryPlan{Product: product.Name, Columns: []string{"region"}, GroupBy: []string{"region"},
+		Aggregates: []Aggregate{{Function: "sum", Alias: "margin_total", DerivedArg: margin}}}
+	sql, err := Compile(plan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, `sum(("price" - "qty")) AS "margin_total"`) {
+		t.Fatalf("derived aggregate missing from SQL: %s", sql)
+	}
+	form, err := NormalizeV2(plan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if form.Version != NormalFormVersionV5 {
+		t.Fatalf("derived aggregate must settle under V5, got %s", form.Version)
+	}
+	found := false
+	for _, aggregate := range form.Aggregates {
+		if aggregate.Expression == "sum(sub(sales.price,sales.qty))" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("canonical derived aggregate spelling missing: %+v", form.Aggregates)
+	}
+	for _, fn := range []string{"count", "min"} {
+		bad := plan
+		bad.Aggregates = []Aggregate{{Function: fn, Alias: "x", DerivedArg: margin}}
+		if _, err := Compile(bad, product); err == nil {
+			t.Fatalf("%s over a derived argument must fail closed", fn)
+		}
+	}
+}

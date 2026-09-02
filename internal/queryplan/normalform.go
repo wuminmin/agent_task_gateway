@@ -139,16 +139,36 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 			return NormalForm{}, errors.New("aggregate result casts are outside the single-product normal form")
 		}
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
-		column := "*"
-		if aggregate.Column != "*" {
-			column = canonicalField(product.SourceNamespace, aggregate.Column)
+		var expression string
+		var outputType string
+		var err error
+		if aggregate.DerivedArg != nil {
+			if err := validateDerivedTypes(DerivedColumn{Expr: aggregate.DerivedArg,
+				Alias: aggregate.Alias, SQLType: aggregate.DerivedArg.SQLType}, product); err != nil {
+				return NormalForm{}, err
+			}
+			inner, innerErr := NormalizeArithmeticInNamespace(aggregate.DerivedArg, product.SourceNamespace)
+			if innerErr != nil {
+				return NormalForm{}, innerErr
+			}
+			expression = function + "(" + inner + ")"
+			result.Version = NormalFormVersionV5
+			outputType, err = exposure.CanonicalSQLTypeV2(AggregateOutputType(function, aggregate.DerivedArg.SQLType))
+			if err != nil {
+				return NormalForm{}, err
+			}
+		} else {
+			column := "*"
+			if aggregate.Column != "*" {
+				column = canonicalField(product.SourceNamespace, aggregate.Column)
+			}
+			expression = aggregateExpressionText(aggregate, column)
+			outputType, err = exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
+			if err != nil {
+				return NormalForm{}, err
+			}
 		}
-		expression := aggregateExpressionText(aggregate, column)
 		aliases[aggregate.Alias] = expression
-		outputType, err := exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
-		if err != nil {
-			return NormalForm{}, err
-		}
 		aliasTypes[aggregate.Alias] = outputType
 		result.Aggregates = append(result.Aggregates, NormalizedAggregate{Expression: expression, SQLType: outputType})
 	}
