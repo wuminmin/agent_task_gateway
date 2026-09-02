@@ -21,6 +21,11 @@
       "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
       "publication": "final-v5-result-heavy-v1"
     },
+    "final-v5-scale-e7-v1": {
+      "bytes": 951013033,
+      "hot_index_digest": "5ad80dd424978ef42926b42e198bf6a6fdaaa4911c8611f1d3b740ed373f7515",
+      "publication": "final-v5-scale-e7-v1"
+    },
     "provsql-lineitem-v1": {
       "bytes": 101004070,
       "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
