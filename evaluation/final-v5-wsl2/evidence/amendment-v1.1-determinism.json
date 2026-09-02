@@ -65,7 +65,7 @@
     "independent_deployments": 2,
     "postgresql_image": "postgres:16-bookworm"
   },
-  "dataset_generator_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+  "dataset_generator_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
   "dataset_generator_sha256_v1": "a528e84bfc2d2fff1415d2c66147fe71a7afe51050163808e096e01343f00540",
   "direct_vs_independent_oracle": {
     "canonical_result_digest_equal": true,
@@ -87,37 +87,37 @@
     "manifests": [
       {
         "cell": "artifact/result-heavy/100x4/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "dca6a5024631f222d659abc8d18a721a8d1740b8cfe417bcc3f5c65038528e30",
         "path": "oracle-manifests/artifact/result-heavy/100x4/novel.json"
       },
       {
         "cell": "artifact/result-heavy/10k-x4/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "835d1a23ace4b7fc972ec59093a7f5ad86c49a410c273ccf2b2861c422f4275d",
         "path": "oracle-manifests/artifact/result-heavy/10k-x4/novel.json"
       },
       {
         "cell": "artifact/result-heavy/100k-x4/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "9f5ec9ee3e8400cf28dd1451f1d0080967edcea4e025f329315ed8982292df54",
         "path": "oracle-manifests/artifact/result-heavy/100k-x4/novel.json"
       },
       {
         "cell": "artifact/result-heavy/100x16/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "49a91d3b90512f994ea5f62276d849985298ba95439526dd4a2b5af5f11beebe",
         "path": "oracle-manifests/artifact/result-heavy/100x16/novel.json"
       },
       {
         "cell": "artifact/result-heavy/10k-x16/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "013ebdc5f444498f5fd7cf9ac0b4f78db6fac79eaf68fe5f109cf45d52b4993f",
         "path": "oracle-manifests/artifact/result-heavy/10k-x16/novel.json"
       },
       {
         "cell": "artifact/result-heavy/100k-x16/novel",
-        "dataset_spec_sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
+        "dataset_spec_sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
         "manifest_sha256": "7c0272a172aef9ea70a26909eba13d07a7a650353394707f677bb6d6f69bbe80",
         "path": "oracle-manifests/artifact/result-heavy/100k-x16/novel.json"
       }

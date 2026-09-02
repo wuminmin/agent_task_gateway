@@ -576,7 +576,7 @@ products:
   - name: final_v5_scale_e7
     source: travel_demo
     reporting_view: reporting.final_v5_scale_e7
-    description: Final-V5 deterministic 625000-row sixteen-field result relation
+    description: Final-V5 deterministic 1250000-row sixteen-field result relation
     sensitivity: low
     snapshot: final-v5-scale-e7-2026-v1
     snapshot_publication: final-v5-scale-e7-v1

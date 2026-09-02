@@ -10,18 +10,20 @@ final-v5-contracts-v1.13
 
 The author-approved new-evidence program of 2026-09-02 (ledger rows
 P9E-DESIGN-V1 and the strong-evidence election of menu item 3) adds the
-P9.E scale point: a deterministic 625,000-row sixteen-field publication
-(final-v5-scale-e7-v1, 10,000,000 cell facts plus 625,000 row facts) so a
-single admitted query can settle a Dependency footprint at and above
-10^7 declared facts, answering the review's scale concern with a measured
-point instead of positioning prose.
+P9.E scale point: a deterministic 1,250,000-row sixteen-field publication
+(final-v5-scale-e7-v1) so a single admitted SUM-ladder query (nine
+Dependency facts per surviving row: the base-row fact, two predicate
+cells, and six summed argument cells) settles a Dependency footprint
+above 10^7 declared facts, answering the review's scale concern with a
+measured point instead of positioning prose.
 
 ## What changes
 
 - sql/datasets/benchmark-v1-generate.sql: the final_v5_benchmark.scale_e7
-  table, its materialized reporting view, unique index, cardinality check,
-  frozen-publication trigger, and comment; the closed column formulas are
-  byte-identical to result_heavy with only the row bound changed.
+  table (1,250,000 rows), its materialized reporting view, unique index,
+  cardinality check, frozen-publication trigger, and comment; the closed
+  column formulas are byte-identical to result_heavy with only the row
+  bound changed.
 - catalog/benchmark-contract-v1.yaml and the live config/catalog.yaml: the
   final-v5-scale-e7-v1 snapshot publication (all-zero fail-closed
   sentinels; only a deployment can produce the digests) and the
