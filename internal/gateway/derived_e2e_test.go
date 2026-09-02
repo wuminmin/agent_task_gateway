@@ -3,11 +3,13 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqllowering"
@@ -81,9 +83,17 @@ func TestDerivedProjectionSettlesEndToEnd(t *testing.T) {
 		Columns: provenanceColumns, Rows: [][]any{provenanceRow}, RowCount: 1, DatabaseTime: time.Millisecond,
 	}
 
-	first := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+	firstResult, firstErr := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
 		"task_id": taskID, "request_id": "derived-e2e-novel", "sql": sql,
 	})
+	if firstErr != nil {
+		var tool *mcp.ToolError
+		if errors.As(firstErr, &tool) && tool.Cause != nil {
+			t.Fatalf("novel derived query failed: %v (cause: %v)", firstErr, tool.Cause)
+		}
+		t.Fatalf("novel derived query failed: %v", firstErr)
+	}
+	first := firstResult
 	if first["row_count"] != int64(1) || first["semantic_replay"] == true {
 		t.Fatalf("novel derived query = %#v", first)
 	}
