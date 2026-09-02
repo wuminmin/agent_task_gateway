@@ -47,6 +47,7 @@ func TestLowerDerivedFailsClosed(t *testing.T) {
 		"text operand":    "SELECT (region * qty) AS x FROM sales_product",
 		"float literal":   "SELECT (price * 0.5) AS x FROM sales_product",
 		"modulo":          "SELECT (price % qty) AS x FROM sales_product",
+		"division":        "SELECT (price / qty) AS x FROM sales_product",
 		"count derived":   "SELECT count(price - qty) AS x FROM sales_product",
 		"unknown column":  "SELECT (price * secret) AS x FROM sales_product",
 	}

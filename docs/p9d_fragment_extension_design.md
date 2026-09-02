@@ -59,3 +59,13 @@ SSB 的 derived measure（lo_revenue-lo_supplycost）解锁若干；TPC-H 仍多
 - **D7 论文**: §9/§1/摘要覆盖率措辞按新实测更新(对价裁减守 12 页)。
 
 版本策略依据: NormalFormVersion 注释"Existing V4 tasks must never have their normal-form or outcome hashes reinterpreted"——新算子节点只能进新版本常量, 且只对含算术的查询启用。
+
+## D3 设计更正（2026-09-02，实施前）：admitted 算子收窄到 {+,-,*}
+
+除法退出第一版规则：PostgreSQL numeric 除法的结果 scale 选择语义复杂且商可为非终止小数，
+离线精确复刻（effect 推导需在 companion 侧确定性重算派生值以交叉验证 PG 可见值）不可行；
+而 +,-,* 在精确域封闭（int64 带溢出检查 fail-closed；numeric 用 big.Rat 精确、结果必有限）。
+评测目标（agent 集 Q09/Q20/Q32、SSB derived measure）全部只用 * 与 -，除法不损失任何目标覆盖。
+除法保持 fail-closed 原拒绝码，表 XXXIV 注记更新。派生值记账采用**重算路线**：
+MapV2 由参数格值确定性重算派生值（回避 PG 行对齐），可见结果哈希继续由现有结果校验面覆盖。
+聚合派生参走"MapV2 先行 + 聚合引用派生字段"的组合，不给聚合层加第二条派生路径。

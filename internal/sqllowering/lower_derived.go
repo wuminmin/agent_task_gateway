@@ -15,9 +15,12 @@ import (
 // exact type domain, single-product plans only; everything else keeps the
 // original fail-closed rejections.
 
+// Division is deliberately absent: PostgreSQL numeric division picks result
+// scales the offline exact re-computation cannot reproduce, and every
+// evaluation target uses only +, -, *. It keeps the original rejection.
 var derivedOperators = map[string]string{
 	"+": queryplan.ArithAdd, "-": queryplan.ArithSub,
-	"*": queryplan.ArithMul, "/": queryplan.ArithDiv,
+	"*": queryplan.ArithMul,
 }
 
 func (l *lowerer) lowerDerivedProjection(expr *pg_query.A_Expr, target *pg_query.ResTarget, resultCast string) (queryplan.DerivedColumn, *Error) {
@@ -72,7 +75,7 @@ func (l *lowerer) lowerDerivedExpr(expr *pg_query.A_Expr, location int32) (*quer
 	if shapeErr := queryplan.ValidateArithShape(tree); shapeErr != nil {
 		return nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
 			"The arithmetic expression is outside the derived-cell rule.", "SELECT", location, "",
-			"Use binary +, -, *, / over approved exact-typed columns and integer literals.")
+			"Use binary +, -, * over approved exact-typed columns and integer literals.")
 	}
 	return tree, nil
 }
@@ -87,13 +90,13 @@ func (l *lowerer) buildDerivedNode(node *pg_query.Node, location int32, depth in
 	if aExpr == nil || aExpr.GetKind() != pg_query.A_Expr_Kind_AEXPR_OP {
 		return nil, nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
 			"Only binary arithmetic operators are admitted in a derived projection.", "SELECT", location, "",
-			"Use binary +, -, *, / over approved columns and integer literals.")
+			"Use binary +, -, * over approved columns and integer literals.")
 	}
 	operator, known := derivedOperators[operatorName(aExpr.GetName())]
 	if !known || aExpr.GetLexpr() == nil || aExpr.GetRexpr() == nil {
 		return nil, nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
-			"Only binary +, -, *, and / are admitted in a derived projection.", "SELECT", location, "",
-			"Use binary +, -, *, / over approved columns and integer literals.")
+			"Only binary +, -, and * are admitted in a derived projection.", "SELECT", location, "",
+			"Use binary +, -, * over approved columns and integer literals.")
 	}
 	out := &queryplan.DerivedExpr{Op: operator}
 	var columnTypes []string
@@ -140,7 +143,7 @@ func (l *lowerer) lowerDerivedOperand(node *pg_query.Node, location int32, depth
 	}
 	return queryplan.ArithOperand{}, nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
 		"A derived operand must be an approved column, an integer literal, or nested arithmetic.", "SELECT", location, "",
-		"Use approved columns, integer literals, and binary +, -, *, /.")
+		"Use approved columns, integer literals, and binary +, -, *.")
 }
 
 func derivedExactType(sqlType string) bool {
