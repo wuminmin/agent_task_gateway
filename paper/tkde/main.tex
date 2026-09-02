@@ -348,12 +348,11 @@ than a purpose warrants by $B_D$ (the adaptive trace); delegation fan-out
 by the shared root ledger (the delegated child's refusal). Probe ladders
 $B_O$ bounds in count but not in recovery: under the default $B_O=128$ a
 binary search recovers a 64-bit cell in 64 settled probes, and $B_Q$ adds
-128 refusal bits per task; an executed adversary study (retained pilot,
-supplement) realizes this bound live---recovery capped at $\lfloor
-B_O/2\rfloor$ bits under owner-derived tiers
-(\FinalVFiveAdversaryOwnerBits{}/\FinalVFiveAdversaryTightenedBits{}
-bits), exact recovery only under a loosened grant, and greedy extraction
-stopped exactly at $B_D$. Four
+128 refusal bits per task; an executed adversary study realizes the bound
+live: recovery capped at $\lfloor B_O/2\rfloor$ bits under owner-derived
+tiers (\FinalVFiveAdversaryOwnerBits{}/\FinalVFiveAdversaryTightenedBits{}
+bits), exact recovery only under a loosened grant, greedy extraction
+stopped exactly at $B_D$ (retained pilot, supplement). Four
 boundaries hold at this goal: it counts declared identities, not inference;
 page order is order-only in the Catalog tie-break keys alone (the
 \code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds
@@ -957,10 +956,8 @@ dimension named in the evaluation tables is the oracle's projection, not a
 response field); it charges no exposure, in particular no Outcome atom, and
 is recorded as a failed query (contributing no set,
 Definition~\ref{def:task-exposure}) consuming $B_Q$ and its admission
-reservation (Section~\ref{sec:model}). So $B_Q$ is an exposure parameter,
-not a resource guard ($B_Q=110$ next to $B_O=18$ in
-Section~\ref{sec:delegation} allows six rejected questions per settled
-predicate).
+reservation (Section~\ref{sec:model}); $B_Q$ is an exposure parameter,
+not a resource guard.
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1008,9 +1005,9 @@ the Catalog's route (the prototype's only mode is manual approval), so the
 tree's size, and the summed request budget of
 Proposition~\ref{prop:probing-bound}, is set by approvals, not by the
 agent. \emph{Example (cont.).} A delegated
-child re-issuing the split $\pi_{id}$ of Section~\ref{sec:model} replays at
-$0/0/0$ against the shared ledger; a child attempting $\sigma_{dept='T'}$
-is refused by the same $\Delta_T$ computation. Settlement checks the settling task's own signed ceiling against
+child re-issuing the split $\pi_{id}$ replays at $0/0/0$ against the
+shared ledger; a child attempting $\sigma_{dept='T'}$ is refused by the
+same $\Delta_T$. Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
