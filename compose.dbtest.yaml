@@ -63,6 +63,33 @@ services:
       - business-data
       - dbtest-host
 
+  # The 1,250,000-row scale-e7 compilation is a deployment concern the DB
+  # harness never reads (its OOM kill at the 16g ceiling took the whole
+  # harness down); the builder is stubbed out and the installer's input list
+  # drops the publication.
+  snapshot-index-scale-e7:
+    entrypoint: ["/bin/true"]
+    command: !override []
+
+  snapshot-sidecar-install:
+    command: !override
+      - -artifact-dir
+      - /data/snapshot-index
+      - -input
+      - /input/expense-detail-v1.json
+      - -input
+      - /input/expense-summary-v1.json
+      - -input
+      - /input/provsql-orders-v1.json
+      - -input
+      - /input/provsql-lineitem-v1.json
+      - -input
+      - /input/provsql-nonce-v1.json
+      - -input
+      - /input/final-v5-result-heavy-v1.json
+      - -input
+      - /input/final-v5-exposure-scale-v1.json
+
 networks:
   # Non-internal, so the published Business PostgreSQL port actually maps.
   dbtest-host:
