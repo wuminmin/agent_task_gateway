@@ -52,8 +52,8 @@ func TestMapV2DerivedValueAndDependencyUnion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(effect.Release) == 0 || effect.Dependency.Len() == 0 {
-		t.Fatal("observed derived relation must carry Release and Dependency facts")
+	if len(effect.Release) == 0 || len(effect.Influence) == 0 {
+		t.Fatal("observed derived relation must carry Release and Influence facts")
 	}
 }
 
