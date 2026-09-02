@@ -357,7 +357,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "f0172ffb7888254c1abca1b57f9948b4052f634e635eae4b626f31a25a44bf8c",
+      "catalog_sha256": "bb1abc4137787597ba1da454c2d24445439c9e42e2c05153d1d8f202fff17309",
       "total_hot_bytes": 16619844,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/owner",
@@ -515,7 +515,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "d6e032a4de84f0a702c44e43a7ab64bc707b88e3d2afd50d47a8ecef180c6f7a",
+      "catalog_sha256": "ba64c82e71285c9b108e5dd8fb120ad1ee2ab6aeba2f9c81af1011e0f35c85f7",
       "total_hot_bytes": 117623914,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/loosened",
@@ -903,7 +903,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "e7999b2ac6b6d03bf54a7afb9f6635e688d6357d5e1e622195a083fa4b36b370",
+      "catalog_sha256": "19c0ea5e27e4df81b87164c27e1e70fa01c81092731757e51d6cf350ab20ac76",
       "total_hot_bytes": 101020708,
       "cells": [
         "adversary/adversary-extraction-v1/bisection/tightened",
