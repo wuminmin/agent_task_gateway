@@ -1005,6 +1005,14 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 func (d *ordinalDeriver) prepareUngrouped(member ordinalMember, visible ordinalVisibleRow) ([]ordinalPreparedCell, error) {
 	cells := make([]ordinalPreparedCell, 0, len(d.program.Visible))
 	for _, output := range d.program.Visible {
+		if output.Kind == "derived" {
+			prepared, err := d.prepareUngroupedDerived(member, visible, output)
+			if err != nil {
+				return nil, err
+			}
+			cells = append(cells, prepared)
+			continue
+		}
 		if output.Kind != "field" {
 			return nil, errors.New("ungrouped ordinal output unexpectedly contains an aggregate")
 		}
@@ -1065,6 +1073,45 @@ func (d *ordinalDeriver) prepareUngrouped(member ordinalMember, visible ordinalV
 		cells = append(cells, prepared)
 	}
 	return cells, nil
+}
+
+
+// prepareUngroupedDerived builds a P9.D derived projection cell: its value is
+// the visible answer, its witness is the union of the argument cells', and
+// its Release identity is minted at commit through the derived-fact path.
+func (d *ordinalDeriver) prepareUngroupedDerived(member ordinalMember, visible ordinalVisibleRow,
+	output queryplan.OrdinalVisibleSpec) (ordinalPreparedCell, error) {
+	position, present := d.visiblePos[output.ResultAlias]
+	if !present || position >= len(visible.values) {
+		return ordinalPreparedCell{}, fmt.Errorf("derived field %q cannot be matched to the visible result", output.OutputID)
+	}
+	if len(output.Args) == 0 {
+		return ordinalPreparedCell{}, fmt.Errorf("derived field %q declares no arguments", output.OutputID)
+	}
+	combined := ordinalWitness{}
+	for _, use := range output.Args {
+		cell, cellPresent := member.cells[use.FieldID]
+		if !cellPresent {
+			return ordinalPreparedCell{}, fmt.Errorf("derived argument %q is unavailable", use.FieldID)
+		}
+		if err := combined.appendDirect(cell.witness); err != nil {
+			return ordinalPreparedCell{}, err
+		}
+	}
+	witness, err := combined.freeze()
+	if err != nil {
+		return ordinalPreparedCell{}, err
+	}
+	commitment, err := ordinalWitnessCommitment(witness, d.multi)
+	if err != nil {
+		return ordinalPreparedCell{}, err
+	}
+	fact, err := exposure.NewDerivedFactV2(d.bundle, member.key, output.CanonicalExpression,
+		output.SQLType, visible.values[position], commitment)
+	if err != nil {
+		return ordinalPreparedCell{}, err
+	}
+	return ordinalPreparedCell{witness: combined, hasBase: false, fact: fact}, nil
 }
 
 // commitUngrouped applies a prepared row: row and cell support into the
@@ -1177,6 +1224,23 @@ func (d *ordinalDeriver) acceptGrouped(member ordinalMember) error {
 	}
 	for _, aggregate := range d.program.Aggregates {
 		builder := d.groupTarget(aggregate.OutputID)
+		if aggregate.InputKind == "derived" {
+			// A P9.D derived SUM argument depends on every argument cell it
+			// reads; the aggregate witness merges their union per member.
+			for _, use := range aggregate.Args {
+				cell, present := member.cells[use.FieldID]
+				if !present {
+					return fmt.Errorf("derived aggregate argument %q has no member cell", use.FieldID)
+				}
+				if err := cell.witness.addTo(builder, aggregate.WitnessMultiplicity); err != nil {
+					return err
+				}
+				if err := cell.witness.addSupport(d.influence); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		input := member.row
 		if aggregate.InputKind == "field" {
 			cell, present := member.cells[aggregate.Input.FieldID]
