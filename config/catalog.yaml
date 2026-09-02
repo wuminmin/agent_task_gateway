@@ -506,7 +506,7 @@ products:
     stable_relation_role: final_v5_result_heavy
     scopes: [category]
     allowed_functions: []
-    allowed_operators: ["=", "<=", "in"]
+    allowed_operators: ["=", "<=", "in", "*"]
     allowed_aggregates: []
     fields:
       - name: row_id
