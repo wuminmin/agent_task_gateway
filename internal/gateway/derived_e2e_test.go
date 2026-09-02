@@ -8,6 +8,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqllowering"
 )
@@ -41,6 +42,11 @@ func TestDerivedProjectionSettlesEndToEnd(t *testing.T) {
 	}
 	if len(lowered.Plan.Derived) != 1 {
 		t.Fatalf("plan derived = %+v", lowered.Plan.Derived)
+	}
+	if inputs, inputsErr := harness.service.preparationInputs(grant, lowered.Plan); inputsErr != nil {
+		t.Fatalf("preparation inputs: %v", inputsErr)
+	} else if _, prepErr := physicalquery.Prepare(inputs); prepErr != nil {
+		t.Fatalf("physicalquery.Prepare: %v", prepErr)
 	}
 	bound := prepareOrdinalForTest(t, harness, taskID, lowered.Plan)
 	row := map[string]any{
