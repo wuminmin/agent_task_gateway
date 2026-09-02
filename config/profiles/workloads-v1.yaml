@@ -122,6 +122,22 @@ experiments:
       scales: [natural, shuffled-v1, novelty-first-v1]
       modes: [release]
       products: [final_v5_rls_unlimited_expense_detail, final_v5_concurrency_expense_detail]
+  # The optimizing-adversary study (docs/p9c) replays two frozen extraction
+  # strategies on the RLS unlimited product under three owner-derived budget
+  # tiers; tier product sets differ by never-queried decoys for routing.
+  adversary:
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [owner]
+      products: [final_v5_rls_unlimited_expense_detail, final_v5_attack_expense_detail]
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [tightened]
+      products: [final_v5_rls_unlimited_expense_detail, final_v5_concurrency_expense_detail]
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [loosened]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_nonce]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders

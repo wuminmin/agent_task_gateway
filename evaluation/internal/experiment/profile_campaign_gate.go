@@ -211,7 +211,7 @@ func validateProfileCampaignExperimentGate(campaignClass, experimentID string, s
 
 func profileCampaignExperiment(value string) bool {
 	switch value {
-	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign", "counter":
+	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign", "counter", "adversary":
 		return true
 	default:
 		return false
@@ -315,6 +315,13 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 		}
 		if sample.System != "taskgate" {
 			return errors.New("counter pass has the wrong system shape")
+		}
+	case "adversary":
+		if sample.TaskGateAcceptanceV3 != nil || sample.AdversaryVerification == nil {
+			return errors.New("adversary pass must use adversary verification without top-level v3 acceptance")
+		}
+		if sample.System != "taskgate" {
+			return errors.New("adversary pass has the wrong system shape")
 		}
 	default:
 		return errors.New("unknown experiment terminal shape")
