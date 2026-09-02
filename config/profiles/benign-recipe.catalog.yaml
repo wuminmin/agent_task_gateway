@@ -407,14 +407,14 @@ budget_profiles:
         max_atom_payload_bytes: 4096
         max_total_atom_payload_bytes: 36864
     - name: final-v5-benign-recipe-v1
-      max_queries: 216
+      max_queries: 224
       max_rows: 100000
       max_db_time: 10m0s
       query_timeout: 5m0s
       task_ttl: 2h0m0s
-      max_release_facts: 1907
+      max_release_facts: 26907
       max_influence_facts: 1450000
-      max_outcome_facts: 54
+      max_outcome_facts: 56
       exposure_profile_version: taskgate-exposure-v5
       predicate_footprint:
         version: taskgate-predicate-footprint-v1
