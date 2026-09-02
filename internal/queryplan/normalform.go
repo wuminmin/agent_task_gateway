@@ -34,6 +34,9 @@ type NormalForm struct {
 	Snapshot        string                `json:"snapshot"`
 	LineageDigest   string                `json:"lineage_digest,omitempty"`
 	Columns         []string              `json:"columns,omitempty"`
+	// Derived carries the canonical N_arith spellings of arithmetic
+	// projections; present only under NormalFormVersionV5.
+	Derived         []NormalizedDerived   `json:"derived,omitempty"`
 	Aggregates      []NormalizedAggregate `json:"aggregates,omitempty"`
 	Filters         []NormalizedFilter    `json:"filters,omitempty"`
 	Having          []NormalizedFilter    `json:"having,omitempty"`
@@ -47,6 +50,11 @@ type NormalForm struct {
 	Collations      []NormalizedCollation `json:"collations,omitempty"`
 	Timezone        string                `json:"timezone"`
 	NumericMode     string                `json:"numeric_mode"`
+}
+
+type NormalizedDerived struct {
+	Expression string `json:"expression"`
+	SQLType    string `json:"sql_type"`
 }
 
 type NormalizedAggregate struct {
@@ -104,6 +112,25 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 	sort.Slice(result.Collations, func(i, j int) bool { return result.Collations[i].Column < result.Collations[j].Column })
 	for _, field := range sortedUnique(plan.Columns) {
 		result.Columns = append(result.Columns, canonicalField(product.SourceNamespace, field))
+	}
+	for _, derived := range plan.Derived {
+		if err := validateDerivedTypes(derived, product); err != nil {
+			return NormalForm{}, err
+		}
+		expression, err := NormalizeArithmeticInNamespace(derived.Expr, product.SourceNamespace)
+		if err != nil {
+			return NormalForm{}, err
+		}
+		result.Derived = append(result.Derived, NormalizedDerived{Expression: expression, SQLType: derived.SQLType})
+	}
+	if len(result.Derived) > 0 {
+		// Arithmetic is an extension of the frozen V3 identity: plans that
+		// carry it settle under the V5 normal-form version so no existing
+		// task's normal-form or outcome hash is ever reinterpreted.
+		result.Version = NormalFormVersionV5
+		sort.Slice(result.Derived, func(i, j int) bool {
+			return result.Derived[i].Expression < result.Derived[j].Expression
+		})
 	}
 	aliases := make(map[string]string, len(plan.Aggregates))
 	aliasTypes := make(map[string]string, len(plan.Aggregates))
@@ -1032,4 +1059,45 @@ func normalizedAlgebraFieldSetV2(values []string, operator string) ([]string, er
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// validateDerivedTypes holds every operand of a derived projection to the
+// declared exact type: argument columns must carry that Catalog type and
+// literals must declare it, so mixed-domain arithmetic fails closed.
+func validateDerivedTypes(derived DerivedColumn, product Product) error {
+	if derived.Expr == nil || derived.Expr.SQLType != derived.SQLType {
+		return errors.New("derived column must carry its expression's exact type")
+	}
+	if err := ValidateArithShape(derived.Expr); err != nil {
+		return err
+	}
+	return walkDerivedOperands(derived.Expr, func(operand ArithOperand) error {
+		if operand.Column != "" {
+			natural, err := exposure.CanonicalSQLTypeV2(product.ColumnTypes[operand.Column])
+			if err != nil || natural != derived.SQLType {
+				return fmt.Errorf("derived operand %q must carry the declared exact type %q", operand.Column, derived.SQLType)
+			}
+		}
+		if operand.Literal != "" && operand.SQLType != derived.SQLType {
+			return fmt.Errorf("derived literal %q must carry the declared exact type %q", operand.Literal, derived.SQLType)
+		}
+		return nil
+	})
+}
+
+func walkDerivedOperands(expr *DerivedExpr, visit func(ArithOperand) error) error {
+	if expr == nil {
+		return nil
+	}
+	for _, operand := range expr.Operands {
+		if err := visit(operand); err != nil {
+			return err
+		}
+		if operand.Nested != nil {
+			if err := walkDerivedOperands(operand.Nested, visit); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

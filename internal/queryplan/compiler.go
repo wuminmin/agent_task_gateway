@@ -41,6 +41,9 @@ type QueryPlan struct {
 	Product    string      `json:"product"`
 	From       *From       `json:"from,omitempty"`
 	Columns    []string    `json:"columns"`
+	// Derived are P9.D arithmetic projection columns (derived Release
+	// cells). A plan without them keeps its V3/V4 bytes and hashes.
+	Derived    []DerivedColumn `json:"derived,omitempty"`
 	Aggregates []Aggregate `json:"aggregates,omitempty"`
 	Filters    []Filter    `json:"filters,omitempty"`
 	GroupBy    []string    `json:"group_by,omitempty"`
@@ -97,6 +100,16 @@ type UnionDistinct struct {
 	Columns []string `json:"columns"`
 	Left    Scan     `json:"left"`
 	Right   Scan     `json:"right"`
+}
+
+// DerivedColumn is one admitted arithmetic projection: an exact-typed
+// expression over approved columns and typed literals, selected under an
+// alias. Its Release identity is the derived-fact path; its Dependency
+// footprint is the argument columns' evidence cells.
+type DerivedColumn struct {
+	Expr    *DerivedExpr `json:"expr"`
+	Alias   string       `json:"alias"`
+	SQLType string       `json:"sql_type"`
 }
 
 type Aggregate struct {
@@ -176,6 +189,28 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		selectNames[column] = struct{}{}
 		selectedColumns[column] = struct{}{}
 		selects = append(selects, quoteIdentifier(column))
+	}
+	for _, derived := range plan.Derived {
+		if derived.Expr == nil || derived.Expr.SQLType != derived.SQLType {
+			return "", errors.New("derived column must carry its expression's exact type")
+		}
+		if !safeIdentifier(derived.Alias) {
+			return "", errors.New("derived alias is invalid")
+		}
+		if _, duplicate := selectNames[derived.Alias]; duplicate {
+			return "", fmt.Errorf("duplicate select name %q", derived.Alias)
+		}
+		expression, err := DerivedSQL(derived.Expr, func(column string) (string, error) {
+			if err := allowedColumn(column, product); err != nil {
+				return "", err
+			}
+			return quoteIdentifier(column), nil
+		})
+		if err != nil {
+			return "", err
+		}
+		selectNames[derived.Alias] = struct{}{}
+		selects = append(selects, expression+" AS "+quoteIdentifier(derived.Alias))
 	}
 	for _, aggregate := range plan.Aggregates {
 		if aggregate.ResultEncoding != "" {
