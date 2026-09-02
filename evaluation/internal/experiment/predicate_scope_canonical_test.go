@@ -33,7 +33,10 @@ const (
 	// predicate footprint below are unchanged, and the compact/JSONB and
 	// source/retained assertions were re-run under the new digest before it was
 	// pinned.
-	run04PreparationInputsSHA256  = "a10c985473bbc60a636e8ebb271414121536792567df4a344c9a6b3c13fd31f7"
+	// Re-pinned 2026-09-03 for the v1.13 scale-e7 Catalog addition, which
+	// again moves the embedded Catalog view; grant digest and predicate
+	// footprint unchanged.
+	run04PreparationInputsSHA256  = "609b3ced23b11967032575fa400a271639b83d530460257c8784ab4e4617f199"
 	run04PredicateFootprintSHA256 = "09d696f60327552c01da5a43d240059de493b3a21baae932e341a8bbdd6fb840"
 	run04SnapshotRowCount         = uint64(100000)
 )
