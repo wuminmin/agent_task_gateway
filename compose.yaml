@@ -207,7 +207,7 @@ services:
       - ./config/snapshots/final-v5-scale-e7-v1.json:/input/final-v5-scale-e7-v1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index
     read_only: true
-    mem_limit: 16g
+    mem_limit: 22g
     restart: "no"
     security_opt:
       - no-new-privileges:true
