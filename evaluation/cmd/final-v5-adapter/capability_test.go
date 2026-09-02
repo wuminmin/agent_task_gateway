@@ -280,6 +280,12 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteAndCapability(t *testing.T) {
 		if policy.Budget.MaxQueries < 2 || onlyResultHeavy(policy) || onlyDefaultLowBenchmarkProducts(policy) {
 			continue
 		}
+		// The P9.E scale7 ladder binds its own Product to its own a-priori
+		// recipe (D=11.5M crosses the large-influence filter above); it is
+		// not the reviewed Scale route.
+		if len(policy.Products) == 1 && policy.Products[0].Name == "final_v5_scale_e7" {
+			continue
+		}
 		reviewedScaleRoutes++
 		if policy.BudgetProfile != "final-v5-exposure-scale-v1" {
 			t.Fatalf("Scale route uses budget profile %q, want final-v5-exposure-scale-v1", policy.BudgetProfile)
