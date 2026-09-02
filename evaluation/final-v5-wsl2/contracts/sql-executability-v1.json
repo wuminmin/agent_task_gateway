@@ -295,7 +295,7 @@
     {
       "kind": "dataset_generator",
       "path": "sql/datasets/benchmark-v1-generate.sql",
-      "sha256": "a69509060791f7a93fc5efb9214fc5ad7b93a267eaa4db284723c6d34e293eea",
+      "sha256": "fa5180d4fc8ce3c57c64f93b3f48f0e5cdcdb62d3ae466d80e1e95431adb1a78",
       "check_type": "live_generate",
       "rendered_cells": 0,
       "parse_status": "pass",

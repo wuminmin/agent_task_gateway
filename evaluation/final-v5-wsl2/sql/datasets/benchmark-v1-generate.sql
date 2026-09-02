@@ -118,7 +118,7 @@ INSERT INTO final_v5_benchmark.scale_e7(
 )
 SELECT row_id,
        (ARRAY['alpha','beta','gamma','delta'])[((row_id - 1) % 4) + 1],
-       ((row_id * 7919) % 100000000)::numeric / 100,
+       ((row_id::bigint * 7919) % 100000000)::numeric / 100,
        date '2020-01-01' + ((row_id - 1) % 3653)::integer,
        (row_id % 1000000)::integer,
        (row_id % 3) <> 0,
@@ -129,7 +129,7 @@ SELECT row_id,
        1 + ((row_id - 1) % 10000),
        ((row_id::bigint * 104729) % 10000000)::numeric / 10000,
        CASE WHEN (row_id % 11) = 0 THEN -1 ELSE 1 END
-           * (((row_id * 37) % 1000000)::numeric / 100),
+           * (((row_id::bigint * 37) % 1000000)::numeric / 100),
        date '2020-01-01' + ((row_id - 1 + 31) % 3653)::integer,
        timestamp '2020-01-01 12:00:00' + ((row_id - 1) * interval '1 minute'),
        (ARRAY['north','south','east','west','central'])[((row_id - 1) % 5) + 1],
