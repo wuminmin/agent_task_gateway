@@ -445,7 +445,7 @@ def _benign_stats(samples: list[dict]) -> dict:
     union = arms["x4"]["final_dependency"]
     return {
         "arms": arms,
-        "statements": 27,
+        "statements": recipe["accepted"] + recipe["refused"],
         "policy_refusals": recipe["refused"] - recipe["budget_refusals"],
         "recipe_budget_refusals": recipe["budget_refusals"],
         "union_dependency": union,
