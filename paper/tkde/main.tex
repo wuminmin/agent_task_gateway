@@ -1197,16 +1197,13 @@ requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, deterministic and as PostgreSQL race tests) covers
 split, page, retry, snapshot identity, joins/unions, and delegation;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
-across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
-a \FinalVFivePublicationRQFiveRows{}-row publication in
-\FinalVFivePublicationRQFiveBuildS{}~s p50 for the build phase, plus
-\RQFiveDayZeroActivateMedianS{}~s activation in the tracked run); Outcome
+across \RQFiveTransitions{} transitions (build and activation timings:
+supplement); Outcome
 regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
 cases, a generated-plan campaign (\GeneratedPlans{} random plans over
-\GeneratedFixtures{} fixtures of \GeneratedRowsMin{}--\GeneratedRowsMax{}
-rows: three-valued selections, projections, two-source equijoins, grouped
-and global aggregates, pages) compares the production algebra with a
+\GeneratedFixtures{} fixtures, spanning selections, projections,
+equijoins, aggregates, and pages) compares the production algebra with a
 separate reference evaluator: \GeneratedMismatches{} set and
 \GeneratedHashMismatches{} hash mismatches over \GeneratedReleaseFacts{}
 Result and \GeneratedDependencyFacts{} Dependency Facts, with split and
