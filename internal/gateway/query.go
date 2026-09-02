@@ -90,7 +90,8 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 		return nil
 	}
 	if len(metadata.DisplayColumns) > 0 && len(metadata.DisplayColumns) != len(stored.Columns) {
-		return errors.New("display-column metadata disagrees with canonical result")
+		return fmt.Errorf("display-column metadata disagrees with canonical result: display=%v stored=%v",
+			metadata.DisplayColumns, stored.Columns)
 	}
 	if err := validateResultOrder(metadata.ResultOrder, len(stored.Columns)); err != nil {
 		return err
@@ -176,9 +177,18 @@ func alignStoredSemanticColumns(stored *storedQueryResult, desired []string) err
 }
 
 func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
-	columns := make([]string, 0, len(plan.Columns)+len(plan.Aggregates))
+	columns := make([]string, 0, len(plan.Columns)+len(plan.Derived)+len(plan.Aggregates))
 	for _, column := range plan.Columns {
 		columns = append(columns, "column:"+column)
+	}
+	// Derived arithmetic projections sit between plain columns and
+	// aggregates, matching the SQL emission and visible-field order.
+	for _, derived := range plan.Derived {
+		expression, err := queryplan.NormalizeArithmetic(derived.Expr)
+		if err != nil {
+			expression = derived.Alias
+		}
+		columns = append(columns, "derived:"+expression)
 	}
 	occurrences := make(map[string]int, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
@@ -2547,3 +2557,4 @@ func (s *Service) detachedContext(parent context.Context) (context.Context, cont
 func (s *Service) artifactOperationContext(parent context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(parent), s.artifactOperationTimeout)
 }
+

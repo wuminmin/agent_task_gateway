@@ -26,7 +26,7 @@ func ValidateBenignEvidence(sample Sample) error {
 		return errors.New("benign evidence validation requires a passing benign sample")
 	}
 	budgetName, knownMode := benignBudgetNames[sample.Mode]
-	if sample.WorkloadID != finalv5benign.TraceWorkloadID || sample.Scale != "27-statements" ||
+	if sample.WorkloadID != finalv5benign.TraceWorkloadID || sample.Scale != "28-statements" ||
 		!knownMode || sample.System != "taskgate" {
 		return errors.New("benign sample is outside the frozen trace matrix")
 	}

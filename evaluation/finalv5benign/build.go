@@ -308,6 +308,10 @@ func legacyEvidenceFields(plan queryplan.QueryPlan, product catalog.Product) []s
 		if aggregate.Column != "*" {
 			set[aggregate.Column] = struct{}{}
 		}
+		collectArithColumns(aggregate.DerivedArg, set)
+	}
+	for _, derived := range plan.Derived {
+		collectArithColumns(derived.Expr, set)
 	}
 	fields := make([]string, 0, len(set))
 	for field := range set {
@@ -355,4 +359,18 @@ func sortedStrings(values []string) []string {
 	result := append([]string(nil), values...)
 	sort.Strings(result)
 	return result
+}
+
+// collectArithColumns walks a derived expression's argument columns into the
+// evidence-field set, mirroring the production companion's collection.
+func collectArithColumns(expr *queryplan.DerivedExpr, set map[string]struct{}) {
+	if expr == nil {
+		return
+	}
+	for _, operand := range expr.Operands {
+		if operand.Column != "" {
+			set[operand.Column] = struct{}{}
+		}
+		collectArithColumns(operand.Nested, set)
+	}
 }

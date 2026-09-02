@@ -240,7 +240,7 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         raise PilotEvidenceError("pilot evidence manifest must declare itself publication-ineligible")
 
     artifact_runs, baseline_samples, subphase_samples, provsql_leaf_samples = [], [], [], []
-    footprint_samples, benign_samples, counter_samples = [], [], []
+    footprint_samples, benign_samples, counter_samples, adversary_samples = [], [], [], []
     for entry in manifest["runs"]:
         if entry.get("superseded_by"):
             # A retained run whose measurements a later run of the same family
@@ -264,6 +264,9 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
             continue
         if entry["family"] == "counter":
             counter_samples.extend(_load_profile_pilot(root, entry))
+            continue
+        if entry["family"] == "adversary":
+            adversary_samples.extend(_load_profile_pilot(root, entry))
             continue
         samples = _load_run(root, entry)
         if entry["family"] == "artifact":
@@ -368,8 +371,10 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     footprint = _footprint_stats(footprint_samples) if footprint_samples else None
     benign = _benign_stats(benign_samples) if benign_samples else None
     counter = _counter_stats(counter_samples) if counter_samples else None
+    adversary = _adversary_stats(adversary_samples) if adversary_samples else None
     return {"subphase": subphase, "provsql_leaves": provsql_leaves, "artifact": artifact_stats,
-            "baseline": baseline_stats, "footprint": footprint, "benign": benign, "counter": counter}
+            "baseline": baseline_stats, "footprint": footprint, "benign": benign, "counter": counter,
+            "adversary": adversary}
 
 # ---------------------------------------------------------------------------
 # The three P8 retained studies (docs/p8): the refused-footprint ladder, the
@@ -446,6 +451,41 @@ def _benign_stats(samples: list[dict]) -> dict:
         "union_dependency": union,
         "recipe_dependency_budget": recipe["budget_dependency"],
         "union_over_budget_percent": 100.0 * (union - recipe["budget_dependency"]) / recipe["budget_dependency"],
+    }
+
+
+def _adversary_stats(samples: list[dict]) -> dict:
+    cells = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "adversary":
+            raise PilotEvidenceError("adversary study retained a foreign sample")
+        evidence = sample.get("adversary_verification") or {}
+        key = (sample["mode"], sample["scale"])
+        cell = {
+            "accepted": evidence["accepted_steps"],
+            "refused": evidence["refused_steps"],
+            "recovered_bits": evidence.get("recovered_bits", 0),
+            "recovered_lo": evidence.get("recovered_lo", 0),
+            "recovered_hi": evidence.get("recovered_hi", 0),
+            "recovered_value": evidence.get("recovered_value"),
+            "final_dependency": evidence["final_root"]["dependency_cardinality"],
+            "final_release": evidence["final_root"]["release_cardinality"],
+            "final_outcome": evidence["final_root"]["outcome_cardinality"],
+        }
+        if key in cells and cells[key] != cell:
+            raise PilotEvidenceError(f"adversary cell {key} is inconsistent across deployments")
+        cells[key] = cell
+    if len(cells) != 6:
+        raise PilotEvidenceError("adversary study must retain exactly the six tier/strategy cells")
+    return {
+        "cells": {f"{tier}/{strategy}": cells[(tier, strategy)] for tier, strategy in cells},
+        "owner_bits": cells[("owner", "bisection")]["recovered_bits"],
+        "tightened_bits": cells[("tightened", "bisection")]["recovered_bits"],
+        "loosened_bits": cells[("loosened", "bisection")]["recovered_bits"],
+        "loosened_recovered_value": cells[("loosened", "bisection")]["recovered_value"],
+        "owner_greedy_dep": cells[("owner", "greedy")]["final_dependency"],
+        "tightened_greedy_dep": cells[("tightened", "greedy")]["final_dependency"],
+        "loosened_greedy_dep": cells[("loosened", "greedy")]["final_dependency"],
     }
 
 

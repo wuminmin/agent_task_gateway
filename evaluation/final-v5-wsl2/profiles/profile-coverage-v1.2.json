@@ -275,10 +275,10 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "e68add17798f25fc055e626ca4c76f58068c0f734f340b4ba732ca904f1bba2d",
+      "catalog_sha256": "c363fe2c7999800b8d825656d7fdef1b7e73cf12988e83e8413bac7e989c65ef",
       "total_hot_bytes": 244709250,
       "cells": [
-        "benign/benign-agent-trace-v1/27-statements/x4"
+        "benign/benign-agent-trace-v1/28-statements/x4"
       ]
     },
     {
@@ -414,10 +414,10 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "768acdff269e5043916d5cbfe05dcb288b0ac83fcfc75ba192733cbd7a4287fd",
+      "catalog_sha256": "90c076008e3636334041389da4861fb84d7f64c6a86b39376f28fcd7d5370247",
       "total_hot_bytes": 244446763,
       "cells": [
-        "benign/benign-agent-trace-v1/27-statements/recipe"
+        "benign/benign-agent-trace-v1/28-statements/recipe"
       ]
     },
     {
@@ -676,7 +676,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "e7232c7bfdc85b9c661f69f2e66638ab9fc70c607c05e1267b73af0d4ecc4256",
+      "catalog_sha256": "e5911cdd704b60051d415077396fe3900f1548bc87e2756d0139ca2964142042",
       "total_hot_bytes": 126813361,
       "cells": [
         "artifact/result-heavy/100k-x16/novel",
@@ -833,10 +833,10 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "82418ee6bcdf9cc8b84b56031e5ba0da726c4b9964c68baf93a7da8d8454aa9b",
+      "catalog_sha256": "2f27bb5e5437f96aabaa0a5182dc3537c27cd9565a6dc322a7d65af9a246ec00",
       "total_hot_bytes": 244709250,
       "cells": [
-        "benign/benign-agent-trace-v1/27-statements/x2"
+        "benign/benign-agent-trace-v1/28-statements/x2"
       ]
     },
     {

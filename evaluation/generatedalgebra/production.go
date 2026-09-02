@@ -6,6 +6,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
 // scan builds the production relation for a reference Relation.
@@ -96,11 +97,46 @@ func EvaluateProduction(expenses, departments Relation, plan Plan) (Observation,
 				return Observation{}, err
 			}
 		}
-		relation, err = exposure.ProjectV2(relation, plan.Project...)
+		if len(plan.Derived) > 0 {
+			specs := make([]exposure.DerivedFieldSpecV2, 0, len(plan.Derived))
+			for _, derivedSpec := range plan.Derived {
+				expr := &queryplan.DerivedExpr{Op: derivedSpec.Op, SQLType: derivedSpec.SQLType,
+					Operands: []queryplan.ArithOperand{{Column: derivedSpec.LeftField, SQLType: derivedSpec.SQLType}}}
+				if derivedSpec.HasLiteral {
+					expr.Operands = append(expr.Operands, queryplan.ArithOperand{
+						Literal: fmt.Sprintf("%d", derivedSpec.RightLiteral), SQLType: derivedSpec.SQLType})
+				} else {
+					expr.Operands = append(expr.Operands, queryplan.ArithOperand{
+						Column: derivedSpec.RightField, SQLType: derivedSpec.SQLType})
+				}
+				expression, exprErr := queryplan.NormalizeArithmetic(expr)
+				if exprErr != nil {
+					return Observation{}, exprErr
+				}
+				tree := &exposure.DerivedNodeV2{Op: derivedSpec.Op,
+					Left: &exposure.DerivedNodeV2{Field: derivedSpec.LeftField}}
+				if derivedSpec.HasLiteral {
+					tree.Right = &exposure.DerivedNodeV2{Literal: fmt.Sprintf("%d", derivedSpec.RightLiteral)}
+				} else {
+					tree.Right = &exposure.DerivedNodeV2{Field: derivedSpec.RightField}
+				}
+				specs = append(specs, exposure.DerivedFieldSpecV2{OutputID: derivedSpec.OutputID,
+					OutputType: derivedSpec.SQLType, Expression: expression, Tree: tree})
+			}
+			relation, err = exposure.MapV2(relation, specs)
+			if err != nil {
+				return Observation{}, err
+			}
+		}
+		projected := append([]string(nil), plan.Project...)
+		for _, derivedSpec := range plan.Derived {
+			projected = append(projected, derivedSpec.OutputID)
+		}
+		relation, err = exposure.ProjectV2(relation, projected...)
 		if err != nil {
 			return Observation{}, err
 		}
-		visible = plan.Project
+		visible = projected
 	case "group", "global":
 		var groupFields []string
 		if plan.Kind == "group" {

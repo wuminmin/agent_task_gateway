@@ -255,7 +255,9 @@ three-source joins evaluated end to end; up to 16 roles admitted by the
 compiler), two-branch
 union, grouping with HAVING and the admitted aggregates (COUNT, COUNT
 DISTINCT, SUM, MIN, MAX, exact AVG), into which bounded nested Views
-flatten; no arithmetic, scalar functions, OR, subqueries, or outer joins
+flatten, and single-Product exact-typed binary arithmetic projections
+($+$, $-$, $\times$) settled as derived cells; no scalar functions,
+division, OR, subqueries, or outer joins
 (Section~\ref{sec:limits} measures the consequence); (3)
 profile-relative novelty, exact by the declared rules and verified as
 consistent with our reference implementation, and
@@ -280,8 +282,8 @@ The supplement tabulates each family's controlled object, horizon and
 persistent subject, and enforcement/release coupling.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
-whether a history determines forbidden data, and simulatable auditing also
-protects denial
+determines whether a history fixes forbidden data; simulatable auditing
+also protects denial
 \cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable};
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
@@ -348,7 +350,11 @@ than a purpose warrants by $B_D$ (the adaptive trace); delegation fan-out
 by the shared root ledger (the delegated child's refusal). Probe ladders
 $B_O$ bounds in count but not in recovery: under the default $B_O=128$ a
 binary search recovers a 64-bit cell in 64 settled probes, and $B_Q$ adds
-128 refusal bits per task. Four
+128 refusal bits per task; an executed adversary study realizes the bound
+live: recovery capped at $\lfloor B_O/2\rfloor$ bits under owner-derived
+tiers (\FinalVFiveAdversaryOwnerBits{}/\FinalVFiveAdversaryTightenedBits{}
+bits), exact recovery only under a loosened grant, greedy extraction
+stopped exactly at $B_D$ (retained pilot, supplement). Four
 boundaries hold at this goal: it counts declared identities, not inference;
 page order is order-only in the Catalog tie-break keys alone (the
 \code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds
@@ -952,10 +958,8 @@ dimension named in the evaluation tables is the oracle's projection, not a
 response field); it charges no exposure, in particular no Outcome atom, and
 is recorded as a failed query (contributing no set,
 Definition~\ref{def:task-exposure}) consuming $B_Q$ and its admission
-reservation (Section~\ref{sec:model}). So $B_Q$ is an exposure parameter,
-not a resource guard ($B_Q=110$ next to $B_O=18$ in
-Section~\ref{sec:delegation} allows six rejected questions per settled
-predicate).
+reservation (Section~\ref{sec:model}); $B_Q$ is an exposure parameter,
+not a resource guard.
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1003,9 +1007,9 @@ the Catalog's route (the prototype's only mode is manual approval), so the
 tree's size, and the summed request budget of
 Proposition~\ref{prop:probing-bound}, is set by approvals, not by the
 agent. \emph{Example (cont.).} A delegated
-child re-issuing the split $\pi_{id}$ of Section~\ref{sec:model} replays at
-$0/0/0$ against the shared ledger; a child attempting $\sigma_{dept='T'}$
-is refused by the same $\Delta_T$ computation. Settlement checks the settling task's own signed ceiling against
+child re-issuing the split $\pi_{id}$ replays at $0/0/0$ against the
+shared ledger; a child attempting $\sigma_{dept='T'}$ is refused by the
+same $\Delta_T$. Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
@@ -1195,16 +1199,13 @@ requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, deterministic and as PostgreSQL race tests) covers
 split, page, retry, snapshot identity, joins/unions, and delegation;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
-across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
-a \FinalVFivePublicationRQFiveRows{}-row publication in
-\FinalVFivePublicationRQFiveBuildS{}~s p50 for the build phase, plus
-\RQFiveDayZeroActivateMedianS{}~s activation in the tracked run); Outcome
+across \RQFiveTransitions{} transitions (build and activation timings:
+supplement); Outcome
 regressions cover empty
 probes, replay, radix tamper, and digest binding. Beyond the hand-written
 cases, a generated-plan campaign (\GeneratedPlans{} random plans over
-\GeneratedFixtures{} fixtures of \GeneratedRowsMin{}--\GeneratedRowsMax{}
-rows: three-valued selections, projections, two-source equijoins, grouped
-and global aggregates, pages) compares the production algebra with a
+\GeneratedFixtures{} fixtures, spanning selections, projections,
+equijoins, aggregates, and pages) compares the production algebra with a
 separate reference evaluator: \GeneratedMismatches{} set and
 \GeneratedHashMismatches{} hash mismatches over \GeneratedReleaseFacts{}
 Result and \GeneratedDependencyFacts{} Dependency Facts, with split and
@@ -1355,7 +1356,8 @@ probe is refused with \FinalVFivePublicationAttackThresholdRejectionCode{},
 so the agent learned \FinalVFivePublicationAttackThresholdAnswered{} of
 \FinalVFivePublicationAttackThresholdProbes{} thresholds plus one refusal
 bit while the direct arm answered all three (supplement); the corpus is
-preregistered, not a search over strategies.
+preregistered, and the strategy space is probed by the executed adversary
+study above.
 
 \textbf{Adaptive trace against per-query control.} The RLS profile replays
 one deterministic \FinalVFivePublicationRLSQueries{}-query adaptive trace
@@ -1418,7 +1420,7 @@ Arm & Accepted & First refusal & Distinct Dep. \\
 \begin{figure}[!t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.26\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.24\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
   xmin=1, xmax=100, ymin=0, ymax=30,
   ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},
@@ -1492,17 +1494,19 @@ subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
 (\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
 reporting queries (four-source star joins with a grouped \code{SUM} lower;
-derived measures, \code{OR} filters, and aggregate-alias ordering do not;
+multi-source derived measures, \code{OR} filters, and aggregate-alias
+ordering do not;
 supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
-the rest stop first at scalar functions, projection arithmetic,
-non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
+the rest stop first at scalar functions, division or a subquery inside
+arithmetic, non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
 \code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING},
-\code{SELECT *}, exact \code{AVG}, and \code{COUNT(DISTINCT)} are now
-admitted under existing Dependency rules; arithmetic, non-literal
-comparisons, \code{OR}, and outer joins need new rules (derived cells,
-two-cell atoms, disjunctive witnesses, null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
+\code{SELECT *}, exact \code{AVG}, \code{COUNT(DISTINCT)}, and
+single-Product $\{+,-,\times\}$ arithmetic projections (settled as derived
+cells) are now admitted; non-literal comparisons, \code{OR}, and outer
+joins need new rules (two-cell atoms, disjunctive witnesses,
+null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
 are trusted declarations; View drift is checked at request, approval, and
 execution.
 

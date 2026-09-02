@@ -307,6 +307,16 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 			return exposure.Observation{}, err
 		}
 	}
+	derivedSpecs, err := derivedFieldSpecs(context.plan, context.product.FactNamespace)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	if len(derivedSpecs) > 0 {
+		relation, err = exposure.MapV2(relation, derivedSpecs)
+		if err != nil {
+			return exposure.Observation{}, err
+		}
+	}
 	visiblePositions, err := columnPositions(visible.Columns)
 	if err != nil {
 		return exposure.Observation{}, err
@@ -316,16 +326,53 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 			return exposure.Observation{}, fmt.Errorf("visible and provenance row sets differ")
 		}
 		visibleKeys := make(map[string]struct{}, len(visible.Rows))
+		visibleDerived := make(map[string]map[string]any, len(visible.Rows))
 		for _, values := range visible.Rows {
 			key, err := context.baseEntityKeyV2(values, visiblePositions, types)
 			if err != nil {
 				return exposure.Observation{}, err
 			}
 			visibleKeys[key] = struct{}{}
+			if len(context.plan.Derived) > 0 {
+				derivedValues := make(map[string]any, len(context.plan.Derived))
+				for _, derived := range context.plan.Derived {
+					position, present := visiblePositions[derived.Alias]
+					if !present || position >= len(values) {
+						return exposure.Observation{}, fmt.Errorf("visible result is missing derived field %q", derived.Alias)
+					}
+					derivedValues[derived.Alias] = values[position]
+				}
+				visibleDerived[key] = derivedValues
+			}
 		}
 		for key := range provenanceKeys {
 			if _, present := visibleKeys[key]; !present {
 				return exposure.Observation{}, fmt.Errorf("visible and provenance entity sets differ")
+			}
+		}
+		if len(context.plan.Derived) > 0 {
+			// The derived cell values were re-computed offline from the
+			// argument cells; PostgreSQL's visible answer must agree exactly.
+			for _, row := range relation.Rows {
+				observedRow, present := visibleDerived[row.Key]
+				if !present {
+					return exposure.Observation{}, fmt.Errorf("derived cross-check misses visible row for key")
+				}
+				for _, derived := range context.plan.Derived {
+					cell := row.Cells[derived.Alias]
+					recomputed, err := exposure.CanonicalSQLValue(derived.SQLType, cell.Value)
+					if err != nil {
+						return exposure.Observation{}, err
+					}
+					observed, err := exposure.CanonicalSQLValue(derived.SQLType, observedRow[derived.Alias])
+					if err != nil {
+						return exposure.Observation{}, err
+					}
+					if recomputed != observed {
+						return exposure.Observation{}, fmt.Errorf("derived field %q disagrees with PostgreSQL: recomputed %s, observed %s",
+							derived.Alias, recomputed, observed)
+					}
+				}
 			}
 		}
 		return exposure.ObserveV2(relation, context.visibleFields...)
@@ -377,6 +424,12 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 	specs := make([]exposure.AggregateSpecV2, 0, len(context.plan.Aggregates))
 	for _, aggregate := range context.plan.Aggregates {
 		function := strings.ToLower(aggregate.Function)
+		if aggregate.DerivedArg != nil {
+			specs = append(specs, exposure.AggregateSpecV2{Function: function,
+				Field: derivedAggregateFieldID(aggregate.Alias), OutputID: aggregate.Alias,
+				OutputType: aggregateSQLType(function, aggregate.DerivedArg.SQLType)})
+			continue
+		}
 		outputType := aggregateSQLType(function, types[aggregate.Column])
 		specs = append(specs, exposure.AggregateSpecV2{Function: function, Field: aggregate.Column,
 			OutputID: aggregate.Alias, OutputType: outputType, Distinct: aggregate.Distinct})

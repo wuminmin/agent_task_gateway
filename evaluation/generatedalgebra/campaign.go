@@ -65,6 +65,29 @@ func GeneratePlan(rng *rand.Rand) Plan {
 			page := [2]int{rng.Intn(6), 1 + rng.Intn(8)}
 			plan.Page = &page
 		}
+		// P9.D derived arithmetic projections: single-relation, unpaged plans
+		// draw one exact-typed expression about a third of the time, split
+		// between the NULL-free bigint days domain (with a literal) and the
+		// nullable numeric amount domain (exercising NULL propagation).
+		if !plan.Join && plan.Page == nil && rng.Intn(3) == 0 {
+			ops := []string{"add", "sub", "mul"}
+			switch rng.Intn(3) {
+			case 0:
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.days", RightLiteral: int64(rng.Intn(9) + 1), HasLiteral: true,
+					OutputID: "derived_days", SQLType: "bigint"})
+			case 1:
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.amount", RightField: "expense.amount",
+					OutputID: "derived_amount", SQLType: "numeric"})
+			default:
+				// Mixed exact-domain promotion: bigint days with nullable
+				// numeric amount computes in numeric (D6 promotion rule).
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.days", RightField: "expense.amount",
+					OutputID: "derived_mixed", SQLType: "numeric"})
+			}
+		}
 	case 1:
 		plan.Kind = "global"
 		plan.Aggregates = randomAggregates(rng)
@@ -188,6 +211,15 @@ func Run(seed int64, fixtures, plansPerFixture int) Report {
 			}
 			if plan.Page != nil {
 				report.Coverage["page"]++
+			}
+			if len(plan.Derived) > 0 {
+				report.Coverage["derived"]++
+				if plan.Derived[0].SQLType == "numeric" {
+					report.Coverage["derived_nullable"]++
+				}
+				if spec := plan.Derived[0]; !spec.HasLiteral && spec.LeftField != spec.RightField {
+					report.Coverage["derived_mixed"]++
+				}
 			}
 			reference, err := Evaluate(expenses, departments, plan)
 			if err != nil {

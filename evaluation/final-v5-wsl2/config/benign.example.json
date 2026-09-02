@@ -14,7 +14,7 @@
     {
       "id": "benign-agent-trace-v1",
       "scales": [
-        "27-statements"
+        "28-statements"
       ],
       "modes": [
         "recipe",

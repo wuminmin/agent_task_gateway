@@ -394,6 +394,11 @@ func productPublishes(product catalog.Product, column string) bool {
 // visibleProjection is what a plain query returns, in request order.
 func visibleProjection(plan queryplan.QueryPlan) []string {
 	fields := append([]string(nil), plan.Columns...)
+	// Derived arithmetic aliases sit between plain columns and aggregates,
+	// matching the SQL emission order.
+	for _, derived := range plan.Derived {
+		fields = append(fields, derived.Alias)
+	}
 	for _, aggregate := range plan.Aggregates {
 		fields = append(fields, aggregate.Alias)
 	}
@@ -426,6 +431,9 @@ func deriveExposureShape(plan queryplan.QueryPlan, product catalog.Product,
 	}
 	shape := exposureShape{grouped: len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0}
 	shape.visibleFields = append([]string(nil), plan.Columns...)
+	for _, derived := range plan.Derived {
+		shape.visibleFields = append(shape.visibleFields, derived.Alias)
+	}
 	shape.factFields = append([]string(nil), plan.Columns...)
 	for _, aggregate := range plan.Aggregates {
 		function := strings.ToLower(aggregate.Function)

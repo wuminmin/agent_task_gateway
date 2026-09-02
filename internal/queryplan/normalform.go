@@ -21,6 +21,7 @@ const (
 	NormalFormVersionV4 = "taskgate-query-normal-form-v4"
 	normalFormDomain    = "TASKGATE-QUERY-NORMAL-FORM-V3\x00"
 	normalFormDomainV4  = "TASKGATE-QUERY-NORMAL-FORM-V4\x00"
+	normalFormDomainV5  = "TASKGATE-QUERY-NORMAL-FORM-V5\x00"
 	attestedCollation   = "postgresql-deterministic-exact-v1"
 )
 
@@ -34,6 +35,9 @@ type NormalForm struct {
 	Snapshot        string                `json:"snapshot"`
 	LineageDigest   string                `json:"lineage_digest,omitempty"`
 	Columns         []string              `json:"columns,omitempty"`
+	// Derived carries the canonical N_arith spellings of arithmetic
+	// projections; present only under NormalFormVersionV5.
+	Derived         []NormalizedDerived   `json:"derived,omitempty"`
 	Aggregates      []NormalizedAggregate `json:"aggregates,omitempty"`
 	Filters         []NormalizedFilter    `json:"filters,omitempty"`
 	Having          []NormalizedFilter    `json:"having,omitempty"`
@@ -47,6 +51,11 @@ type NormalForm struct {
 	Collations      []NormalizedCollation `json:"collations,omitempty"`
 	Timezone        string                `json:"timezone"`
 	NumericMode     string                `json:"numeric_mode"`
+}
+
+type NormalizedDerived struct {
+	Expression string `json:"expression"`
+	SQLType    string `json:"sql_type"`
 }
 
 type NormalizedAggregate struct {
@@ -105,6 +114,25 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 	for _, field := range sortedUnique(plan.Columns) {
 		result.Columns = append(result.Columns, canonicalField(product.SourceNamespace, field))
 	}
+	for _, derived := range plan.Derived {
+		if err := validateDerivedTypes(derived, product); err != nil {
+			return NormalForm{}, err
+		}
+		expression, err := NormalizeArithmeticInNamespace(derived.Expr, product.SourceNamespace)
+		if err != nil {
+			return NormalForm{}, err
+		}
+		result.Derived = append(result.Derived, NormalizedDerived{Expression: expression, SQLType: derived.SQLType})
+	}
+	if len(result.Derived) > 0 {
+		// Arithmetic is an extension of the frozen V3 identity: plans that
+		// carry it settle under the V5 normal-form version so no existing
+		// task's normal-form or outcome hash is ever reinterpreted.
+		result.Version = NormalFormVersionV5
+		sort.Slice(result.Derived, func(i, j int) bool {
+			return result.Derived[i].Expression < result.Derived[j].Expression
+		})
+	}
 	aliases := make(map[string]string, len(plan.Aggregates))
 	aliasTypes := make(map[string]string, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
@@ -112,16 +140,36 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 			return NormalForm{}, errors.New("aggregate result casts are outside the single-product normal form")
 		}
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
-		column := "*"
-		if aggregate.Column != "*" {
-			column = canonicalField(product.SourceNamespace, aggregate.Column)
+		var expression string
+		var outputType string
+		var err error
+		if aggregate.DerivedArg != nil {
+			if err := validateDerivedTypes(DerivedColumn{Expr: aggregate.DerivedArg,
+				Alias: aggregate.Alias, SQLType: aggregate.DerivedArg.SQLType}, product); err != nil {
+				return NormalForm{}, err
+			}
+			inner, innerErr := NormalizeArithmeticInNamespace(aggregate.DerivedArg, product.SourceNamespace)
+			if innerErr != nil {
+				return NormalForm{}, innerErr
+			}
+			expression = function + "(" + inner + ")"
+			result.Version = NormalFormVersionV5
+			outputType, err = exposure.CanonicalSQLTypeV2(AggregateOutputType(function, aggregate.DerivedArg.SQLType))
+			if err != nil {
+				return NormalForm{}, err
+			}
+		} else {
+			column := "*"
+			if aggregate.Column != "*" {
+				column = canonicalField(product.SourceNamespace, aggregate.Column)
+			}
+			expression = aggregateExpressionText(aggregate, column)
+			outputType, err = exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
+			if err != nil {
+				return NormalForm{}, err
+			}
 		}
-		expression := aggregateExpressionText(aggregate, column)
 		aliases[aggregate.Alias] = expression
-		outputType, err := exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
-		if err != nil {
-			return NormalForm{}, err
-		}
 		aliasTypes[aggregate.Alias] = outputType
 		result.Aggregates = append(result.Aggregates, NormalizedAggregate{Expression: expression, SQLType: outputType})
 	}
@@ -219,7 +267,11 @@ func NormalizeV4(plan QueryPlan, product Product) (NormalForm, error) {
 	if err != nil {
 		return NormalForm{}, err
 	}
-	result.Version = NormalFormVersionV4
+	if result.Version != NormalFormVersionV5 {
+		// Derived arithmetic already lifted the identity to V5; everything
+		// else keeps the frozen V4 clean-cut identity.
+		result.Version = NormalFormVersionV4
+	}
 	result.Profile = exposure.ProfileV5
 	result.Filters = result.Filters[:0]
 	for _, filter := range plan.Filters {
@@ -321,6 +373,9 @@ func (normal NormalForm) Digest() (string, error) {
 	case normal.Version == NormalFormVersion && normal.Profile == "taskgate-exposure-v2":
 	case normal.Version == NormalFormVersionV4 && normal.Profile == exposure.ProfileV5:
 		domain = normalFormDomainV4
+	case normal.Version == NormalFormVersionV5 &&
+		(normal.Profile == exposure.ProfileV5 || normal.Profile == "taskgate-exposure-v2"):
+		domain = normalFormDomainV5
 	default:
 		return "", errors.New("invalid query normal form version/profile pair")
 	}
@@ -1032,4 +1087,66 @@ func normalizedAlgebraFieldSetV2(values []string, operator string) ([]string, er
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// validateDerivedTypes holds every operand of a derived projection to the
+// declared exact type: argument columns must carry that Catalog type and
+// literals must declare it, so mixed-domain arithmetic fails closed.
+func validateDerivedTypes(derived DerivedColumn, product Product) error {
+	if derived.Expr == nil || derived.Expr.SQLType != derived.SQLType {
+		return errors.New("derived column must carry its expression's exact type")
+	}
+	if err := ValidateArithShape(derived.Expr); err != nil {
+		return err
+	}
+	promoted := ""
+	err := walkDerivedOperands(derived.Expr, func(operand ArithOperand) error {
+		if operand.Column != "" {
+			natural, naturalErr := exposure.CanonicalSQLTypeV2(product.ColumnTypes[operand.Column])
+			if naturalErr != nil || !derivedExactOperandType(natural) {
+				return fmt.Errorf("derived operand %q is outside the exact domain", operand.Column)
+			}
+			if natural == "numeric" {
+				promoted = "numeric"
+			} else if promoted == "" {
+				promoted = "bigint"
+			}
+		}
+		if operand.Literal != "" && operand.SQLType != derived.SQLType {
+			return fmt.Errorf("derived literal %q must carry the declared exact type %q", operand.Literal, derived.SQLType)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if promoted == "" || promoted != derived.SQLType {
+		return fmt.Errorf("derived type %q disagrees with the exact promotion %q", derived.SQLType, promoted)
+	}
+	return nil
+}
+
+func walkDerivedOperands(expr *DerivedExpr, visit func(ArithOperand) error) error {
+	if expr == nil {
+		return nil
+	}
+	for _, operand := range expr.Operands {
+		if err := visit(operand); err != nil {
+			return err
+		}
+		if operand.Nested != nil {
+			if err := walkDerivedOperands(operand.Nested, visit); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func derivedExactOperandType(typeName string) bool {
+	switch typeName {
+	case "smallint", "integer", "bigint", "numeric":
+		return true
+	}
+	return false
 }

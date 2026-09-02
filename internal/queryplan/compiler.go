@@ -41,6 +41,9 @@ type QueryPlan struct {
 	Product    string      `json:"product"`
 	From       *From       `json:"from,omitempty"`
 	Columns    []string    `json:"columns"`
+	// Derived are P9.D arithmetic projection columns (derived Release
+	// cells). A plan without them keeps its V3/V4 bytes and hashes.
+	Derived    []DerivedColumn `json:"derived,omitempty"`
 	Aggregates []Aggregate `json:"aggregates,omitempty"`
 	Filters    []Filter    `json:"filters,omitempty"`
 	GroupBy    []string    `json:"group_by,omitempty"`
@@ -99,6 +102,16 @@ type UnionDistinct struct {
 	Right   Scan     `json:"right"`
 }
 
+// DerivedColumn is one admitted arithmetic projection: an exact-typed
+// expression over approved columns and typed literals, selected under an
+// alias. Its Release identity is the derived-fact path; its Dependency
+// footprint is the argument columns' evidence cells.
+type DerivedColumn struct {
+	Expr    *DerivedExpr `json:"expr"`
+	Alias   string       `json:"alias"`
+	SQLType string       `json:"sql_type"`
+}
+
 type Aggregate struct {
 	Function       string `json:"function"`
 	Column         string `json:"column"`
@@ -106,6 +119,9 @@ type Aggregate struct {
 	ResultEncoding string `json:"result_encoding,omitempty"`
 	// Distinct is COUNT(DISTINCT column); no other aggregate admits it.
 	Distinct bool `json:"distinct,omitempty"`
+	// DerivedArg is a P9.D arithmetic aggregate argument (SUM over an exact
+	// derived measure). When set, Column must be empty; only SUM admits it.
+	DerivedArg *DerivedExpr `json:"derived_arg,omitempty"`
 }
 
 // AggregateSQLArgument renders the aggregate's argument list for SQL emission.
@@ -177,6 +193,28 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		selectedColumns[column] = struct{}{}
 		selects = append(selects, quoteIdentifier(column))
 	}
+	for _, derived := range plan.Derived {
+		if derived.Expr == nil || derived.Expr.SQLType != derived.SQLType {
+			return "", errors.New("derived column must carry its expression's exact type")
+		}
+		if !safeIdentifier(derived.Alias) {
+			return "", errors.New("derived alias is invalid")
+		}
+		if _, duplicate := selectNames[derived.Alias]; duplicate {
+			return "", fmt.Errorf("duplicate select name %q", derived.Alias)
+		}
+		expression, err := DerivedSQL(derived.Expr, func(column string) (string, error) {
+			if err := allowedColumn(column, product); err != nil {
+				return "", err
+			}
+			return quoteIdentifier(column), nil
+		})
+		if err != nil {
+			return "", err
+		}
+		selectNames[derived.Alias] = struct{}{}
+		selects = append(selects, expression+" AS "+quoteIdentifier(derived.Alias))
+	}
 	for _, aggregate := range plan.Aggregates {
 		if aggregate.ResultEncoding != "" {
 			return "", errors.New("aggregate result casts are outside the single-product QueryPlan fragment")
@@ -184,6 +222,30 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		fn := strings.ToLower(aggregate.Function)
 		if _, ok := product.AllowedAggregates[fn]; !ok || !safeIdentifier(fn) {
 			return "", fmt.Errorf("aggregate %q is not allowed", aggregate.Function)
+		}
+		if aggregate.DerivedArg != nil {
+			if fn != "sum" || aggregate.Column != "" || aggregate.Distinct {
+				return "", errors.New("a derived aggregate argument is admitted for plain SUM only")
+			}
+			expression, err := DerivedSQL(aggregate.DerivedArg, func(column string) (string, error) {
+				if err := allowedColumn(column, product); err != nil {
+					return "", err
+				}
+				return quoteIdentifier(column), nil
+			})
+			if err != nil {
+				return "", err
+			}
+			if !safeIdentifier(aggregate.Alias) {
+				return "", errors.New("aggregate alias is invalid")
+			}
+			if _, duplicate := selectNames[aggregate.Alias]; duplicate {
+				return "", fmt.Errorf("duplicate select name %q", aggregate.Alias)
+			}
+			selectNames[aggregate.Alias] = struct{}{}
+			aggregateSQL[aggregate.Alias] = fn + "(" + expression + ")"
+			selects = append(selects, fn+"("+expression+") AS "+quoteIdentifier(aggregate.Alias))
+			continue
 		}
 		argument := ""
 		if aggregate.Column == "*" {

@@ -751,6 +751,10 @@ func scanVisibleResult(t *testing.T, program queryplan.OrdinalProgram, rows []ma
 	for rowIndex, row := range rows {
 		visibleRows[rowIndex] = make(map[string]any)
 		for _, output := range program.Visible {
+			if output.Kind == "derived" {
+				visibleRows[rowIndex][output.ResultAlias] = row[output.ResultAlias]
+				continue
+			}
 			binding, present := ordinalBinding(program, output.FieldID)
 			if !present {
 				t.Fatalf("visible field %q has no binding", output.FieldID)

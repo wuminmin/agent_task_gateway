@@ -28,6 +28,7 @@ type Result struct {
 
 type projectionSlot struct {
 	Aggregate bool
+	Derived   bool
 	Index     int
 }
 
@@ -84,8 +85,11 @@ func Lower(sql string, products map[string]queryplan.Product) (Result, error) {
 	resultOrder := make([]int, len(l.projectionOrder))
 	for index, slot := range l.projectionOrder {
 		resultOrder[index] = slot.Index
-		if slot.Aggregate {
+		if slot.Derived {
 			resultOrder[index] += len(plan.Columns)
+		}
+		if slot.Aggregate {
+			resultOrder[index] += len(plan.Columns) + len(plan.Derived)
 		}
 	}
 	return Result{Plan: plan, Profile: Profile, DisplayColumns: append([]string(nil), l.displayColumns...), ResultOrder: resultOrder}, nil
@@ -171,6 +175,16 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 			l.displayColumns = append(l.displayColumns, display)
 			continue
 		}
+		if aExpr := value.GetAExpr(); aExpr != nil {
+			derived, derivedErr := l.lowerDerivedProjection(aExpr, target, resultCast)
+			if derivedErr != nil {
+				return queryplan.QueryPlan{}, derivedErr
+			}
+			l.projectionOrder = append(l.projectionOrder, projectionSlot{Derived: true, Index: len(plan.Derived)})
+			plan.Derived = append(plan.Derived, derived)
+			l.displayColumns = append(l.displayColumns, derived.Alias)
+			continue
+		}
 		function := value.GetFuncCall()
 		if function == nil {
 			return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED", "A projection must be an approved column or an approved aggregate.", "SELECT", target.GetLocation(), "", "Project a column directly or use COUNT, SUM, MIN, or MAX.")
@@ -244,6 +258,14 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 		if _, normalizeErr := queryplan.NormalizeV2(plan, l.sources[0].Product); normalizeErr != nil {
 			return queryplan.QueryPlan{}, l.classifyCompilerError(normalizeErr, "SQL")
 		}
+	}
+	if len(plan.Derived) > 0 && (len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0) {
+		// First-version rule: derived projections live in pure projections
+		// only; grouped/aggregated shapes take arithmetic through the SUM
+		// argument path, which owns its own ordinal accounting specs.
+		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
+			"A derived projection is admitted in ungrouped, unaggregated queries only.", "SELECT", -1, "",
+			"Move the arithmetic into a SUM argument, or remove GROUP BY and aggregates.")
 	}
 	return plan, nil
 }
@@ -473,6 +495,18 @@ func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.R
 	}
 	columnRef := function.GetArgs()[0].GetColumnRef()
 	if columnRef == nil {
+		if argExpr := function.GetArgs()[0].GetAExpr(); argExpr != nil && name == "sum" && !distinct {
+			expr, exprErr := l.lowerDerivedExpr(argExpr, function.GetLocation())
+			if exprErr != nil {
+				return queryplan.Aggregate{}, exprErr
+			}
+			for _, item := range l.sources {
+				if _, approved := item.Product.AllowedAggregates[name]; !approved {
+					return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_NOT_APPROVED", fmt.Sprintf("Aggregate %q is not approved by every input product.", name), "SELECT", function.GetLocation(), item.Product.Name, "Call describe_data_product and use an approved aggregate.")
+				}
+			}
+			return queryplan.Aggregate{Function: name, Alias: alias, DerivedArg: expr}, nil
+		}
 		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_EXPRESSION_UNSUPPORTED", "Aggregate expressions must be direct approved columns.", "SELECT", function.GetLocation(), "", "Apply the aggregate directly to an approved column.")
 	}
 	column, resolveErr := l.resolveColumn(columnRef, "SELECT")

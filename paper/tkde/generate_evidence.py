@@ -1604,6 +1604,30 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFiveBenignXTwoAccepted}}{{{benign['arms']['x2']['accepted']}}}",
         rf"\newcommand{{\FinalVFiveBenignXTwoBudgetRefusals}}{{{benign['arms']['x2']['budget_refusals']}}}",
     ])
+    adversary = pilot.get("adversary")
+    if adversary is None:
+        raise SystemExit("pilot evidence lacks the optimizing-adversary study")
+    adversary_rows = []
+    for tier, label in (("owner", "owner-derived"), ("tightened", "tightened"), ("loosened", "loosened")):
+        bisect_cell = adversary["cells"][f"{tier}/bisection"]
+        greedy_cell = adversary["cells"][f"{tier}/greedy"]
+        recovered = f"$[{bisect_cell['recovered_lo']},{bisect_cell['recovered_hi']})$"
+        if bisect_cell.get("recovered_value") is not None:
+            recovered = f"exact {bisect_cell['recovered_value']}"
+        adversary_rows.append(" & ".join([
+            label, f"{bisect_cell['accepted']}/{bisect_cell['refused']}",
+            str(bisect_cell["recovered_bits"]), recovered,
+            f"{greedy_cell['accepted']}/{greedy_cell['refused']}",
+            str(greedy_cell["final_dependency"])]) + r" \\")
+    lines.extend([
+        rf"\newcommand{{\FinalVFiveAdversaryOwnerBits}}{{{adversary['owner_bits']}}}",
+        rf"\newcommand{{\FinalVFiveAdversaryTightenedBits}}{{{adversary['tightened_bits']}}}",
+        rf"\newcommand{{\FinalVFiveAdversaryLoosenedBits}}{{{adversary['loosened_bits']}}}",
+        rf"\newcommand{{\FinalVFiveAdversaryRecoveredValue}}{{{comma(adversary['loosened_recovered_value'])}}}",
+        rf"\newcommand{{\FinalVFiveAdversaryOwnerGreedyDep}}{{{adversary['owner_greedy_dep']}}}",
+        rf"\newcommand{{\FinalVFiveAdversaryTightenedGreedyDep}}{{{adversary['tightened_greedy_dep']}}}",
+        r"\newcommand{\FinalVFiveAdversaryTableBody}{%" + "\n" + "\n".join(adversary_rows) + "%\n}",
+    ])
     footprint = pilot.get("footprint")
     if footprint is None:
         raise SystemExit("pilot evidence lacks the refused-footprint ladder study")

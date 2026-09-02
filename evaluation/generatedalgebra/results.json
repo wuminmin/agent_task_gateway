@@ -4,26 +4,29 @@
   "plans": 5000,
   "fixtures": 50,
   "expense_rows_min_max": [
-    5,
-    49
+    6,
+    50
   ],
   "coverage": {
-    "avg": 941,
-    "count_distinct": 986,
-    "global": 1683,
-    "group": 1684,
-    "having": 1114,
-    "join": 1664,
-    "page": 535,
-    "project": 1633,
-    "select": 3341
+    "avg": 974,
+    "count_distinct": 971,
+    "derived": 165,
+    "derived_mixed": 56,
+    "derived_nullable": 115,
+    "global": 1700,
+    "group": 1657,
+    "having": 1139,
+    "join": 1610,
+    "page": 572,
+    "project": 1643,
+    "select": 3348
   },
   "mismatches": 0,
   "hash_mismatches": 0,
   "conservation_checks": {
-    "page_partition_equals_complete": 354,
-    "split_projection_equals_complete": 354
+    "page_partition_equals_complete": 380,
+    "split_projection_equals_complete": 380
   },
-  "release_facts_compared": 51484,
-  "dependency_facts_compared": 192015
+  "release_facts_compared": 55801,
+  "dependency_facts_compared": 202306
 }

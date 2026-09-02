@@ -81,6 +81,21 @@ type Plan struct {
 	GroupKeyVisible bool
 	Aggregates      []Aggregate
 	Having          *Having // optional post-group filter (group/global only)
+	// Derived are P9.D arithmetic projections (project kind, single relation).
+	Derived []DerivedProjection
+}
+
+// DerivedProjection is one P9.D arithmetic projection in the differential
+// domain: binary op over one column and either a second column or an
+// integer literal, in one exact type.
+type DerivedProjection struct {
+	Op           string
+	LeftField    string
+	RightField   string
+	RightLiteral int64
+	HasLiteral   bool
+	OutputID     string
+	SQLType      string
 }
 
 // Observation is the semantic Result and Dependency footprint of a plan.
@@ -417,6 +432,18 @@ func Evaluate(expenses, departments Relation, plan Plan) (Observation, error) {
 				add(result.Release, fact)
 				add(result.Influence, fact)
 			}
+			for _, spec := range plan.Derived {
+				fact, argFacts, err := referenceDerivedFact(row, spec,
+					[]exposureoracle.SnapshotBinding{{SourceNamespace: expenses.SourceNamespace, Snapshot: expenses.Snapshot}},
+					row.parts[0].row.EntityKey)
+				if err != nil {
+					return Observation{}, err
+				}
+				add(result.Release, fact)
+				for _, argument := range argFacts {
+					add(result.Influence, argument)
+				}
+			}
 		}
 	case "global", "group":
 		groups := map[string][]joinedRow{}
@@ -672,4 +699,75 @@ func havingKeeps(plan Plan, members []joinedRow) (bool, error) {
 		return compare(aggregate.OutputType, value, plan.Having.Literal, plan.Having.Op) == True, nil
 	}
 	return false, fmt.Errorf("having names unknown aggregate %q", plan.Having.OutputID)
+}
+
+// referenceDerivedFact evaluates one arithmetic projection from scratch:
+// int64 value arithmetic over the fixture domain, PostgreSQL NULL
+// propagation, a hand-built canonical expression spelling, and the derived
+// fact identity via the oracle encoder. It shares nothing with the
+// production big.Rat evaluator on purpose.
+func referenceDerivedFact(row joinedRow, spec DerivedProjection,
+	bundle []exposureoracle.SnapshotBinding, rowKey string) (exposureoracle.Fact, []exposureoracle.Fact, error) {
+	left, present := row.values[spec.LeftField]
+	if !present {
+		return exposureoracle.Fact{}, nil, fmt.Errorf("derived left field %q missing", spec.LeftField)
+	}
+	arguments := make([]exposureoracle.Fact, 0, 2)
+	leftFact, err := row.cell(spec.LeftField)
+	if err != nil {
+		return exposureoracle.Fact{}, nil, err
+	}
+	arguments = append(arguments, leftFact)
+	var right any
+	if spec.HasLiteral {
+		right = spec.RightLiteral
+	} else {
+		var rightPresent bool
+		right, rightPresent = row.values[spec.RightField]
+		if !rightPresent {
+			return exposureoracle.Fact{}, nil, fmt.Errorf("derived right field %q missing", spec.RightField)
+		}
+		rightFact, err := row.cell(spec.RightField)
+		if err != nil {
+			return exposureoracle.Fact{}, nil, err
+		}
+		arguments = append(arguments, rightFact)
+	}
+	var value any
+	if left != nil && right != nil {
+		leftInt, leftOK := left.(int64)
+		rightInt, rightOK := right.(int64)
+		if !leftOK || !rightOK {
+			return exposureoracle.Fact{}, nil, fmt.Errorf("derived fixture operands must be int64")
+		}
+		switch spec.Op {
+		case "add":
+			value = leftInt + rightInt
+		case "sub":
+			value = leftInt - rightInt
+		case "mul":
+			value = leftInt * rightInt
+		default:
+			return exposureoracle.Fact{}, nil, fmt.Errorf("derived operator %q unsupported", spec.Op)
+		}
+	}
+	fact, err := derived(bundle, rowKey, referenceDerivedExpression(spec), spec.SQLType, value, arguments)
+	if err != nil {
+		return exposureoracle.Fact{}, nil, err
+	}
+	return fact, arguments, nil
+}
+
+// referenceDerivedExpression spells N_arith by hand: prefix operator form,
+// commutative operands byte-sorted, literals as lit(type):value.
+func referenceDerivedExpression(spec DerivedProjection) string {
+	leftText := spec.LeftField
+	rightText := spec.RightField
+	if spec.HasLiteral {
+		rightText = "lit(" + spec.SQLType + "):" + fmt.Sprintf("%d", spec.RightLiteral)
+	}
+	if (spec.Op == "add" || spec.Op == "mul") && rightText < leftText {
+		leftText, rightText = rightText, leftText
+	}
+	return spec.Op + "(" + leftText + "," + rightText + ")"
 }

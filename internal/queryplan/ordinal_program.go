@@ -125,6 +125,9 @@ type OrdinalVisibleSpec struct {
 	SQLType             string `json:"sql_type"`
 	ResultEncoding      string `json:"result_encoding,omitempty"`
 	CanonicalExpression string `json:"canonical_expression"`
+	// Args are the evidence fields a P9.D derived projection reads; its
+	// dependency witness is their union (kind "derived" only).
+	Args []OrdinalFieldUse `json:"args,omitempty"`
 }
 
 type OrdinalGroupSpec struct {
@@ -145,6 +148,10 @@ type OrdinalAggregateSpec struct {
 	CanonicalExpression string          `json:"canonical_expression"`
 	WitnessMultiplicity uint64          `json:"witness_multiplicity"`
 	Distinct            bool            `json:"distinct,omitempty"`
+	// Args are the evidence fields a P9.D derived SUM argument reads
+	// (input_kind "derived" only); the aggregate's witness merges their
+	// union per contributing row.
+	Args []OrdinalFieldUse `json:"args,omitempty"`
 }
 
 // OrdinalWitnessRule is interpreted once per positive provenance member.
@@ -276,6 +283,11 @@ func CompileOrdinal(plan QueryPlan, product Product) (OrdinalCompilation, error)
 		return OrdinalCompilation{}, err
 	}
 	visibleFields := append([]string(nil), plan.Columns...)
+	// Derived aliases sit between plain columns and aggregates, matching the
+	// Compile emission order so visible-result positions line up.
+	for _, derived := range plan.Derived {
+		visibleFields = append(visibleFields, derived.Alias)
+	}
 	for _, aggregate := range plan.Aggregates {
 		visibleFields = append(visibleFields, aggregate.Alias)
 	}
@@ -415,6 +427,25 @@ func singleVisibleSpecs(plan QueryPlan, product Product, bindings map[string]Ord
 		result = append(result, OrdinalVisibleSpec{Kind: "field", OutputID: column, ResultAlias: column,
 			FieldID: binding.FieldID, SQLType: binding.SQLType, CanonicalExpression: binding.CanonicalExpression})
 	}
+	for _, derived := range plan.Derived {
+		expression, err := NormalizeArithmeticInNamespace(derived.Expr, product.SourceNamespace)
+		if err != nil {
+			return nil, err
+		}
+		argSet := make(map[string]struct{})
+		collectDerivedColumns(derived.Expr, argSet)
+		arguments := make([]OrdinalFieldUse, 0, len(argSet))
+		for _, column := range sortedColumns(argSet) {
+			binding, present := bindings[column]
+			if !present {
+				return nil, fmt.Errorf("derived argument %q has no provenance binding", column)
+			}
+			arguments = append(arguments, fieldUse(binding, 1))
+		}
+		result = append(result, OrdinalVisibleSpec{Kind: "derived", OutputID: derived.Alias,
+			ResultAlias: derived.Alias, SQLType: derived.SQLType, CanonicalExpression: expression,
+			Args: arguments})
+	}
 	aggregates, err := ordinalAggregateSpecs(plan.Aggregates, product, bindings, func(alias string) string { return alias })
 	if err != nil {
 		return nil, err
@@ -442,11 +473,32 @@ func singleProductEvidenceFields(plan QueryPlan, product Product) ([]string, err
 		set[filter.Column] = struct{}{}
 	}
 	for _, aggregate := range plan.Aggregates {
-		if aggregate.Column != "*" {
+		if aggregate.Column != "*" && aggregate.Column != "" {
 			set[aggregate.Column] = struct{}{}
 		}
+		collectDerivedColumns(aggregate.DerivedArg, set)
+	}
+	for _, derived := range plan.Derived {
+		collectDerivedColumns(derived.Expr, set)
 	}
 	return sortedColumns(set), nil
+}
+
+// collectDerivedColumns adds every column operand of a P9.D arithmetic tree
+// to the evidence set: the derived cell's dependency footprint is exactly
+// its argument cells, so the companion must retain them.
+func collectDerivedColumns(expr *DerivedExpr, set map[string]struct{}) {
+	if expr == nil {
+		return
+	}
+	for _, operand := range expr.Operands {
+		if operand.Column != "" {
+			set[operand.Column] = struct{}{}
+		}
+		if operand.Nested != nil {
+			collectDerivedColumns(operand.Nested, set)
+		}
+	}
 }
 
 func buildRelationalOrdinalProgram(plan QueryPlan, products map[string]Product, compilation RelationalCompilation, order []OrdinalOrderSpec) (OrdinalProgram, error) {
@@ -884,6 +936,33 @@ func ordinalAggregateSpecs(aggregates []Aggregate, product Product, bindings map
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
 		spec := OrdinalAggregateSpec{Function: function, InputKind: "row", OutputID: aggregate.Alias,
 			ResultAlias: resultAlias(aggregate.Alias), SQLType: "bigint", CanonicalExpression: function + "(*)", WitnessMultiplicity: 1}
+		if aggregate.DerivedArg != nil {
+			expression, err := NormalizeArithmeticInNamespace(aggregate.DerivedArg, product.SourceNamespace)
+			if err != nil {
+				return nil, err
+			}
+			argSet := make(map[string]struct{})
+			collectDerivedColumns(aggregate.DerivedArg, argSet)
+			arguments := make([]OrdinalFieldUse, 0, len(argSet))
+			for _, column := range sortedColumns(argSet) {
+				binding, present := bindings[column]
+				if !present {
+					return nil, fmt.Errorf("derived aggregate argument %q has no provenance binding", column)
+				}
+				arguments = append(arguments, fieldUse(binding, 1))
+			}
+			spec.InputKind = "derived"
+			spec.Args = arguments
+			spec.SQLType = AggregateOutputType(function, aggregate.DerivedArg.SQLType)
+			spec.CanonicalExpression = function + "(" + expression + ")"
+			resultEncoding, err := canonicalAggregateResultEncoding(function, spec.SQLType, aggregate.ResultEncoding)
+			if err != nil {
+				return nil, err
+			}
+			spec.ResultEncoding = resultEncoding
+			result = append(result, spec)
+			continue
+		}
 		if aggregate.Column != "*" {
 			binding, present := bindings[aggregate.Column]
 			if !present {
@@ -975,6 +1054,15 @@ func ordinalWitnessRules(program OrdinalProgram) []OrdinalWitnessRule {
 	for _, use := range uniquePredicateFieldUses(program.OuterPredicates) {
 		result = append(result, witnessFieldRule(50, "outer_filter", "$row", "$row", sourceAliasForUse(program.Sources, use), use, "add"))
 	}
+	for _, output := range program.Visible {
+		if output.Kind != "derived" {
+			continue
+		}
+		for _, use := range output.Args {
+			result = append(result, witnessFieldRule(55, "derived_cell", output.OutputID, output.CanonicalExpression,
+				sourceAliasForUse(program.Sources, use), use, "add"))
+		}
+	}
 	if len(program.Groups) > 0 || len(program.Aggregates) > 0 {
 		result = append(result, OrdinalWitnessRule{StageOrder: 60, Stage: "group", TargetID: "$group_row", TargetExpression: "$group_row", InputKind: "row",
 			InputExpression: "$row", Multiplicity: 1, Merge: "add"})
@@ -984,10 +1072,16 @@ func ordinalWitnessRules(program OrdinalProgram) []OrdinalWitnessRule {
 			result = append(result, witnessFieldRule(60, "group_cell", group.Field.FieldID, group.CanonicalExpression, alias, group.Field, "add"))
 		}
 		for _, aggregate := range program.Aggregates {
-			if aggregate.InputKind == "row" {
+			switch aggregate.InputKind {
+			case "row":
 				result = append(result, OrdinalWitnessRule{StageOrder: 70, Stage: "aggregate", TargetID: aggregate.OutputID, TargetExpression: aggregate.CanonicalExpression,
 					InputKind: "row", InputExpression: "$row", Multiplicity: aggregate.WitnessMultiplicity, Merge: "add"})
-			} else {
+			case "derived":
+				for _, use := range aggregate.Args {
+					result = append(result, witnessFieldRule(70, "aggregate", aggregate.OutputID, aggregate.CanonicalExpression,
+						sourceAliasForUse(program.Sources, use), use, "add"))
+				}
+			default:
 				result = append(result, witnessFieldRule(70, "aggregate", aggregate.OutputID, aggregate.CanonicalExpression,
 					sourceAliasForUse(program.Sources, aggregate.Input), aggregate.Input, "add"))
 			}
