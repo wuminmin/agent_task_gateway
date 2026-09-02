@@ -9,7 +9,7 @@
     {
       "kind": "catalog_candidate",
       "path": "catalog/benchmark-contract-v1.yaml",
-      "sha256": "ce6d130263a9c343a2e8b297964a11401fe85c453622ba1dcd820560a9ae8253",
+      "sha256": "29365a1dc61de069e99798f385c976229f5fe42db036aab930561b4f285f89c7",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
@@ -295,7 +295,7 @@
     {
       "kind": "dataset_generator",
       "path": "sql/datasets/benchmark-v1-generate.sql",
-      "sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+      "sha256": "dbc151e0111c3a9e0e7dcac7564a3f2e9de0f0ebd285b5fad58446b68aec18de",
       "check_type": "live_generate",
       "rendered_cells": 0,
       "parse_status": "pass",
