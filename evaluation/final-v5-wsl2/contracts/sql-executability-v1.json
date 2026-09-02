@@ -9,7 +9,7 @@
     {
       "kind": "catalog_candidate",
       "path": "catalog/benchmark-contract-v1.yaml",
-      "sha256": "29365a1dc61de069e99798f385c976229f5fe42db036aab930561b4f285f89c7",
+      "sha256": "5bdb17be095208e418058b11b4f7d65f0e3fa15635e7c25de8910c099aaefa9e",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
