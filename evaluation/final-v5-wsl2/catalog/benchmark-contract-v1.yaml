@@ -75,6 +75,14 @@ snapshot_publications:
     dictionary_digest: 0000000000000000000000000000000000000000000000000000000000000000
     manifest_digest: 0000000000000000000000000000000000000000000000000000000000000000
 
+  - name: final-v5-scale-e7-v1
+    source: travel_demo
+    source_namespace: final_v5.scale_e7
+    snapshot: final-v5-scale-e7-2026-v1
+    ordinal_sidecar: taskgate_ordinal.final_v5_scale_e7_v1
+    sidecar_digest: 0000000000000000000000000000000000000000000000000000000000000000
+    dictionary_digest: 0000000000000000000000000000000000000000000000000000000000000000
+    manifest_digest: 0000000000000000000000000000000000000000000000000000000000000000
 scopes:
   - name: department
     type: enum
@@ -532,6 +540,76 @@ products:
     allowed_functions: []
     allowed_operators: ["=", "<=", "in"]
     allowed_aggregates: []
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: event_date
+        type: date
+        description: Deterministic event date
+      - name: sequence_no
+        type: integer
+        description: Deterministic sequence number
+      - name: approved
+        type: boolean
+        description: Deterministic approval flag
+      - name: event_timestamp
+        type: timestamp without time zone
+        description: Deterministic event timestamp
+      - name: description
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic description
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+      - name: settled_date
+        type: date
+        description: Deterministic settlement date
+      - name: processed_at
+        type: timestamp without time zone
+        description: Deterministic processing timestamp
+      - name: region
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic region
+      - name: revision
+        type: integer
+        description: Deterministic revision
+      - name: active
+        type: boolean
+        description: Deterministic active flag
+
+  - name: final_v5_scale_e7
+    source: travel_demo
+    reporting_view: reporting.final_v5_scale_e7
+    description: Final-V5 deterministic 625000-row sixteen-field result relation
+    sensitivity: low
+    snapshot: final-v5-scale-e7-2026-v1
+    snapshot_publication: final-v5-scale-e7-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.scale_e7
+    stable_relation_role: final_v5_scale_e7
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["=", "<="]
+    allowed_aggregates: [sum]
     fields:
       - name: row_id
         type: bigint

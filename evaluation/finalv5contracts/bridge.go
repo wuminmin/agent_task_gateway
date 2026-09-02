@@ -119,7 +119,8 @@ func LoadRuntimeFS(files fs.FS) (*Runtime, error) {
 		index.ContractRelease != contractReleaseV18 && index.ContractRelease != contractReleaseV19 &&
 		index.ContractRelease != contractReleaseV110 &&
 		index.ContractRelease != contractReleaseV111 &&
-		index.ContractRelease != contractReleaseV112 {
+		index.ContractRelease != contractReleaseV112 &&
+		index.ContractRelease != contractReleaseV113 {
 		return nil, fmt.Errorf("contract index release %q is not reviewed", index.ContractRelease)
 	}
 	runtime.contractRelease = index.ContractRelease
