@@ -63,8 +63,8 @@ type Tier struct {
 
 var Tiers = [3]Tier{
 	{Name: "owner", BudgetProfile: "final-v5-adversary-owner-v1", MaxRelease: 10, MaxDependency: 18, MaxOutcome: 12, MaxQueries: 24},
-	{Name: "tightened", BudgetProfile: "final-v5-adversary-tight-v1", MaxRelease: 10, MaxDependency: 12, MaxOutcome: 8, MaxQueries: 16},
-	{Name: "loosened", BudgetProfile: "final-v5-adversary-loose-v1", MaxRelease: 24, MaxDependency: 18, MaxOutcome: 24, MaxQueries: 48},
+	{Name: "tightened", BudgetProfile: "final-v5-adversary-tightened-v1", MaxRelease: 10, MaxDependency: 12, MaxOutcome: 8, MaxQueries: 16},
+	{Name: "loosened", BudgetProfile: "final-v5-adversary-loosened-v1", MaxRelease: 24, MaxDependency: 18, MaxOutcome: 24, MaxQueries: 48},
 }
 
 // Strategies in execution order.
