@@ -506,8 +506,8 @@
       "targeted_run_eligible": false,
       "status": {
         "closure_complete": true,
-        "catalog_materializable": false,
-        "live_route_available": false,
+        "catalog_materializable": true,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -517,17 +517,6 @@
             "code": "profile_absent_from_activation_support_manifest",
             "subject": "profile-69f6a064f1ef18ed",
             "detail": "no live activation smoke has been recorded for this profile"
-          },
-          {
-            "state": "catalog_materializable",
-            "code": "hot_artifact_not_observed",
-            "subject": "final-v5-scale-e7-v1",
-            "detail": "no deployment has produced this Publication's HOT artifact"
-          },
-          {
-            "state": "live_route_available",
-            "code": "route_not_evaluable",
-            "detail": "the closure is not materializable, so no live route can be resolved"
           },
           {
             "state": "targeted_validation_passed",
@@ -544,24 +533,13 @@
           "detail": "no live activation smoke has been recorded for this profile"
         },
         {
-          "state": "catalog_materializable",
-          "code": "hot_artifact_not_observed",
-          "subject": "final-v5-scale-e7-v1",
-          "detail": "no deployment has produced this Publication's HOT artifact"
-        },
-        {
-          "state": "live_route_available",
-          "code": "route_not_evaluable",
-          "detail": "the closure is not materializable, so no live route can be resolved"
-        },
-        {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "",
-      "total_hot_bytes": 0,
+      "catalog_sha256": "96131a304d3dcb1e291760b06462e45ea4432ea17a53d1611e1b605b3cfcb094",
+      "total_hot_bytes": 951013033,
       "cells": [
         "scale7/scale7-ladder-v1/sum-ladder/direct",
         "scale7/scale7-ladder-v1/sum-ladder/novel",
