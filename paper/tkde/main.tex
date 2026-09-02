@@ -1503,23 +1503,22 @@ arithmetic, non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
 exact \code{AVG}, \code{COUNT(DISTINCT)}, and single-Product
 $\{+,-,\times\}$ projections are now admitted; non-literal comparisons,
 \code{OR}, and outer joins need new rules (two-cell atoms, disjunctive
-witnesses, null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
-are trusted declarations; View drift is checked at request, approval, and
-execution.
+witnesses, null-extended rows; supplement table). Materialized Views are
+opaque leaves; stable keys and publications are trusted declarations, with
+View drift checked at request, approval, and execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
 (RQ5 Day~0) plus derivation microseconds per Fact; a $10^9$-Fact Product
 would need hundreds of gigabytes and hours per build and global aggregate,
-so the evaluated envelope is $10^5$--$10^6$-row Products.
+so the evaluated envelope is $10^5$--$10^6$-row Products. Same-root
+settlement serializes on the head (Section~\ref{sec:evaluation});
+multi-root throughput is unmeasured.
 
-\textbf{Throughput scope.} Same-root settlement serializes on the head
-(Section~\ref{sec:evaluation}); multi-root throughput is unmeasured.
-
-\textbf{Governance and deployment scope.} Profile correctness is trusted:
-BDG validates bindings, supported semantics, and settlement, not policy
-appropriateness; its single database path and demo approval adapter offer
-no production integration or practitioner study of budget calibration
+\textbf{Governance and deployment scope.} Profile correctness is
+trusted---BDG validates bindings, semantics, and settlement, not policy
+appropriateness---and the single database path and demo approval adapter
+offer no production integration or budget-calibration study
 \cite{tonnarelli2026dataproductmcp}.
 
 \section{Conclusion}
