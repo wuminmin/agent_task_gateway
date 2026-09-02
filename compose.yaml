@@ -198,6 +198,10 @@ services:
       - -allow-existing-identical
     environment:
       SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      # The compiler holds the whole relation in memory and Go's GC has no
+      # cgroup awareness; without a soft limit the heap grows to the memcg
+      # ceiling and the OOM killer fires before a collection does.
+      GOMEMLIMIT: 18GiB
     depends_on:
       business-postgres:
         condition: service_healthy
