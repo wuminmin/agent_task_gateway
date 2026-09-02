@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 0,
+  "targeted_run_eligible_cells": 148,
   "unresolved_cells": 148,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -59,21 +59,15 @@
       "alias": "rls-unlimited",
       "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-00bc8f7d5633f596",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -82,12 +76,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-00bc8f7d5633f596",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -108,21 +96,15 @@
       "alias": "expense-detail",
       "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-0d88c4e9d8b7561b",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -131,12 +113,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-0d88c4e9d8b7561b",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -157,21 +133,15 @@
       "alias": "attack-expense-detail",
       "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-158c6ffcccef2383",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -180,12 +150,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-158c6ffcccef2383",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -215,21 +179,15 @@
       "alias": "rls-bounded",
       "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-18c12d9c4dc04fc5",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -238,12 +196,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-18c12d9c4dc04fc5",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -262,21 +214,15 @@
       "alias": "concurrency-expense-detail",
       "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-3947f508ef5e9677",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -285,12 +231,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-3947f508ef5e9677",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -312,21 +252,15 @@
       "alias": "benign-x4",
       "closure_sha256": "4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-4150e35650c39ab2",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -335,12 +269,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-4150e35650c39ab2",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -358,21 +286,15 @@
       "alias": "depth4-semantic-view",
       "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-46b22367d1386567",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -381,12 +303,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-46b22367d1386567",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -406,21 +322,15 @@
       "alias": "adversary-owner",
       "closure_sha256": "4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-4a29b3ffc7129007",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -429,12 +339,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-4a29b3ffc7129007",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -453,21 +357,15 @@
       "alias": "footprint-unlimited",
       "closure_sha256": "52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-52504d68e0f7fa28",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -476,12 +374,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-52504d68e0f7fa28",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -499,21 +391,15 @@
       "alias": "benign-recipe",
       "closure_sha256": "57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-57cd926b3fcbccde",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -522,12 +408,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-57cd926b3fcbccde",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -545,21 +425,15 @@
       "alias": "analytics-orders-lineitem",
       "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-5b48ad2a02c5446d",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -568,12 +442,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-5b48ad2a02c5446d",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -600,21 +468,15 @@
       "alias": "adversary-loosened",
       "closure_sha256": "68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-68ded13e09bfd6e1",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -623,12 +485,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-68ded13e09bfd6e1",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -647,21 +503,15 @@
       "alias": "counter-exact",
       "closure_sha256": "6cb70ae786fcd0ecc5f52ac8719623b01653da0f197b1508b30bd4f543d72778",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-6cb70ae786fcd0ec",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -670,12 +520,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-6cb70ae786fcd0ec",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -695,21 +539,15 @@
       "alias": "exposure-scale",
       "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-794efc2159ffaa5f",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -718,12 +556,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-794efc2159ffaa5f",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -779,21 +611,15 @@
       "alias": "provsql-nonce-join",
       "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-a60a787c64c95451",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -802,12 +628,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-a60a787c64c95451",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -833,21 +653,15 @@
       "alias": "result-heavy",
       "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-a86cd4df5cad6e26",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -856,12 +670,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-a86cd4df5cad6e26",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -896,21 +704,15 @@
       "alias": "footprint-bounded",
       "closure_sha256": "ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-ac3d38a970ae15e6",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -919,12 +721,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-ac3d38a970ae15e6",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -942,21 +738,15 @@
       "alias": "counter-queries",
       "closure_sha256": "c1bee5484d41e4980561f0f1044a022cf0a6f9a89aa8a4006584efb82ab6549d",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-c1bee5484d41e498",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -965,12 +755,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-c1bee5484d41e498",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -990,21 +774,15 @@
       "alias": "counter-release",
       "closure_sha256": "c27e8a1ce21ae1afa80d22a4e4eefa9919106491a4d47e5d15f22e5bbc3a9313",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-c27e8a1ce21ae1af",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1013,12 +791,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-c27e8a1ce21ae1af",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -1038,21 +810,15 @@
       "alias": "benign-x2",
       "closure_sha256": "f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f08342e0b89058a9",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1061,12 +827,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-f08342e0b89058a9",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -1084,21 +844,15 @@
       "alias": "adversary-tightened",
       "closure_sha256": "f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f39ec7673d438fe9",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1107,12 +861,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-f39ec7673d438fe9",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -1131,21 +879,15 @@
       "alias": "counter-rows",
       "closure_sha256": "f441ba765b9a1541b0420c06063d2f2e60c324cdc928cb623d0950476f77acf8",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f441ba765b9a1541",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1154,12 +896,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-f441ba765b9a1541",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -1179,21 +915,15 @@
       "alias": "analytics-orders",
       "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "profile_absent_from_activation_support_manifest",
-            "subject": "profile-f60ec5752f501da0",
-            "detail": "no live activation smoke has been recorded for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -1202,12 +932,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "profile_absent_from_activation_support_manifest",
-          "subject": "profile-f60ec5752f501da0",
-          "detail": "no live activation smoke has been recorded for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
