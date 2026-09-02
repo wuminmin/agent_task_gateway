@@ -84,3 +84,27 @@ func TestMapV2FailsClosed(t *testing.T) {
 		t.Fatal("an absent argument field must fail closed")
 	}
 }
+
+func TestMapV2NullPropagation(t *testing.T) {
+	base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "sales.orders", Snapshot: "snapshot-1", StableRole: "orders",
+		Fields: []FieldV2{{ID: "price", SQLType: "numeric"}, {ID: "qty", SQLType: "bigint"}},
+		Rows: []BaseRowV2{{EntityKey: "r1", Values: map[string]any{"price": nil, "qty": int64(3)}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped, err := MapV2(base, []DerivedFieldSpecV2{{
+		OutputID: "revenue", OutputType: "numeric",
+		Expression: "mul(sales.orders.price,sales.orders.qty)",
+		Tree:       &DerivedNodeV2{Op: "mul", Left: &DerivedNodeV2{Field: "price"}, Right: &DerivedNodeV2{Field: "qty"}},
+	}})
+	if err != nil {
+		t.Fatalf("NULL must propagate, not fail: %v", err)
+	}
+	cell := mapped.Rows[0].Cells["revenue"]
+	if cell.Value != nil {
+		t.Fatalf("derived value over NULL must be NULL, got %v", cell.Value)
+	}
+	if cell.Support.Len() == 0 {
+		t.Fatal("reading a NULL argument still charges its dependency")
+	}
+}

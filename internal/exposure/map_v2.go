@@ -60,13 +60,17 @@ func MapV2(input RelationV2, specs []DerivedFieldSpecV2) (RelationV2, error) {
 		for _, spec := range specs {
 			support := newEmptyFactSet()
 			witness := make(WitnessMultiset)
-			exact, err := evalDerivedNode(spec.Tree, spec.OutputType, source, support, witness)
+			exact, isNull, err := evalDerivedNode(spec.Tree, spec.OutputType, source, support, witness)
 			if err != nil {
 				return RelationV2{}, fmt.Errorf("derived field %q: %w", spec.OutputID, err)
 			}
-			rendered, err := DerivedRatCanonical(exact, spec.OutputType)
-			if err != nil {
-				return RelationV2{}, fmt.Errorf("derived field %q: %w", spec.OutputID, err)
+			var rendered any
+			if !isNull {
+				text, renderErr := DerivedRatCanonical(exact, spec.OutputType)
+				if renderErr != nil {
+					return RelationV2{}, fmt.Errorf("derived field %q: %w", spec.OutputID, renderErr)
+				}
+				rendered = text
 			}
 			row.Cells[spec.OutputID] = CellV2{Value: rendered, SQLType: spec.OutputType,
 				Support: support, Witness: witness, Expression: spec.Expression}
@@ -87,37 +91,47 @@ func derivedExactTypeV2(typeName string) bool {
 // evalDerivedNode re-computes the node's exact value while unioning the
 // argument cells' dependency annotations into support/witness.
 func evalDerivedNode(node *DerivedNodeV2, outputType string, row AnnotatedRowV2,
-	support FactSet, witness WitnessMultiset) (*big.Rat, error) {
+	support FactSet, witness WitnessMultiset) (*big.Rat, bool, error) {
 	if node == nil {
-		return nil, fmt.Errorf("%w: empty derived node", ErrInvalid)
+		return nil, false, fmt.Errorf("%w: empty derived node", ErrInvalid)
 	}
 	if node.Field != "" {
 		cell, present := row.Cells[node.Field]
 		if !present {
-			return nil, fmt.Errorf("%w: derived argument %q is absent", ErrInvalid, node.Field)
+			return nil, false, fmt.Errorf("%w: derived argument %q is absent", ErrInvalid, node.Field)
 		}
 		if err := support.MergeChecked(cell.Support); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := witness.Merge(cell.Witness); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		canonical, err := canonicalSQLValueOfType(cell.SQLType, cell.Value)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		return parseExactRat(canonical)
+		if canonical == "null" {
+			// PostgreSQL propagates NULL through arithmetic; the read still
+			// charges the argument cell's dependency.
+			return nil, true, nil
+		}
+		value, err := parseExactRat(canonical)
+		return value, false, err
 	}
 	if node.Literal != "" {
-		return parseExactRat(node.Literal)
+		value, err := parseExactRat(node.Literal)
+		return value, false, err
 	}
-	left, err := evalDerivedNode(node.Left, outputType, row, support, witness)
+	left, leftNull, err := evalDerivedNode(node.Left, outputType, row, support, witness)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	right, err := evalDerivedNode(node.Right, outputType, row, support, witness)
+	right, rightNull, err := evalDerivedNode(node.Right, outputType, row, support, witness)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if leftNull || rightNull {
+		return nil, true, nil
 	}
 	out := new(big.Rat)
 	switch node.Op {
@@ -128,15 +142,12 @@ func evalDerivedNode(node *DerivedNodeV2, outputType string, row AnnotatedRowV2,
 	case "mul":
 		out.Mul(left, right)
 	default:
-		return nil, fmt.Errorf("%w: derived operator %q is outside the exact fold profile", ErrInvalid, node.Op)
+		return nil, false, fmt.Errorf("%w: derived operator %q is outside the exact fold profile", ErrInvalid, node.Op)
 	}
-	return out, nil
+	return out, false, nil
 }
 
 func parseExactRat(canonical string) (*big.Rat, error) {
-	if canonical == "null" {
-		return nil, fmt.Errorf("%w: derived arithmetic over NULL is undefined and settles nothing", ErrInvalid)
-	}
 	trimmed := canonical
 	switch {
 	case strings.HasPrefix(canonical, "i:"), strings.HasPrefix(canonical, "n:"):

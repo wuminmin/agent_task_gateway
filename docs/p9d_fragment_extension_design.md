@@ -69,3 +69,10 @@ SSB 的 derived measure（lo_revenue-lo_supplycost）解锁若干；TPC-H 仍多
 除法保持 fail-closed 原拒绝码，表 XXXIV 注记更新。派生值记账采用**重算路线**：
 MapV2 由参数格值确定性重算派生值（回避 PG 行对齐），可见结果哈希继续由现有结果校验面覆盖。
 聚合派生参走"MapV2 先行 + 聚合引用派生字段"的组合，不给聚合层加第二条派生路径。
+
+## D4 前语义修正（2026-09-02）：派生算术 NULL 传播
+
+初版 MapV2 把 NULL 参数 fail-closed——错：PostgreSQL 对 (a*b) 的 NULL 参数返回 NULL，
+含 NULL 行的合法查询会被错误拒绝（差分域即有 three-valued 行）。修正为 NULL 传播：
+任一参数 NULL ⇒ 派生值 NULL（规范 "null"），依赖仍并集参数格（读了才知道是 NULL），
+派生 Release fact 值=null 与 base NULL cell 先例一致；交叉验证两侧 canonical "null" 相等。
