@@ -88,12 +88,15 @@ SELECT row_id,
        (row_id % 7) <> 0
 FROM generate_series(1, 100000) AS generated(row_id);
 
--- P9.E scale point: the 1,250,000-row sixteen-field relation lets one
+-- P9.E scale point: the 750,000-row sixteen-field relation lets one
 -- admitted SUM-ladder query settle a Dependency footprint above 10^7
--- declared facts (nine facts per surviving row); same formulas as
--- result_heavy with only the row-count bound changed.
+-- declared facts (fourteen facts per surviving row: the base-row fact
+-- plus thirteen referenced columns); same formulas as result_heavy with
+-- only the row-count bound changed. The snapshot compiler holds the whole
+-- relation in memory (~18KB/row measured), so the row count must respect
+-- its 22g ceiling.
 CREATE TABLE final_v5_benchmark.scale_e7 (
-    row_id bigint PRIMARY KEY CHECK (row_id BETWEEN 1 AND 1250000),
+    row_id bigint PRIMARY KEY CHECK (row_id BETWEEN 1 AND 750000),
     category text COLLATE "en_US.utf8" NOT NULL,
     amount numeric NOT NULL,
     event_date date NOT NULL,
@@ -135,7 +138,7 @@ SELECT row_id,
        (ARRAY['north','south','east','west','central'])[((row_id - 1) % 5) + 1],
        ((row_id - 1) % 97)::integer,
        (row_id % 7) <> 0
-FROM generate_series(1, 1250000) AS generated(row_id);
+FROM generate_series(1, 750000) AS generated(row_id);
 
 ANALYZE final_v5_benchmark.scale_e7;
 
@@ -207,8 +210,8 @@ BEGIN
     IF (SELECT count(*) FROM final_v5_benchmark.result_heavy) <> 100000 THEN
         RAISE EXCEPTION 'result-heavy row count is not 100000';
     END IF;
-    IF (SELECT count(*) FROM final_v5_benchmark.scale_e7) <> 1250000 THEN
-        RAISE EXCEPTION 'scale-e7 row count is not 1250000';
+    IF (SELECT count(*) FROM final_v5_benchmark.scale_e7) <> 750000 THEN
+        RAISE EXCEPTION 'scale-e7 row count is not 750000';
     END IF;
     IF (SELECT count(*) FROM reporting.final_v5_analytics_depth4_l1) <> 25000 THEN
         RAISE EXCEPTION 'depth-4 layer-1 row count is not 25000';

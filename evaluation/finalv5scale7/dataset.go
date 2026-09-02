@@ -16,7 +16,7 @@ import (
 // generator sql/datasets/benchmark-v1-generate.sql for
 // final_v5_benchmark.scale_e7 (byte-identical formulas to result_heavy with
 // only the row bound changed).
-const DatasetRows int64 = 1250000
+const DatasetRows int64 = 750000
 
 var datasetCategories = [4]string{"alpha", "beta", "gamma", "delta"}
 
@@ -71,6 +71,16 @@ func CanonicalColumnValue(column string, rowID int64) (sqlType, canonical string
 		return "numeric", "n:" + RowTaxAmount(rowID).RatString(), nil
 	case "revision":
 		return "integer", fmt.Sprintf("i:%d", RowRevision(rowID)), nil
+	case "region":
+		return "text", "s:" + RowRegion(rowID), nil
+	case "event_date":
+		return "date", "d:" + AddDays20200101((rowID-1)%3653), nil
+	case "settled_date":
+		return "date", "d:" + AddDays20200101((rowID-1+31)%3653), nil
+	case "event_timestamp":
+		return "timestamp without time zone", "ts:" + Timestamp20200101(rowID-1, (rowID-1)%1000), nil
+	case "processed_at":
+		return "timestamp without time zone", "ts:" + TimestampNoon20200101((rowID-1)*60), nil
 	default:
 		return "", "", fmt.Errorf("column %q is not part of the scale-7 dataset model", column)
 	}

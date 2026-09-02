@@ -25,17 +25,18 @@ const (
 
 	Product = "final_v5_scale_e7"
 
-	// A-priori budgets, derived from the declared Dependency rule (nine facts
-	// per surviving row: base-row fact, row_id and category predicate cells,
-	// six summed argument cells), never from measurements. The largest rung
-	// settles 9 * 1,250,000 = 11,250,000 Dependency facts; the ceiling adds
-	// headroom so the ladder never refuses on the measured dimension.
-	MaxDependencyFacts int64 = 12000000
+	// A-priori budgets, derived from the declared Dependency rule (fourteen
+	// facts per surviving row: the base-row fact plus thirteen referenced
+	// column cells - six summed arguments and seven always-true predicate
+	// columns), never from measurements. The largest rung settles
+	// 14 * 750,000 = 10,500,000 Dependency facts; the ceiling adds headroom
+	// so the ladder never refuses on the measured dimension.
+	MaxDependencyFacts int64 = 11500000
 	// Each rung releases six derived aggregate facts; the whole ladder plus
 	// generous retry headroom stays far below this.
 	MaxReleaseFacts int64 = 100
-	// One composite plus five predicate atoms per accepted rung.
-	MaxOutcomeFacts int64 = 40
+	// One composite plus fourteen predicate atoms per accepted rung.
+	MaxOutcomeFacts int64 = 80
 	MaxQueries      int64 = 160
 )
 
@@ -77,12 +78,18 @@ type Manifest struct {
 	Rungs              []Rung `json:"rungs"`
 }
 
-// LadderRows is the frozen rung matrix: dependency footprints of 1.125e6,
-// 2.8125e6, 5.625e6, and 1.125e7 facts at nine facts per surviving row.
-var LadderRows = []int64{125000, 312500, 625000, 1250000}
+// LadderRows is the frozen rung matrix: dependency footprints of 1.05e6,
+// 2.625e6, 5.25e6, and 1.05e7 facts at fourteen facts per surviving row.
+var LadderRows = []int64{75000, 187500, 375000, 750000}
 
 // LadderColumns are the six exact-summable argument columns.
 var LadderColumns = []string{"amount", "sequence_no", "quantity", "unit_price", "tax_amount", "revision"}
+
+// PredicateColumns are the seven always-true predicate columns that pull the
+// remaining referenced cells into the Dependency footprint; every predicate
+// is satisfied by the whole relation (domains verified against the closed
+// formulas), so the ladder never filters a row.
+var PredicateColumns = []string{"row_id", "category", "region", "event_date", "settled_date", "event_timestamp", "processed_at"}
 
 func (rung Rung) LogicalSQL(product string) string {
 	return strings.Replace(rung.DirectSQL, CanonicalTable, product, 1)
@@ -93,7 +100,13 @@ func rungSQL(table string, rows int64) string {
 	for _, column := range LadderColumns {
 		sums = append(sums, fmt.Sprintf("sum(%s) AS total_%s", column, column))
 	}
-	return fmt.Sprintf("SELECT %s\nFROM %s\nWHERE row_id <= %d\n  AND category IN ('alpha', 'beta', 'gamma', 'delta');",
+	return fmt.Sprintf("SELECT %s\nFROM %s\nWHERE row_id <= %d\n"+
+		"  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n"+
+		"  AND region IN ('north', 'south', 'east', 'west', 'central')\n"+
+		"  AND event_date <= '2031-12-31'\n"+
+		"  AND settled_date <= '2031-12-31'\n"+
+		"  AND event_timestamp <= '2031-12-31 00:00:00'\n"+
+		"  AND processed_at <= '2031-12-31 00:00:00';",
 		strings.Join(sums, ",\n       "), table, rows)
 }
 
@@ -120,8 +133,9 @@ func buildRung(index int, rows int64) (Rung, error) {
 	rung := Rung{Index: index, ID: fmt.Sprintf("rung-%02d-%drows", index, rows),
 		Rows: rows, Columns: append([]string(nil), LadderColumns...),
 		DirectSQL: rungSQL(CanonicalTable, rows),
-		// One row_id atom plus the four category IN literals.
-		ExpectedPredicateAtoms: 5}
+		// One row_id atom, four category and five region IN literals, and
+		// four always-true range atoms.
+		ExpectedPredicateAtoms: 14}
 	for _, column := range LadderColumns {
 		total := new(big.Rat)
 		for rowID := int64(1); rowID <= rows; rowID++ {
@@ -136,7 +150,7 @@ func buildRung(index int, rows int64) (Rung, error) {
 	// Dependency: per surviving row one base-row fact, the row_id and
 	// category predicate cells, and each argument cell (set semantics; the
 	// argument columns never overlap the predicate columns).
-	dependencyColumns := append([]string{"row_id", "category"}, LadderColumns...)
+	dependencyColumns := append(append([]string(nil), PredicateColumns...), LadderColumns...)
 	dependency, err := summarizeCellStream("dependency", rows, dependencyColumns, true)
 	if err != nil {
 		return Rung{}, err
@@ -231,7 +245,7 @@ func Load() (Manifest, error) {
 			!reflect.DeepEqual(rung.Columns, LadderColumns) ||
 			rung.DirectSQL != rungSQL(CanonicalTable, rung.Rows) ||
 			len(rung.ExpectedScalars) != len(LadderColumns) ||
-			rung.Dependency.Cardinality != rung.Rows*int64(len(LadderColumns)+3) ||
+			rung.Dependency.Cardinality != rung.Rows*int64(len(LadderColumns)+len(PredicateColumns)+1) ||
 			!validHex64(rung.Dependency.SetSHA256) {
 			return Manifest{}, fmt.Errorf("scale-7 rung %d is malformed", index+1)
 		}

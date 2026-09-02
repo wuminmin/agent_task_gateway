@@ -14,8 +14,8 @@ import (
 const (
 	ExposureScaleManifestGeneratorVersion = "taskgate-final-v5-exposure-scale-semantic-manifest-v1"
 
-	ExposureScaleDatasetSpecSHA256       = "402534b70f6251e452891bc1c57ed19e79637fcc27238c92f65a4f86b387a8ec"
-	ExposureScaleCatalogSpecSHA256       = "d691a58ef73ac7746ad2eb926c6d5999aae9d2646a34c9f0513616e380f29a8d"
+	ExposureScaleDatasetSpecSHA256       = "f23ff70fda780bfb1a65f91a3e785dc5b4a990f076e3dea971e240bdae47f1a3"
+	ExposureScaleCatalogSpecSHA256       = "e6860eca5732ad6377dd8180fb91f0adbbb63d5bd7e169fb77500f859a6c8048"
 	ExposureScaleNormalizationSpecSHA256 = "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816"
 
 	ExposureScaleCandidateBDGQuerySHA256    = "8ca770c7f91e039c927e25692514a18c2b5953e1f8645e0bc1556c500769fb1c"
