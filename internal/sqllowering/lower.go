@@ -259,6 +259,14 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 			return queryplan.QueryPlan{}, l.classifyCompilerError(normalizeErr, "SQL")
 		}
 	}
+	if len(plan.Derived) > 0 && (len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0) {
+		// First-version rule: derived projections live in pure projections
+		// only; grouped/aggregated shapes take arithmetic through the SUM
+		// argument path, which owns its own ordinal accounting specs.
+		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
+			"A derived projection is admitted in ungrouped, unaggregated queries only.", "SELECT", -1, "",
+			"Move the arithmetic into a SUM argument, or remove GROUP BY and aggregates.")
+	}
 	return plan, nil
 }
 

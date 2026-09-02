@@ -76,3 +76,16 @@ func TestPlainPlansKeepIdentity(t *testing.T) {
 	}
 	_ = strings.TrimSpace
 }
+
+func TestDerivedProjectionRejectsGroupedShapes(t *testing.T) {
+	product := derivedLowerProduct()
+	cases := []string{
+		"SELECT region, (price * qty) AS x FROM sales_product GROUP BY region",
+		"SELECT (price * qty) AS x, count(*) AS n FROM sales_product",
+	}
+	for _, sql := range cases {
+		if _, err := Lower(sql, map[string]queryplan.Product{product.Name: product}); err == nil {
+			t.Fatalf("grouped derived projection must fail closed: %s", sql)
+		}
+	}
+}

@@ -24,6 +24,7 @@ var derivedOperators = map[string]string{
 }
 
 func (l *lowerer) lowerDerivedProjection(expr *pg_query.A_Expr, target *pg_query.ResTarget, resultCast string) (queryplan.DerivedColumn, *Error) {
+
 	if resultCast != "" {
 		return queryplan.DerivedColumn{}, reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
 			"A derived projection may not carry a cast.", "SELECT", target.GetLocation(), "",
