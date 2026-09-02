@@ -276,6 +276,11 @@ func CompileOrdinal(plan QueryPlan, product Product) (OrdinalCompilation, error)
 		return OrdinalCompilation{}, err
 	}
 	visibleFields := append([]string(nil), plan.Columns...)
+	// Derived aliases sit between plain columns and aggregates, matching the
+	// Compile emission order so visible-result positions line up.
+	for _, derived := range plan.Derived {
+		visibleFields = append(visibleFields, derived.Alias)
+	}
 	for _, aggregate := range plan.Aggregates {
 		visibleFields = append(visibleFields, aggregate.Alias)
 	}
@@ -442,11 +447,32 @@ func singleProductEvidenceFields(plan QueryPlan, product Product) ([]string, err
 		set[filter.Column] = struct{}{}
 	}
 	for _, aggregate := range plan.Aggregates {
-		if aggregate.Column != "*" {
+		if aggregate.Column != "*" && aggregate.Column != "" {
 			set[aggregate.Column] = struct{}{}
 		}
+		collectDerivedColumns(aggregate.DerivedArg, set)
+	}
+	for _, derived := range plan.Derived {
+		collectDerivedColumns(derived.Expr, set)
 	}
 	return sortedColumns(set), nil
+}
+
+// collectDerivedColumns adds every column operand of a P9.D arithmetic tree
+// to the evidence set: the derived cell's dependency footprint is exactly
+// its argument cells, so the companion must retain them.
+func collectDerivedColumns(expr *DerivedExpr, set map[string]struct{}) {
+	if expr == nil {
+		return
+	}
+	for _, operand := range expr.Operands {
+		if operand.Column != "" {
+			set[operand.Column] = struct{}{}
+		}
+		if operand.Nested != nil {
+			collectDerivedColumns(operand.Nested, set)
+		}
+	}
 }
 
 func buildRelationalOrdinalProgram(plan QueryPlan, products map[string]Product, compilation RelationalCompilation, order []OrdinalOrderSpec) (OrdinalProgram, error) {

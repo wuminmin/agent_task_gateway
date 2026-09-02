@@ -111,3 +111,31 @@ func TestDerivedAggregateArgument(t *testing.T) {
 		}
 	}
 }
+
+func TestOrdinalEvidenceIncludesDerivedArguments(t *testing.T) {
+	product := derivedTestProduct()
+	product.StableRole = "sales"
+	product.StableEntityKey = []string{"region"}
+	plan := QueryPlan{Product: product.Name, Columns: []string{"region"},
+		Derived: []DerivedColumn{revenueColumn()}}
+	compiled, err := CompileOrdinal(plan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := map[string]bool{}
+	for _, field := range compiled.ProvenanceFields {
+		evidence[field] = true
+	}
+	if !evidence["price"] || !evidence["qty"] {
+		t.Fatalf("derived argument columns must enter the companion evidence: %v", compiled.ProvenanceFields)
+	}
+	want := []string{"region", "revenue"}
+	if len(compiled.VisibleFields) != len(want) {
+		t.Fatalf("visible fields = %v", compiled.VisibleFields)
+	}
+	for index := range want {
+		if compiled.VisibleFields[index] != want[index] {
+			t.Fatalf("visible field order must match emission order: %v", compiled.VisibleFields)
+		}
+	}
+}
