@@ -146,6 +146,17 @@
       "submission_commit": "87ca9a73918c700b4979e612aef3e2b68b6cb34d",
       "measured_samples": 36,
       "note": "Comparator-arms study, multi-deployment reproducibility run superseding pilot-counter-05: the same frozen 100-step adaptive trace under the four a-priori budgeters in three frozen orderings, now across THREE fresh deployments (repetitions=3, one sample per cell per deployment) for 36 measured samples, three per cell. All twelve cells realized the identical frozen per-step outcome table in every one of the three deployments (zero cross-deployment inconsistency). Headline unchanged and now cross-deployment reproducible: the exact three-dimension floors cap distinct dependency exposure at 12 in every ordering, while the row, query, and release-set-only counters each leak the full 18-fact dependency set in every configuration. Class stays pilot (publication_eligible false): the sealed 172-cell protocol flag is not appropriated for an extension experiment; this is the multi-deployment retained-campaign evidence tier."
+    },
+    {
+      "id": "pilot-adversary-04",
+      "family": "adversary",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/pilot-adversary-04",
+      "campaign_evidence_sha256": "81e0e70ce10ba818340835dee4c86d563273418dc9420cbee8c4a53cbb4a5ac3",
+      "samples_sha256": "c6cf7b0f9960de2dd930f7977367b3dd5e8f734524ff05736f0c3272a428c026",
+      "submission_commit": "b5ca71e2cdcf7bff88c72e3018711ae6e578c20e",
+      "measured_samples": 18,
+      "note": "Optimizing-adversary study (docs/p9c): two frozen extraction strategies (adaptive threshold bisection; greedy distinct-dependency maximization) against the ten-row expense fixture under three owner-derived budget tiers (budgets from the granted purpose, never from the traces), across THREE fresh deployments (six tier/strategy cells x three samples = 18, zero cross-deployment inconsistency). Every cell realized the frozen a-priori table exactly. Headlines: threshold-probe recovery is cleanly bounded by floor(B_O/2) bits (owner 6, tightened 4; loosened B_O=24 completes all 11 probes and recovers the hidden 1910 exactly) because a probe charges a data-independent 2 novel Outcome facts, so refusals after B_O exhaustion leak no data bits; greedy distinct-dependency extraction is capped exactly at B_D in every order tried (owner/loosened 18 = the granted universe, tightened 12 = B_D). The study also pinned live that aggregate Release identity excludes the predicate literal (same-count same-witness thresholds reuse one Release fact)."
     }
   ]
 }
