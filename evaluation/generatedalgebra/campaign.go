@@ -65,6 +65,22 @@ func GeneratePlan(rng *rand.Rand) Plan {
 			page := [2]int{rng.Intn(6), 1 + rng.Intn(8)}
 			plan.Page = &page
 		}
+		// P9.D derived arithmetic projections: single-relation, unpaged plans
+		// draw one exact-typed expression about a third of the time, split
+		// between the NULL-free bigint days domain (with a literal) and the
+		// nullable numeric amount domain (exercising NULL propagation).
+		if !plan.Join && plan.Page == nil && rng.Intn(3) == 0 {
+			ops := []string{"add", "sub", "mul"}
+			if rng.Intn(2) == 0 {
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.days", RightLiteral: int64(rng.Intn(9) + 1), HasLiteral: true,
+					OutputID: "derived_days", SQLType: "bigint"})
+			} else {
+				plan.Derived = append(plan.Derived, DerivedProjection{Op: ops[rng.Intn(len(ops))],
+					LeftField: "expense.amount", RightField: "expense.amount",
+					OutputID: "derived_amount", SQLType: "numeric"})
+			}
+		}
 	case 1:
 		plan.Kind = "global"
 		plan.Aggregates = randomAggregates(rng)
