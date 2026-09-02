@@ -538,7 +538,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "96131a304d3dcb1e291760b06462e45ea4432ea17a53d1611e1b605b3cfcb094",
+      "catalog_sha256": "e4aa369772d01b6f234af20a1e6b9a43041c2b50ab56a7c09fc8f50691662829",
       "total_hot_bytes": 951013033,
       "cells": [
         "scale7/scale7-ladder-v1/sum-ladder/direct",
