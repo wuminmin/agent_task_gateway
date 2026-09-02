@@ -28,6 +28,7 @@ type Result struct {
 
 type projectionSlot struct {
 	Aggregate bool
+	Derived   bool
 	Index     int
 }
 
@@ -84,8 +85,11 @@ func Lower(sql string, products map[string]queryplan.Product) (Result, error) {
 	resultOrder := make([]int, len(l.projectionOrder))
 	for index, slot := range l.projectionOrder {
 		resultOrder[index] = slot.Index
-		if slot.Aggregate {
+		if slot.Derived {
 			resultOrder[index] += len(plan.Columns)
+		}
+		if slot.Aggregate {
+			resultOrder[index] += len(plan.Columns) + len(plan.Derived)
 		}
 	}
 	return Result{Plan: plan, Profile: Profile, DisplayColumns: append([]string(nil), l.displayColumns...), ResultOrder: resultOrder}, nil
@@ -169,6 +173,16 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 				display = target.GetName()
 			}
 			l.displayColumns = append(l.displayColumns, display)
+			continue
+		}
+		if aExpr := value.GetAExpr(); aExpr != nil {
+			derived, derivedErr := l.lowerDerivedProjection(aExpr, target, resultCast)
+			if derivedErr != nil {
+				return queryplan.QueryPlan{}, derivedErr
+			}
+			l.projectionOrder = append(l.projectionOrder, projectionSlot{Derived: true, Index: len(plan.Derived)})
+			plan.Derived = append(plan.Derived, derived)
+			l.displayColumns = append(l.displayColumns, derived.Alias)
 			continue
 		}
 		function := value.GetFuncCall()
@@ -473,6 +487,18 @@ func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.R
 	}
 	columnRef := function.GetArgs()[0].GetColumnRef()
 	if columnRef == nil {
+		if argExpr := function.GetArgs()[0].GetAExpr(); argExpr != nil && name == "sum" && !distinct {
+			expr, exprErr := l.lowerDerivedExpr(argExpr, function.GetLocation())
+			if exprErr != nil {
+				return queryplan.Aggregate{}, exprErr
+			}
+			for _, item := range l.sources {
+				if _, approved := item.Product.AllowedAggregates[name]; !approved {
+					return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_NOT_APPROVED", fmt.Sprintf("Aggregate %q is not approved by every input product.", name), "SELECT", function.GetLocation(), item.Product.Name, "Call describe_data_product and use an approved aggregate.")
+				}
+			}
+			return queryplan.Aggregate{Function: name, Alias: alias, DerivedArg: expr}, nil
+		}
 		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_EXPRESSION_UNSUPPORTED", "Aggregate expressions must be direct approved columns.", "SELECT", function.GetLocation(), "", "Apply the aggregate directly to an approved column.")
 	}
 	column, resolveErr := l.resolveColumn(columnRef, "SELECT")
