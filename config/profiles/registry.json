@@ -509,7 +509,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": false,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -521,12 +521,6 @@
             "detail": "no live activation smoke has been recorded for this profile"
           },
           {
-            "state": "live_route_available",
-            "code": "no_approval_route_for_closure",
-            "subject": "final_v5_rls_unlimited_expense_detail,provsql_orders",
-            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
-          },
-          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -535,7 +529,9 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": null,
+      "budget_profiles": [
+        "final-v5-adversary-owner-v1"
+      ],
       "workload_cells": [
         "adversary/adversary-extraction-v1/bisection/owner",
         "adversary/adversary-extraction-v1/greedy/owner"
@@ -543,7 +539,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "269561a70f40d6f991e9b92a2addc5568495fee6b5b474d22ee3875880454a00",
+      "catalog_sha256": "f0172ffb7888254c1abca1b57f9948b4052f634e635eae4b626f31a25a44bf8c",
       "catalog_path": "config/profiles/adversary-owner.catalog.yaml",
       "hot_artifacts": [
         {
@@ -808,7 +804,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": false,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -820,12 +816,6 @@
             "detail": "no live activation smoke has been recorded for this profile"
           },
           {
-            "state": "live_route_available",
-            "code": "no_approval_route_for_closure",
-            "subject": "final_v5_rls_unlimited_expense_detail,provsql_lineitem,provsql_orders",
-            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
-          },
-          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -834,7 +824,9 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": null,
+      "budget_profiles": [
+        "final-v5-adversary-loosened-v1"
+      ],
       "workload_cells": [
         "adversary/adversary-extraction-v1/bisection/loosened",
         "adversary/adversary-extraction-v1/greedy/loosened"
@@ -842,7 +834,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "3899942db6699520ac7c5fed349130a531aef5da0a29bd12a44b93f4e20f8d0e",
+      "catalog_sha256": "d6e032a4de84f0a702c44e43a7ab64bc707b88e3d2afd50d47a8ecef180c6f7a",
       "catalog_path": "config/profiles/adversary-loosened.catalog.yaml",
       "hot_artifacts": [
         {
@@ -1487,7 +1479,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": false,
+        "live_route_available": true,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -1499,12 +1491,6 @@
             "detail": "no live activation smoke has been recorded for this profile"
           },
           {
-            "state": "live_route_available",
-            "code": "no_approval_route_for_closure",
-            "subject": "final_v5_rls_unlimited_expense_detail,provsql_lineitem",
-            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
-          },
-          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -1513,7 +1499,9 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": null,
+      "budget_profiles": [
+        "final-v5-adversary-tightened-v1"
+      ],
       "workload_cells": [
         "adversary/adversary-extraction-v1/bisection/tightened",
         "adversary/adversary-extraction-v1/greedy/tightened"
@@ -1521,7 +1509,7 @@
       "experiments": [
         "adversary"
       ],
-      "catalog_sha256": "e6fc487afab3b7360f6700dfc0a58c51334fb86244dd48801bfce6f6c8327e95",
+      "catalog_sha256": "e7999b2ac6b6d03bf54a7afb9f6635e688d6357d5e1e622195a083fa4b36b370",
       "catalog_path": "config/profiles/adversary-tightened.catalog.yaml",
       "hot_artifacts": [
         {

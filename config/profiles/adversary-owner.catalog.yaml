@@ -145,24 +145,6 @@ budget_profiles:
         max_unique_atoms_per_query: 4
         max_atom_payload_bytes: 4096
         max_total_atom_payload_bytes: 16384
-    # P9.C owner-derived tier (docs/p9c_optimizing_adversary_design.md):
-    # budgets come from the granted purpose, never from the adversary traces.
-    - name: final-v5-adversary-owner-v1
-      max_queries: 24
-      max_rows: 500
-      max_db_time: 10m0s
-      query_timeout: 5m0s
-      task_ttl: 2h0m0s
-      max_release_facts: 10
-      max_influence_facts: 18
-      max_outcome_facts: 12
-      exposure_profile_version: taskgate-exposure-v5
-      predicate_footprint:
-        version: taskgate-predicate-footprint-v1
-        max_raw_literals_per_query: 64
-        max_unique_atoms_per_query: 8
-        max_atom_payload_bytes: 4096
-        max_total_atom_payload_bytes: 32768
     - name: final-v5-baseline-low-v1
       max_queries: 128
       max_rows: 400000
@@ -179,3 +161,19 @@ budget_profiles:
         max_unique_atoms_per_query: 9
         max_atom_payload_bytes: 4096
         max_total_atom_payload_bytes: 36864
+    - name: final-v5-adversary-owner-v1
+      max_queries: 24
+      max_rows: 500
+      max_db_time: 10m0s
+      query_timeout: 5m0s
+      task_ttl: 2h0m0s
+      max_release_facts: 10
+      max_influence_facts: 18
+      max_outcome_facts: 12
+      exposure_profile_version: taskgate-exposure-v5
+      predicate_footprint:
+        version: taskgate-predicate-footprint-v1
+        max_raw_literals_per_query: 64
+        max_unique_atoms_per_query: 8
+        max_atom_payload_bytes: 4096
+        max_total_atom_payload_bytes: 32768
