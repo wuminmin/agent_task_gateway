@@ -31,7 +31,10 @@ const (
 	SidecarVersion       = "taskgate-ordinal-sidecar-ndjson-v1"
 	maxJSONDocumentBytes = 4 << 20
 	maxSidecarLineBytes  = 64 << 20
-	maxPublishedBytes    = uint64(2 << 30)
+	// Raised from 2 GiB for the P9.E scale publication: the 750k-row COLD
+	// artifact carries ~1.2e7 canonical values. Compiler and loader share
+	// this constant, so both sides move together.
+	maxPublishedBytes    = uint64(6 << 30)
 	maxHotPublishedBytes = uint64(1024 << 20)
 )
 
