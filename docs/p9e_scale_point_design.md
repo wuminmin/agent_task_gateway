@@ -59,3 +59,10 @@ B 仍可先行（不等 P9.G）。
   expected_scalars(big.Rat 闭式), dependency SetCommitment(外排流哈希, ~2 分钟构建)}。
 - 样本量：novel@1e7 线性外推 ~110s/样本；TASKGATE_PILOT_SAMPLES 严谨档 3 部署×5 样本 → 单 pilot ~75 分钟。
 - 时延基线对照（M1）：direct 臂即同宿主直查对照。
+
+## 预实测门风险 3 的实测值（2026-09-02，memcg OOM 直接证据）
+
+snapshot-index 编译器全内存装箱（rowsByEntity map + any 值，bundle.go:844）：
+1.25M 行 × 16 列实测 anon-rss ≈ 16.7 GB（~13 KB/行），16g 限为边际态（三次险过一次被杀）。
+专属 mem_limit 提至 22g（宿主 29G，phase-1 编译器串行）。当前架构行数上限 ≈ 2M；
+更大规模点需要编译器流式化（列字典外排），列为 P9.E 后续工程债，不在本轮做。
