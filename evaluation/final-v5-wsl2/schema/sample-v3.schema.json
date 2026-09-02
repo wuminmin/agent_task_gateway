@@ -426,6 +426,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "scale7"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "scale7_verification"
+        ],
+        "properties": {
+          "scale7_verification": {
+            "$ref": "#/properties/scale7_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2341,6 +2367,16 @@
           "$ref": "#/$defs/partialAdversaryVerification"
         }
       ]
+    },
+    "scale7_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/scale7Verification"
+        },
+        {
+          "$ref": "#/$defs/scale7Verification"
+        }
+      ]
     }
   },
   "$defs": {
@@ -3131,10 +3167,10 @@
           "const": "TR-2026-0005"
         },
         "target_department": {
-          "const": "研发部"
+          "const": "\u7814\u53d1\u90e8"
         },
         "policy_department": {
-          "const": "销售部"
+          "const": "\u9500\u552e\u90e8"
         },
         "target_present_outside_policy": {
           "const": true
@@ -3591,7 +3627,7 @@
                 "const": "SELECT"
               },
               "qual": {
-                "const": "(department = '销售部'::text)"
+                "const": "(department = '\u9500\u552e\u90e8'::text)"
               },
               "with_check": {
                 "type": "null"
@@ -6277,6 +6313,127 @@
           "tier",
           "version"
         ]
+      }
+    },
+    "scale7Rung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "id",
+        "rows",
+        "logical_sql_sha256",
+        "direct_sql_sha256",
+        "accepted",
+        "client_ms",
+        "charged_release_facts",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "replay_charged_facts",
+        "expected_dependency_facts"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "integer"
+        },
+        "logical_sql_sha256": {
+          "type": "string"
+        },
+        "direct_sql_sha256": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "replay_client_ms": {
+          "type": "number"
+        },
+        "root_task_id_hash": {
+          "type": "string"
+        },
+        "request_id_hash": {
+          "type": "string"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "replay_charged_facts": {
+          "type": "integer"
+        },
+        "expected_dependency_facts": {
+          "type": "integer"
+        },
+        "observed_scalars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "scale7Verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_rungs",
+        "budget_profile",
+        "corpus_id",
+        "corpus_sha256",
+        "max_dependency_facts",
+        "mode",
+        "product",
+        "rungs",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "budget_profile": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "max_dependency_facts": {
+          "type": "integer"
+        },
+        "rungs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scale7Rung"
+          }
+        },
+        "accepted_rungs": {
+          "type": "integer"
+        }
       }
     }
   }
