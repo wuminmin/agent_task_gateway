@@ -90,7 +90,8 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 		return nil
 	}
 	if len(metadata.DisplayColumns) > 0 && len(metadata.DisplayColumns) != len(stored.Columns) {
-		return errors.New("display-column metadata disagrees with canonical result")
+		return fmt.Errorf("display-column metadata disagrees with canonical result: display=%v stored=%v",
+			metadata.DisplayColumns, stored.Columns)
 	}
 	if err := validateResultOrder(metadata.ResultOrder, len(stored.Columns)); err != nil {
 		return err
