@@ -359,12 +359,12 @@ echo "== ${RUN_ID}: fresh deployment ${project}"
 # directory instead.
 phase1_services=(business-postgres control-postgres oa-demo
   result-object-store result-object-store-init
-  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy
+  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy snapshot-index-scale-e7
   snapshot-sidecar-install final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_healthy=(business-postgres control-postgres oa-demo result-object-store
   final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_jobs=(result-object-store-init snapshot-index-detail snapshot-index-summary
-  snapshot-index-result-heavy snapshot-sidecar-install)
+  snapshot-index-result-heavy snapshot-index-scale-e7 snapshot-sidecar-install)
 
 "${compose[@]}" up -d "${phase1_services[@]}" >"$outdir/compose-up.log" 2>&1 || {
   echo "phase 1 failed to start; see $outdir/compose-up.log" >&2; retain_failure; exit 1; }

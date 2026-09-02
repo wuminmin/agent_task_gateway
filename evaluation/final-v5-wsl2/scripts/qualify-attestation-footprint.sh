@@ -88,12 +88,12 @@ echo "== ${QUALIFICATION_ID}: fresh deployment ${project}"
 # exit code instead, so a real failure is still caught.
 phase1_services=(business-postgres control-postgres oa-demo
   result-object-store result-object-store-init
-  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy
+  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy snapshot-index-scale-e7
   snapshot-sidecar-install final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_healthy=(business-postgres control-postgres oa-demo
   result-object-store final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_jobs=(result-object-store-init snapshot-index-detail snapshot-index-summary
-  snapshot-index-result-heavy snapshot-sidecar-install)
+  snapshot-index-result-heavy snapshot-index-scale-e7 snapshot-sidecar-install)
 
 retain_failure() {
   "${compose[@]}" ps --all >>"$outdir/compose-up.log" 2>&1 || true

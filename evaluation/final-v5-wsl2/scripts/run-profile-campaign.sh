@@ -327,12 +327,12 @@ if [[ -z "${GATEWAY_ADMIN_TOKEN:-}" ]]; then
   export GATEWAY_ADMIN_TOKEN
 fi
 phase1_services=(business-postgres control-postgres oa-demo result-object-store result-object-store-init
-  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy snapshot-sidecar-install
+  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy snapshot-index-scale-e7 snapshot-sidecar-install
   final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_healthy=(business-postgres control-postgres oa-demo result-object-store
   final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_jobs=(result-object-store-init snapshot-index-detail snapshot-index-summary
-  snapshot-index-result-heavy snapshot-sidecar-install)
+  snapshot-index-result-heavy snapshot-index-scale-e7 snapshot-sidecar-install)
 
 current_project=""
 current_dir=""
