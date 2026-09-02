@@ -3,7 +3,7 @@ package generatedalgebra
 import "testing"
 
 func TestGeneratedPlansAgreeWithProduction(t *testing.T) {
-	report := Run(20260830, 3, 40)
+	report := Run(20260830, 3, 200)
 	if report.Mismatches != 0 || report.HashMismatches != 0 || len(report.Failures) != 0 {
 		t.Fatalf("differential campaign failed: %+v", report)
 	}
