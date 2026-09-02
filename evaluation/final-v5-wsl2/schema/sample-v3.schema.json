@@ -400,6 +400,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "adversary"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "adversary_verification"
+        ],
+        "properties": {
+          "adversary_verification": {
+            "$ref": "#/properties/adversary_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2305,6 +2331,16 @@
           "$ref": "#/$defs/partialCounterVerification"
         }
       ]
+    },
+    "adversary_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/adversaryVerification"
+        },
+        {
+          "$ref": "#/$defs/partialAdversaryVerification"
+        }
+      ]
     }
   },
   "$defs": {
@@ -3095,10 +3131,10 @@
           "const": "TR-2026-0005"
         },
         "target_department": {
-          "const": "\u7814\u53d1\u90e8"
+          "const": "研发部"
         },
         "policy_department": {
-          "const": "\u9500\u552e\u90e8"
+          "const": "销售部"
         },
         "target_present_outside_policy": {
           "const": true
@@ -3555,7 +3591,7 @@
                 "const": "SELECT"
               },
               "qual": {
-                "const": "(department = '\u9500\u552e\u90e8'::text)"
+                "const": "(department = '销售部'::text)"
               },
               "with_check": {
                 "type": "null"
@@ -6092,6 +6128,153 @@
           "ordering",
           "refused_steps",
           "steps",
+          "version"
+        ]
+      }
+    },
+    "adversaryStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "charged_release_facts",
+        "client_ms",
+        "logical_sql_sha256",
+        "position",
+        "rejected",
+        "released_rows",
+        "step_id",
+        "threshold"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer"
+        },
+        "step_id": {
+          "type": "string"
+        },
+        "threshold": {
+          "type": "integer"
+        },
+        "logical_sql_sha256": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "scalar_count": {
+          "type": "integer"
+        },
+        "released_rows": {
+          "type": "integer"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "before": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "adversaryVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_steps",
+        "budget_profile",
+        "corpus_id",
+        "corpus_sha256",
+        "refused_steps",
+        "steps",
+        "strategy",
+        "tier",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "budget_profile": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/adversaryStep"
+          }
+        },
+        "accepted_steps": {
+          "type": "integer"
+        },
+        "refused_steps": {
+          "type": "integer"
+        },
+        "recovered_lo": {
+          "type": "integer"
+        },
+        "recovered_hi": {
+          "type": "integer"
+        },
+        "recovered_bits": {
+          "type": "integer"
+        },
+        "recovered_value": {
+          "type": "integer"
+        },
+        "final_root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        }
+      }
+    },
+    "partialAdversaryVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted_steps",
+          "budget_profile",
+          "corpus_id",
+          "corpus_sha256",
+          "final_root",
+          "recovered_bits",
+          "recovered_hi",
+          "recovered_lo",
+          "recovered_value",
+          "refused_steps",
+          "steps",
+          "strategy",
+          "tier",
           "version"
         ]
       }

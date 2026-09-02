@@ -553,6 +553,7 @@ type Sample struct {
 	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
 	BenignVerification        *BenignVerificationEvidence       `json:"benign_verification,omitempty"`
 	CounterVerification       *CounterVerificationEvidence      `json:"counter_verification,omitempty"`
+	AdversaryVerification     *AdversaryVerificationEvidence    `json:"adversary_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
 	ProvSQLVerification       *ProvSQLVerificationEvidence      `json:"provsql_verification,omitempty"`
 	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
@@ -2083,4 +2084,45 @@ type CounterVerificationEvidence struct {
 	RefusedSteps  int                   `json:"refused_steps"`
 	FirstRefusal  int                   `json:"first_refusal,omitempty"`
 	FinalRoot     *RootLedgerSnapshot   `json:"final_root,omitempty"`
+}
+
+// AdversaryStepEvidence is one optimizing-adversary query: identity bound to
+// the frozen corpus position, the a-priori expected outcome, the observed
+// scalar answer, and the observed ledger deltas and latency.
+type AdversaryStepEvidence struct {
+	Position               int                 `json:"position"`
+	StepID                 string              `json:"step_id"`
+	Threshold              int64               `json:"threshold"`
+	LogicalSQLSHA256       string              `json:"logical_sql_sha256"`
+	Accepted               bool                `json:"accepted"`
+	Rejected               bool                `json:"rejected"`
+	ObservedErrorCode      string              `json:"observed_error_code,omitempty"`
+	ClientMS               float64             `json:"client_ms"`
+	ScalarCount            *int64              `json:"scalar_count,omitempty"`
+	ReleasedRows           int64               `json:"released_rows"`
+	ChargedReleaseFacts    int64               `json:"charged_release_facts"`
+	ChargedDependencyFacts int64               `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts    int64               `json:"charged_outcome_facts"`
+	Before                 *RootLedgerSnapshot `json:"before,omitempty"`
+	After                  *RootLedgerSnapshot `json:"after,omitempty"`
+}
+
+// AdversaryVerificationEvidence binds one optimizing-adversary sample to the
+// frozen finalv5adversary corpus: the whole adaptive trace on one root under
+// one owner-derived budget tier and one strategy.
+type AdversaryVerificationEvidence struct {
+	Version        string                  `json:"version"`
+	CorpusID       string                  `json:"corpus_id"`
+	CorpusSHA256   string                  `json:"corpus_sha256"`
+	Tier           string                  `json:"tier"`
+	Strategy       string                  `json:"strategy"`
+	BudgetProfile  string                  `json:"budget_profile"`
+	Steps          []AdversaryStepEvidence `json:"steps"`
+	AcceptedSteps  int                     `json:"accepted_steps"`
+	RefusedSteps   int                     `json:"refused_steps"`
+	RecoveredLo    int64                   `json:"recovered_lo,omitempty"`
+	RecoveredHi    int64                   `json:"recovered_hi,omitempty"`
+	RecoveredBits  int                     `json:"recovered_bits,omitempty"`
+	RecoveredValue *int64                  `json:"recovered_value,omitempty"`
+	FinalRoot      *RootLedgerSnapshot     `json:"final_root,omitempty"`
 }
