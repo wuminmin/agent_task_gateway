@@ -78,6 +78,7 @@ type StepOutcome struct {
 	Threshold    int64  `json:"threshold"`
 	Accepted     bool   `json:"accepted"`
 	ScalarCount  *int64 `json:"scalar_count,omitempty"`
+	ReleasedRows int64  `json:"released_rows"`
 	NovelRelease int64  `json:"novel_release"`
 	NovelDep     int64  `json:"novel_dependency"`
 	NovelOutcome int64  `json:"novel_outcome"`
@@ -207,7 +208,10 @@ func (l *ledger) settle(tier Tier, observation finalv5oracle.Observation) (accep
 	dR, dD, dO = int64(len(novelRelease)), int64(len(novelDep)), int64(len(novelOutcome))
 	l.queries++
 	if l.queries > tier.MaxQueries {
-		return false, dR, dD, dO
+		// A query-ceiling crossing settles-then-archives in production
+		// (pilot-counter-02); this simulation deliberately does not model
+		// archival, so the frozen traces must never reach the ceiling.
+		panic(fmt.Sprintf("frozen adversary trace reaches the %s query ceiling; redesign the tier", tier.Name))
 	}
 	if int64(len(l.release))+dR > tier.MaxRelease ||
 		int64(len(l.dep))+dD > tier.MaxDependency ||
@@ -278,6 +282,7 @@ func simulateBisection(rls finalv5rls.Manifest, tier Tier, hidden int64) (Strate
 			Threshold: mid, Accepted: accepted, NovelRelease: dR, NovelDep: dD, NovelOutcome: dO}
 		if accepted {
 			outcome.ScalarCount = step.Scalar
+			outcome.ReleasedRows = int64(len(step.ExpectedRows))
 		}
 		trace.Steps = append(trace.Steps, outcome)
 		if !accepted {
@@ -341,8 +346,12 @@ func simulateGreedy(rls finalv5rls.Manifest, tier Tier, sales []finalv5rls.Fixtu
 			continue
 		}
 		accepted, dR, dD, dO := book.settle(tier, step.Oracle)
+		released := int64(0)
+		if accepted {
+			released = int64(len(step.ExpectedRows))
+		}
 		trace.Steps = append(trace.Steps, StepOutcome{Position: len(trace.Steps) + 1, StepID: step.ID,
-			DirectSQL: step.DirectSQL, Threshold: threshold, Accepted: accepted,
+			DirectSQL: step.DirectSQL, Threshold: threshold, Accepted: accepted, ReleasedRows: released,
 			NovelRelease: dR, NovelDep: dD, NovelOutcome: dO})
 		if accepted {
 			trace.AcceptedSteps++
