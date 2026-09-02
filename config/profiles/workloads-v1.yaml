@@ -129,15 +129,15 @@ experiments:
     - workload_id: adversary-extraction-v1
       scales: [bisection, greedy]
       modes: [owner]
-      products: [final_v5_rls_unlimited_expense_detail, final_v5_attack_expense_detail]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_orders]
     - workload_id: adversary-extraction-v1
       scales: [bisection, greedy]
       modes: [tightened]
-      products: [final_v5_rls_unlimited_expense_detail, final_v5_concurrency_expense_detail]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_lineitem]
     - workload_id: adversary-extraction-v1
       scales: [bisection, greedy]
       modes: [loosened]
-      products: [final_v5_rls_unlimited_expense_detail, provsql_nonce]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_orders, provsql_lineitem]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders

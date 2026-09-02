@@ -30,9 +30,9 @@ func (err *adversaryInvariantError) Error() string { return err.reason }
 // adversaryRouteDecoys differentiate the three tiers' exact product sets so
 // each routes to its own budget profile; decoys are approved, never queried.
 var adversaryRouteDecoys = map[string]map[string][]string{
-	"owner":     {"final_v5_attack_expense_detail": {"receipt_no", "amount"}},
-	"tightened": {"final_v5_concurrency_expense_detail": {"receipt_no", "department"}},
-	"loosened":  {"provsql_nonce": {"nonce_id", "partition_key"}},
+	"owner":     {"provsql_orders": {"orderkey"}},
+	"tightened": {"provsql_lineitem": {"orderkey", "linenumber"}},
+	"loosened":  {"provsql_orders": {"orderkey"}, "provsql_lineitem": {"orderkey", "linenumber"}},
 }
 
 func newAdversaryAdapter(ctx context.Context) (*adversaryAdapter, error) {
@@ -140,7 +140,9 @@ func (adapter *adversaryAdapter) runTrace(ctx context.Context, operation experim
 	}
 	scopes := map[string]any{"department": []string{"销售部"}}
 	for _, product := range products {
-		if product == "provsql_nonce" {
+		// Every ProvSQL decoy product declares the partition_key scope;
+		// approving it without such a product would be an unapproved scope.
+		if product == "provsql_orders" || product == "provsql_lineitem" || product == "provsql_nonce" {
 			scopes["partition_key"] = []string{"1"}
 		}
 	}
