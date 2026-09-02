@@ -327,13 +327,13 @@ row counter (175) & 58/73/55 & 59/74/56 & 18/18/18 \\
 query counter (70) & 70/70/70 & 71/71/71 & 18/18/18 \\
 release-set only (7) & 76/78/76 & 68/10/41 & 18/18/18 \\%
 }
-\newcommand{\FinalVFiveBenignStatements}{27}
+\newcommand{\FinalVFiveBenignStatements}{28}
 \newcommand{\FinalVFiveBenignPolicyRefusals}{5}
 \newcommand{\FinalVFiveBenignRecipeBudgetRefusals}{1}
-\newcommand{\FinalVFiveBenignUnionDependency}{1,456,837}
+\newcommand{\FinalVFiveBenignUnionDependency}{1,476,433}
 \newcommand{\FinalVFiveBenignRecipeDependencyBudget}{1,450,000}
-\newcommand{\FinalVFiveBenignUnionOverBudgetPercent}{0.47}
-\newcommand{\FinalVFiveBenignXTwoAccepted}{22}
+\newcommand{\FinalVFiveBenignUnionOverBudgetPercent}{1.82}
+\newcommand{\FinalVFiveBenignXTwoAccepted}{23}
 \newcommand{\FinalVFiveBenignXTwoBudgetRefusals}{0}
 \newcommand{\FinalVFiveAdversaryOwnerBits}{6}
 \newcommand{\FinalVFiveAdversaryTightenedBits}{4}
@@ -683,15 +683,15 @@ query-count budget & 36 & 36 & 37 & 57 & 7 & 6/12/15 \\%
 \newcommand{\TPCHLowerableExplicitJoin}{0}
 \newcommand{\TPCHCommaJoinQueries}{14}
 \newcommand{\TPCHSubqueryQueries}{7}
-\newcommand{\TPCHArithmeticQueries}{7}
-\newcommand{\TPCHResultsDigest}{\texttt{f2549706891b}}
+\newcommand{\TPCHArithmeticQueries}{5}
+\newcommand{\TPCHResultsDigest}{\texttt{8320ec5f7131}}
 \newcommand{\TPCHReasonTableBody}{%
 subquery (FROM, IN, EXISTS, scalar) & SUBQUERY\_UNSUPPORTED & 6 & Q07, Q08, Q09, Q13, Q15, Q22 \\
-arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 5 & Q01, Q05, Q06, Q12, Q19 \\
 LIMIT over a multi-product join & PAGINATION\_UNSUPPORTED & 5 & Q02, Q03, Q10, Q18, Q21 \\
-arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 2 & Q14, Q17 \\
+arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 4 & Q05, Q14, Q17, Q19 \\
+date/interval arithmetic literal & FILTER\_LITERAL\_UNSUPPORTED & 3 & Q01, Q04, Q06 \\
+arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 1 & Q12 \\
 SQL\_NOT\_LOWERABLE/BOOLEAN\_OPERATOR\_UNSUPPORTED & BOOLEAN\_OPERATOR\_UNSUPPORTED & 1 & Q16 \\
-date/interval arithmetic literal & FILTER\_LITERAL\_UNSUPPORTED & 1 & Q04 \\
 IN (subquery) predicate & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q20 \\
 comma join (no explicit JOIN ON) & FROM\_SHAPE\_UNSUPPORTED & 1 & Q11 \\%
 }
@@ -700,33 +700,33 @@ comma join (no explicit JOIN ON) & FROM\_SHAPE\_UNSUPPORTED & 1 & Q11 \\%
 \newcommand{\SSBLowerableExplicitJoin}{2}
 \newcommand{\SSBLoweredQueries}{Q2.1, Q2.3}
 \newcommand{\SSBCommaJoinQueries}{13}
-\newcommand{\SSBArithmeticQueries}{6}
+\newcommand{\SSBArithmeticQueries}{0}
 \newcommand{\SSBDisjunctionQueries}{2}
 \newcommand{\SSBOrderByQueries}{2}
-\newcommand{\SSBResultsDigest}{\texttt{c8f96e317fd4}}
+\newcommand{\SSBResultsDigest}{\texttt{df69d2cc8692}}
 \newcommand{\SSBReasonTableBody}{%
-arithmetic inside an aggregate & AGGREGATE\_EXPRESSION\_UNSUPPORTED & 6 & Q1.1, Q1.2, Q1.3, Q4.1, Q4.2, Q4.3 \\
+SQL\_NOT\_LOWERABLE/PROJECTION\_EXPRESSION\_UNSUPPORTED & PROJECTION\_EXPRESSION\_UNSUPPORTED & 6 & Q1.1, Q1.2, Q1.3, Q4.1, Q4.2, Q4.3 \\
 OR disjunction in WHERE & BOOLEAN\_OPERATOR\_UNSUPPORTED & 2 & Q3.3, Q3.4 \\
 ORDER BY on an aggregate alias & QUERYPLAN\_VALIDATION\_FAILED & 2 & Q3.1, Q3.2 \\
 BETWEEN over text literals & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q2.2 \\%
 }
 \newcommand{\AgentWorkloadQueries}{40}
-\newcommand{\AgentWorkloadLowerable}{27}
-\newcommand{\AgentWorkloadLowerablePct}{68}
+\newcommand{\AgentWorkloadLowerable}{28}
+\newcommand{\AgentWorkloadLowerablePct}{70}
 \newcommand{\AgentWorkloadHavingQueries}{0}
 \newcommand{\AgentWorkloadStarQueries}{0}
 \newcommand{\AgentWorkloadFunctionQueries}{3}
-\newcommand{\AgentWorkloadArithmeticQueries}{3}
+\newcommand{\AgentWorkloadArithmeticQueries}{2}
 \newcommand{\AgentWorkloadLiteralQueries}{3}
 \newcommand{\AgentWorkloadPredicateQueries}{1}
 \newcommand{\AgentWorkloadDisjunctionQueries}{1}
 \newcommand{\AgentWorkloadOuterJoinQueries}{1}
 \newcommand{\AgentWorkloadPaginationQueries}{1}
-\newcommand{\AgentWorkloadResultsDigest}{\texttt{714380c2c3bf}}
+\newcommand{\AgentWorkloadResultsDigest}{\texttt{0621e3c3c137}}
 \newcommand{\AgentWorkloadReasonTableBody}{%
 scalar function in the projection or aggregate & AGGREGATE\_UNSUPPORTED & 3 & Q06, Q14, Q40 \\
-arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 3 & Q09, Q20, Q32 \\
 non-literal comparison (column or subquery) & FILTER\_LITERAL\_UNSUPPORTED & 2 & Q33, Q39 \\
+arithmetic in the projection & PROJECTION\_EXPRESSION\_UNSUPPORTED & 2 & Q09, Q20 \\
 LEFT JOIN & LEFT\_JOIN\_UNSUPPORTED & 1 & Q24 \\
 OR disjunction in WHERE & BOOLEAN\_OPERATOR\_UNSUPPORTED & 1 & Q31 \\
 BETWEEN / LIKE predicate & FILTER\_PREDICATE\_UNSUPPORTED & 1 & Q10 \\
@@ -735,22 +735,22 @@ LIMIT over a multi-product join & PAGINATION\_UNSUPPORTED & 1 & Q27 \\%
 }
 \newcommand{\GeneratedPlans}{5,000}
 \newcommand{\GeneratedFixtures}{50}
-\newcommand{\GeneratedRowsMin}{5}
-\newcommand{\GeneratedRowsMax}{49}
+\newcommand{\GeneratedRowsMin}{6}
+\newcommand{\GeneratedRowsMax}{50}
 \newcommand{\GeneratedMismatches}{0}
 \newcommand{\GeneratedHashMismatches}{0}
-\newcommand{\GeneratedReleaseFacts}{51,484}
-\newcommand{\GeneratedDependencyFacts}{192,015}
-\newcommand{\GeneratedProjectPlans}{1,633}
-\newcommand{\GeneratedGroupPlans}{1,684}
-\newcommand{\GeneratedGlobalPlans}{1,683}
-\newcommand{\GeneratedJoinPlans}{1,664}
-\newcommand{\GeneratedSelectPlans}{3,341}
-\newcommand{\GeneratedPagePlans}{535}
-\newcommand{\GeneratedSplitChecks}{354}
-\newcommand{\GeneratedPageChecks}{354}
+\newcommand{\GeneratedReleaseFacts}{55,801}
+\newcommand{\GeneratedDependencyFacts}{202,306}
+\newcommand{\GeneratedProjectPlans}{1,643}
+\newcommand{\GeneratedGroupPlans}{1,657}
+\newcommand{\GeneratedGlobalPlans}{1,700}
+\newcommand{\GeneratedJoinPlans}{1,610}
+\newcommand{\GeneratedSelectPlans}{3,348}
+\newcommand{\GeneratedPagePlans}{572}
+\newcommand{\GeneratedSplitChecks}{380}
+\newcommand{\GeneratedPageChecks}{380}
 \newcommand{\GeneratedSeed}{20260830}
-\newcommand{\GeneratedResultsDigest}{\texttt{0563f0cd63e5}}
+\newcommand{\GeneratedResultsDigest}{\texttt{79e25395cb4b}}
 \newcommand{\FinalVFivePilotSOneNovelS}{0.770}
 \newcommand{\FinalVFivePilotSOneReleaseFacts}{100,000}
 \newcommand{\FinalVFivePilotSOneDependencyFacts}{200,000}
