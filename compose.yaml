@@ -201,7 +201,7 @@ services:
       # The compiler holds the whole relation in memory and Go's GC has no
       # cgroup awareness; without a soft limit the heap grows to the memcg
       # ceiling and the OOM killer fires before a collection does.
-      GOMEMLIMIT: 18GiB
+      GOMEMLIMIT: 17GiB
     depends_on:
       business-postgres:
         condition: service_healthy
@@ -211,7 +211,7 @@ services:
       - ./config/snapshots/final-v5-scale-e7-v1.json:/input/final-v5-scale-e7-v1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index
     read_only: true
-    mem_limit: 22g
+    mem_limit: 24g
     restart: "no"
     security_opt:
       - no-new-privileges:true

@@ -700,7 +700,7 @@ for alias in "${selected_profiles[@]}"; do
       done
     done
     for service in "${phase1_jobs[@]}"; do
-      for attempt in $(seq 1 450); do
+      for attempt in $(seq 1 1800); do
         container="$("${current_compose[@]}" ps -aq "$service")"
         state="$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo pending)"
         # A job stuck in "created" was never scheduled (its dependency chain
@@ -713,7 +713,7 @@ for alias in "${selected_profiles[@]}"; do
           [[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]] || { echo "$service failed" >&2; exit 1; }
           break
         fi
-        [[ "$attempt" == 450 ]] && { echo "$service never completed" >&2; exit 1; }
+        [[ "$attempt" == 1800 ]] && { echo "$service never completed" >&2; exit 1; }
         sleep 2
       done
     done

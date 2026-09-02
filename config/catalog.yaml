@@ -73,9 +73,9 @@ snapshot_publications:
     source_namespace: final_v5.scale_e7
     snapshot: final-v5-scale-e7-2026-v1
     ordinal_sidecar: taskgate_ordinal.final_v5_scale_e7_v1
-    sidecar_digest: 0000000000000000000000000000000000000000000000000000000000000000
-    dictionary_digest: 0000000000000000000000000000000000000000000000000000000000000000
-    manifest_digest: 0000000000000000000000000000000000000000000000000000000000000000
+    sidecar_digest: 9dd595a2181f339b73a56cdb9b88d87478e47710bbf158b75c069bc4a3ac3156
+    dictionary_digest: a272c253d4ab0fa24b3b0ad749fe25eea338a6ed5ea59bcd5535e49a9e612209
+    manifest_digest: 35e5682a098373d64ca2514118b24f8b716a33821b348099ba3724a7203080ef
 
   - name: final-v5-exposure-scale-v1
     source: travel_demo

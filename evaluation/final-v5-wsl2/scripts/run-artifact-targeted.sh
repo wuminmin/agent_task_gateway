@@ -380,7 +380,7 @@ for service in "${phase1_healthy[@]}"; do
   done
 done
 for service in "${phase1_jobs[@]}"; do
-  for attempt in $(seq 1 450); do
+  for attempt in $(seq 1 1800); do
     container="$("${compose[@]}" ps -aq "$service")"
     state="$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo pending)"
     # A job stuck in "created" was never scheduled (its dependency chain
@@ -394,7 +394,7 @@ for service in "${phase1_jobs[@]}"; do
       [[ "$code" == 0 ]] || { echo "$service exited $code" >&2; retain_failure; exit 1; }
       break
     fi
-    [[ "$attempt" == 450 ]] && { echo "$service never completed" >&2; retain_failure; exit 1; }
+    [[ "$attempt" == 1800 ]] && { echo "$service never completed" >&2; retain_failure; exit 1; }
     sleep 2
   done
 done
