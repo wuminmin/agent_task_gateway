@@ -910,6 +910,10 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 		if err := validateCounterVerification(sample); err != nil {
 			fail("counter independent verification failed: " + err.Error())
 		}
+	case "adversary":
+		if err := validateAdversaryVerification(sample); err != nil {
+			fail("adversary independent verification failed: " + err.Error())
+		}
 	case "provsql":
 		if sample.System == "taskgate" && (sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS <= 0) {
 			fail("ProvSQL-paired TaskGate sample lacks both measurement boundaries")

@@ -240,6 +240,7 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         raise PilotEvidenceError("pilot evidence manifest must declare itself publication-ineligible")
 
     artifact_runs, baseline_samples, subphase_samples, provsql_leaf_samples = [], [], [], []
+    footprint_samples, benign_samples, counter_samples = [], [], []
     for entry in manifest["runs"]:
         if entry.get("superseded_by"):
             # A retained run whose measurements a later run of the same family
@@ -255,13 +256,14 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         if entry["family"] == "provsql_leaves":
             provsql_leaf_samples.extend(_load_profile_pilot(root, entry))
             continue
-        if entry["family"] in ("footprint", "benign"):
-            # The refused-footprint ladder and the benign agent-trace study
-            # (docs/p8 c2/c3). Retained and integrity-checked like every
-            # profile-campaign pilot; whether the manuscript cites their
-            # numbers is a pending author scope decision, so no macro pools
-            # them yet.
-            _load_profile_pilot(root, entry)
+        if entry["family"] == "footprint":
+            footprint_samples.extend(_load_profile_pilot(root, entry))
+            continue
+        if entry["family"] == "benign":
+            benign_samples.extend(_load_profile_pilot(root, entry))
+            continue
+        if entry["family"] == "counter":
+            counter_samples.extend(_load_profile_pilot(root, entry))
             continue
         samples = _load_run(root, entry)
         if entry["family"] == "artifact":
@@ -363,4 +365,114 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     }
     subphase = _subphase_stats(subphase_samples) if subphase_samples else None
     provsql_leaves = _provsql_leaf_stats(provsql_leaf_samples) if provsql_leaf_samples else None
-    return {"subphase": subphase, "provsql_leaves": provsql_leaves, "artifact": artifact_stats, "baseline": baseline_stats}
+    footprint = _footprint_stats(footprint_samples) if footprint_samples else None
+    benign = _benign_stats(benign_samples) if benign_samples else None
+    counter = _counter_stats(counter_samples) if counter_samples else None
+    return {"subphase": subphase, "provsql_leaves": provsql_leaves, "artifact": artifact_stats,
+            "baseline": baseline_stats, "footprint": footprint, "benign": benign, "counter": counter}
+
+# ---------------------------------------------------------------------------
+# The three P8 retained studies (docs/p8): the refused-footprint ladder, the
+# benign agent-trace false-refusal study, and the comparator arms. Numbers
+# are recomputed from the registered sample bytes on every generation and
+# cross-checked against the frozen corpora where those pin expectations.
+# ---------------------------------------------------------------------------
+
+
+def _study_corpus(root: Path, relative: str) -> dict:
+    return json.loads((root / relative).read_text())
+
+
+def _footprint_stats(samples: list[dict]) -> dict:
+    arms = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "footprint":
+            raise PilotEvidenceError("footprint study retained a foreign sample")
+        evidence = sample.get("footprint_verification") or {}
+        arms[sample["mode"]] = evidence
+    if set(arms) != {"bounded", "unlimited"}:
+        raise PilotEvidenceError("footprint study must retain exactly the two arms")
+    unlimited = arms["unlimited"]
+    bounded = arms["bounded"]
+    rungs = []
+    for rung in unlimited.get("steps", unlimited.get("rungs", [])):
+        rungs.append({
+            "id": rung["id"], "rows": rung["rows"], "columns": len(rung["columns"]),
+            "dependency": rung["charged_dependency_facts"], "client_ms": rung["client_ms"],
+        })
+    budget_refusals = sum(1 for rung in bounded.get("rungs", [])
+                          if rung.get("observed_error_code") == "EXPOSURE_BUDGET_EXHAUSTED")
+    evidence_refusals = sum(1 for rung in bounded.get("rungs", [])
+                            if rung.get("observed_error_code") == "EXPOSURE_EVIDENCE_REQUIRED")
+    accepted = [rung for rung in bounded.get("rungs", []) if rung.get("accepted")]
+    if len(accepted) != 1:
+        raise PilotEvidenceError("the bounded ladder arm must accept exactly one rung")
+    refused_ms = [rung["client_ms"] for rung in bounded.get("rungs", []) if not rung.get("accepted")]
+    accepted_ms = [rung["client_ms"] for rung in rungs] if rungs else []
+    return {
+        "rungs": rungs,
+        "bounded_budget_refusals": budget_refusals,
+        "bounded_evidence_refusals": evidence_refusals,
+        "bounded_accepted_dependency": accepted[0]["charged_dependency_facts"],
+        "refused_ms_min": min(refused_ms), "refused_ms_max": max(refused_ms),
+        "accepted_ms_min": min(accepted_ms), "accepted_ms_max": max(accepted_ms),
+        "max_dependency": max(rung["dependency"] for rung in rungs),
+    }
+
+
+def _benign_stats(samples: list[dict]) -> dict:
+    arms = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "benign":
+            raise PilotEvidenceError("benign study retained a foreign sample")
+        evidence = sample.get("benign_verification") or {}
+        arms[sample["mode"]] = {
+            "accepted": evidence["accepted_statements"],
+            "refused": evidence["refused_statements"],
+            "budget_refusals": evidence["budget_refusals"],
+            "first_budget_refusal": evidence.get("first_budget_refusal", 0),
+            "final_dependency": evidence["final_root"]["dependency_cardinality"],
+            "budget_dependency": evidence["max_influence_facts"],
+        }
+    if set(arms) != {"recipe", "x2", "x4"}:
+        raise PilotEvidenceError("benign study must retain exactly the three arms")
+    recipe = arms["recipe"]
+    union = arms["x4"]["final_dependency"]
+    return {
+        "arms": arms,
+        "statements": 27,
+        "policy_refusals": recipe["refused"] - recipe["budget_refusals"],
+        "recipe_budget_refusals": recipe["budget_refusals"],
+        "union_dependency": union,
+        "recipe_dependency_budget": recipe["budget_dependency"],
+        "union_over_budget_percent": 100.0 * (union - recipe["budget_dependency"]) / recipe["budget_dependency"],
+    }
+
+
+def _counter_stats(samples: list[dict]) -> dict:
+    cells = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "counter":
+            raise PilotEvidenceError("counter study retained a foreign sample")
+        evidence = sample.get("counter_verification") or {}
+        cells[(sample["mode"], sample["scale"])] = {
+            "accepted": evidence["accepted_steps"],
+            "refused": evidence["refused_steps"],
+            "first_refusal": evidence.get("first_refusal", 0),
+            "final_dependency": evidence["final_root"]["dependency_cardinality"],
+            "final_release": evidence["final_root"]["release_cardinality"],
+        }
+    if len(cells) != 12:
+        raise PilotEvidenceError("counter study must retain exactly the twelve cells")
+    orderings = ("natural", "shuffled-v1", "novelty-first-v1")
+    exact_max_dep = max(cells[("exact", ordering)]["final_dependency"] for ordering in orderings)
+    naive_min_dep = min(cells[(arm, ordering)]["final_dependency"]
+                        for arm in ("rows", "queries", "release") for ordering in orderings)
+    return {
+        "cells": {f"{arm}/{ordering}": cells[(arm, ordering)]
+                  for arm, ordering in cells},
+        "exact_max_distinct_dependency": exact_max_dep,
+        "naive_min_distinct_dependency": naive_min_dep,
+        "exact_accept_min": min(cells[("exact", ordering)]["accepted"] for ordering in orderings),
+        "exact_accept_max": max(cells[("exact", ordering)]["accepted"] for ordering in orderings),
+    }

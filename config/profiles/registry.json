@@ -486,6 +486,79 @@
       "within_hot_limit": true
     },
     {
+      "profile_id": "profile-4a29b3ffc7129007",
+      "alias": "adversary-owner",
+      "closure": {
+        "products": [
+          "final_v5_rls_unlimited_expense_detail",
+          "provsql_orders"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-4a29b3ffc7129007",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-adversary-owner-v1"
+      ],
+      "workload_cells": [
+        "adversary/adversary-extraction-v1/bisection/owner",
+        "adversary/adversary-extraction-v1/greedy/owner"
+      ],
+      "experiments": [
+        "adversary"
+      ],
+      "catalog_sha256": "f0172ffb7888254c1abca1b57f9948b4052f634e635eae4b626f31a25a44bf8c",
+      "catalog_path": "config/profiles/adversary-owner.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 16619844,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
       "profile_id": "profile-52504d68e0f7fa28",
       "alias": "footprint-unlimited",
       "closure": {
@@ -701,6 +774,86 @@
         }
       ],
       "total_hot_bytes": 117607276,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-68ded13e09bfd6e1",
+      "alias": "adversary-loosened",
+      "closure": {
+        "products": [
+          "final_v5_rls_unlimited_expense_detail",
+          "provsql_lineitem",
+          "provsql_orders"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "provsql-lineitem-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-68ded13e09bfd6e1",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-adversary-loosened-v1"
+      ],
+      "workload_cells": [
+        "adversary/adversary-extraction-v1/bisection/loosened",
+        "adversary/adversary-extraction-v1/greedy/loosened"
+      ],
+      "experiments": [
+        "adversary"
+      ],
+      "catalog_sha256": "d6e032a4de84f0a702c44e43a7ab64bc707b88e3d2afd50d47a8ecef180c6f7a",
+      "catalog_path": "config/profiles/adversary-loosened.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 117623914,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
@@ -1298,6 +1451,79 @@
         }
       ],
       "total_hot_bytes": 244709250,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-f39ec7673d438fe9",
+      "alias": "adversary-tightened",
+      "closure": {
+        "products": [
+          "final_v5_rls_unlimited_expense_detail",
+          "provsql_lineitem"
+        ],
+        "publications": [
+          "expense-detail-v1",
+          "provsql-lineitem-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department",
+          "partition_key"
+        ],
+        "closure_sha256": "f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "profile_absent_from_activation_support_manifest",
+            "subject": "profile-f39ec7673d438fe9",
+            "detail": "no live activation smoke has been recorded for this profile"
+          },
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": false,
+      "budget_profiles": [
+        "final-v5-adversary-tightened-v1"
+      ],
+      "workload_cells": [
+        "adversary/adversary-extraction-v1/bisection/tightened",
+        "adversary/adversary-extraction-v1/greedy/tightened"
+      ],
+      "experiments": [
+        "adversary"
+      ],
+      "catalog_sha256": "e7999b2ac6b6d03bf54a7afb9f6635e688d6357d5e1e622195a083fa4b36b370",
+      "catalog_path": "config/profiles/adversary-tightened.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        },
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        }
+      ],
+      "total_hot_bytes": 101020708,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true

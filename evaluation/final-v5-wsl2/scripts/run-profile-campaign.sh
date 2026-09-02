@@ -535,6 +535,7 @@ config_source() {
     footprint) printf '%s' evaluation/final-v5-wsl2/config/footprint.example.json ;;
     benign) printf '%s' evaluation/final-v5-wsl2/config/benign.example.json ;;
     counter) printf '%s' evaluation/final-v5-wsl2/config/counter.example.json ;;
+    adversary) printf '%s' evaluation/final-v5-wsl2/config/adversary.example.json ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
@@ -547,6 +548,7 @@ experiment_command() {
     footprint) printf '%s' v5-footprint ;;
     benign) printf '%s' v5-benign ;;
     counter) printf '%s' v5-counter ;;
+    adversary) printf '%s' v5-adversary ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }

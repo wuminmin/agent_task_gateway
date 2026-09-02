@@ -37,6 +37,7 @@ var adapterFactories = map[string]adapterFactory{
 	"footprint":   func(ctx context.Context) (sourceControlledAdapter, error) { return newFootprintAdapter(ctx) },
 	"benign":      func(ctx context.Context) (sourceControlledAdapter, error) { return newBenignAdapter(ctx) },
 	"counter":     func(ctx context.Context) (sourceControlledAdapter, error) { return newCounterAdapter(ctx) },
+	"adversary":   func(ctx context.Context) (sourceControlledAdapter, error) { return newAdversaryAdapter(ctx) },
 	"attack":      func(ctx context.Context) (sourceControlledAdapter, error) { return newAttackAdapter(ctx) },
 	"provsql":     func(ctx context.Context) (sourceControlledAdapter, error) { return newProvSQLAdapter(ctx) },
 	"compiler":    func(ctx context.Context) (sourceControlledAdapter, error) { return newCompilerAdapter(ctx) },

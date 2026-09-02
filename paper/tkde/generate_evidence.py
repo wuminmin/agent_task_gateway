@@ -1567,6 +1567,55 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFiveProvSQLLeafTotalRowFacts}}{{{comma(pilot_leaves['total_row_facts'])}}}",
         r"\newcommand{\FinalVFiveProvSQLLeafTableBody}{%" + "\n" + "\n".join(leaf_rows) + "%\n}",
     ])
+
+    # The three P8 retained studies (pilot class, publication-ineligible):
+    # comparator arms, benign agent trace, refused-footprint ladder. Absent
+    # families fail closed: once the manuscript cites a study, a build
+    # without its registered evidence must not succeed silently.
+    counter = pilot.get("counter")
+    if counter is None:
+        raise SystemExit("pilot evidence lacks the comparator-arms study")
+    counter_rows = []
+    ordering_labels = (("natural", "natural"), ("shuffled-v1", "shuffled"), ("novelty-first-v1", "novelty-first"))
+    for arm, arm_label in (("exact", "exact three-dimension floors"), ("rows", "row counter (175)"),
+                           ("queries", "query counter (70)"), ("release", "release-set only (7)")):
+        cells = [counter["cells"][f"{arm}/{ordering}"] for ordering, _ in ordering_labels]
+        accepted = "/".join(str(cell["accepted"]) for cell in cells)
+        first = "/".join(str(cell["first_refusal"]) for cell in cells)
+        dependency = "/".join(str(cell["final_dependency"]) for cell in cells)
+        counter_rows.append(" & ".join([arm_label, accepted, first, dependency]) + r" \\")
+    lines.extend([
+        rf"\newcommand{{\FinalVFiveCounterExactMaxDep}}{{{counter['exact_max_distinct_dependency']}}}",
+        rf"\newcommand{{\FinalVFiveCounterNaiveMinDep}}{{{counter['naive_min_distinct_dependency']}}}",
+        rf"\newcommand{{\FinalVFiveCounterExactAcceptMin}}{{{counter['exact_accept_min']}}}",
+        rf"\newcommand{{\FinalVFiveCounterExactAcceptMax}}{{{counter['exact_accept_max']}}}",
+        r"\newcommand{\FinalVFiveCounterTableBody}{%" + "\n" + "\n".join(counter_rows) + "%\n}",
+    ])
+    benign = pilot.get("benign")
+    if benign is None:
+        raise SystemExit("pilot evidence lacks the benign agent-trace study")
+    lines.extend([
+        rf"\newcommand{{\FinalVFiveBenignStatements}}{{{benign['statements']}}}",
+        rf"\newcommand{{\FinalVFiveBenignPolicyRefusals}}{{{benign['policy_refusals']}}}",
+        rf"\newcommand{{\FinalVFiveBenignRecipeBudgetRefusals}}{{{benign['recipe_budget_refusals']}}}",
+        rf"\newcommand{{\FinalVFiveBenignUnionDependency}}{{{comma(benign['union_dependency'])}}}",
+        rf"\newcommand{{\FinalVFiveBenignRecipeDependencyBudget}}{{{comma(benign['recipe_dependency_budget'])}}}",
+        rf"\newcommand{{\FinalVFiveBenignUnionOverBudgetPercent}}{{{decimal(benign['union_over_budget_percent'], 2)}}}",
+        rf"\newcommand{{\FinalVFiveBenignXTwoAccepted}}{{{benign['arms']['x2']['accepted']}}}",
+        rf"\newcommand{{\FinalVFiveBenignXTwoBudgetRefusals}}{{{benign['arms']['x2']['budget_refusals']}}}",
+    ])
+    footprint = pilot.get("footprint")
+    if footprint is None:
+        raise SystemExit("pilot evidence lacks the refused-footprint ladder study")
+    lines.extend([
+        rf"\newcommand{{\FinalVFiveFootprintMaxDependency}}{{{comma(footprint['max_dependency'])}}}",
+        rf"\newcommand{{\FinalVFiveFootprintBoundedBudgetRefusals}}{{{footprint['bounded_budget_refusals']}}}",
+        rf"\newcommand{{\FinalVFiveFootprintBoundedEvidenceRefusals}}{{{footprint['bounded_evidence_refusals']}}}",
+        rf"\newcommand{{\FinalVFiveFootprintBoundedAcceptedDependency}}{{{footprint['bounded_accepted_dependency']}}}",
+        rf"\newcommand{{\FinalVFiveFootprintRefusedMSMin}}{{{decimal(footprint['refused_ms_min'], 0)}}}",
+        rf"\newcommand{{\FinalVFiveFootprintRefusedMSMax}}{{{decimal(footprint['refused_ms_max'], 0)}}}",
+        rf"\newcommand{{\FinalVFiveFootprintAcceptedMSMax}}{{{decimal(footprint['accepted_ms_max'], 0)}}}",
+    ])
     pilot_artifact = pilot["artifact"]
     # Sub-phase pilot (profile-campaign pilot with Gateway component_ms retained):
     # atomic component medians of the novel arm for the three discussed cells.

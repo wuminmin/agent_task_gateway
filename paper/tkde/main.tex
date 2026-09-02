@@ -85,9 +85,9 @@ single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
 within its set budgets, and costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}$\times$
-a direct query, with settlement alone at
-\FinalVFivePublicationScaleSettleMillionMS{}~ms against a million-fact
-history.
+a direct query (per-cell medians over sixteen workload/scale pairs), with
+settlement alone at a median \FinalVFivePublicationScaleSettleMillionMS{}~ms
+at zero ledger overlap against a million-fact history.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -100,12 +100,12 @@ budget, positive-output dependency footprint, query-outcome accounting
 
 \IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
 An adaptive agent adds, ``How much policy-defined exposure has this task
-acquired?'' Within one approved task, an agent may split projections, overlap
-pages, retry, rewrite, and delegate (each child grant human-approved)
-while individual queries remain legal,
-and per-query authorization and row limits do not state the root family's
-distinct cumulative exposure; BDG accounts that contract-defined quantity,
-not the agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
+acquired?'' Within one approved task, an agent may split projections,
+overlap pages, retry, rewrite, and delegate (each child grant
+human-approved) while individual queries remain legal, and per-query
+authorization and row limits do not state the root family's distinct
+cumulative exposure. BDG accounts that contract-defined quantity, not the
+agent's knowledge. Data-flow control (DFC) asks whether a SQL flow is
 allowed \cite{summers2026dataflow,summers2026passant}; conditional on
 authorization and any DFC check, BDG asks whether the next allowed execution
 fits the root's cumulative contract.
@@ -127,18 +127,17 @@ freshness over a changing database.
 Large enterprises already operate lakes or warehouses, reporting marts, Data
 Catalogs, identity directories, and approval workflows, but none turns one
 approved purpose into an enforceable contract across an agent's queries,
-retries, pages, and delegated subtasks. Marketplace-integrated agents
-close the discovery-and-request half of this gap (Data Product MCP checks
-a declared purpose against natural-language contracts before each query
+retries, pages, and delegated subtasks. Marketplace-integrated agents close the discovery-and-request half of this
+gap (Data Product MCP
 \cite{tonnarelli2026dataproductmcp,dietz2025automating,bitol2025odcs}), but
 once a purpose is approved, per-query checks still do not state how much
 governed data the task has cumulatively released. BDG starts at that boundary
-as a brownfield-compatible data-egress layer at the governed serving tier:
-the reporting pipeline supplies immutable publications, the Catalog supplies
-Products and attested stable keys, identity and workflow systems supply
-subject, purpose, and approval, and BDG compiles these into a signed task
-contract settled at a model-independent database boundary; the raw lake is
-never exposed to the agent.
+as a brownfield-compatible data-egress layer at the governed serving tier.
+The reporting pipeline supplies immutable publications, the Catalog
+supplies Products and attested stable keys, and identity and workflow
+systems supply subject, purpose, and approval; BDG compiles these into a
+signed task contract settled at a model-independent database boundary, and
+the raw lake is never exposed to the agent.
 
 \system budgets the root task in three set-valued dimensions. \emph{Accounted
 result exposure} identifies selected result values (wire label \emph{release});
@@ -229,12 +228,11 @@ object and a second transaction records AVAILABLE/CONSUMED
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{Publication-time ordinals identify frozen Release/Dependency facts
-and an exact Merkle-radix set holds Outcome hashes; root-family accounting is
-atomic, Parquet publication is recoverable and fail-closed between PENDING and
-AVAILABLE, and a cache hit reuses a committed observation---saving the Fact
-charge and the business SQL, not latency---while authorization, metering,
-audit, receipt, and commit-before-release still run.}
+\caption{Publication-time ordinals identify frozen Release/Dependency
+facts and an exact Merkle-radix set holds Outcome hashes; root-family
+accounting is atomic, Parquet publication is recoverable and fail-closed
+between PENDING and AVAILABLE, and a replay hit reuses a committed
+observation (Section~\ref{sec:online}).}
 \label{fig:architecture-settlement}
 \end{figure*}
 
@@ -252,8 +250,9 @@ This article's five implementation-backed contributions are:
 (1) a typed FactID semantics for accounted Result, positive-output
 Dependency, and canonical-atom/composite Outcome sets in a restricted
 algebra; (2) a same-snapshot ordinal companion for a closed reporting
-fragment---one-Product and connected equijoin queries (two-source joins
-evaluated end to end; up to 16 roles admitted by the compiler), two-branch
+fragment---one-Product and connected equijoin queries (two- and
+three-source joins evaluated end to end; up to 16 roles admitted by the
+compiler), two-branch
 union, grouping with HAVING and the admitted aggregates (COUNT, COUNT
 DISTINCT, SUM, MIN, MAX, exact AVG), into which bounded nested Views
 flatten; no arithmetic, scalar functions, OR, subqueries, or outer joins
@@ -277,8 +276,8 @@ Go/PostgreSQL differential, generated-plan, and fault-injection evidence.
 
 \subsection{Closest System Families}
 
-The supplement tabulates, for each family below, the controlled object,
-the horizon and persistent subject, and the enforcement/release coupling.
+The supplement tabulates each family's controlled object, horizon and
+persistent subject, and enforcement/release coupling.
 
 \textbf{History, pricing, and provenance.} Auditing reconstructs access or
 whether a history determines forbidden data, and simulatable auditing also
@@ -286,14 +285,16 @@ protects denial
 \cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable};
 query pricing studies determinacy, history, and information gain
 \cite{koutris2012query,deep2017qirana,peng2025aria}; DP accounting and answer
-reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}.
+reuse bound $\epsilon$ \cite{dwork2014foundations,mazmudar2022cachedp};
+DProvDB \cite{zhang2023dprovdb} is the closest shape---a persistent
+per-analyst cumulative budget---but meters DP loss over noised views, not
+an exact declared-identity set with zero-charge replay.
 Statistical-database inference control studied trackers, query-set overlap,
 and cumulative auditing
 \cite{dobkin1979secure,denning1980tracker,adam1989security,kleinberg2003auditing,nabar2006robustness};
-BDG's Dependency ledger is an exact, provenance-derived, delegation- and
-publication-bound engineering of that lineage that bounds settled
-predicates, not inference, and its budget is a set of declared facts where
-PINQ's is $\epsilon$ \cite{mcsherry2009pinq}. Zero-novelty replay is the
+BDG's Dependency ledger is a provenance-derived engineering of that
+lineage: it bounds settled predicates, not inference, and its budget is a
+set of declared facts where PINQ's is $\epsilon$ \cite{mcsherry2009pinq}. Zero-novelty replay is the
 syntactic analogue of history-aware pricing, and
 Theorem~\ref{thm:nf-soundness} covers rules R1--R6 only, weaker than
 arbitrage-freedom. Why/where/how provenance
@@ -306,9 +307,8 @@ effects before release.
 \textbf{Data-flow policy enforcement.} FlowGuard and DFC/Passant are the
 closest database-layer comparators \cite{summers2026dataflow,summers2026passant}.
 Passant enforces optimizer-invariant aggregate predicates over each output
-tuple's provenance monomials (contributor thresholds, source combinations,
-grounding, prompt-bound flows BDG does not subsume); trajectory policy is
-its future work. BDG differs in temporal unit: DFC asks whether a flow is
+tuple's provenance monomials (flow shapes BDG does not subsume);
+trajectory policy is its future work. BDG differs in temporal unit: DFC asks whether a flow is
 allowed, BDG whether another allowed flow fits the cumulative contract
 across queries, retries, pages, rewrites, and descendants (composition not
 evaluated).
@@ -322,7 +322,7 @@ fragment, and usage/history control, RLS/VPD, ABAC, and query-policy systems
 establish ongoing authority, quotas, and rows
 \cite{park2004ucon,abadi2003history,li2003delegation,postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}; MCP authorization
 and delegation scope capability invocation
-\cite{mcp2025auth,mcp2025tools,south2025delegation}; AgentDojo evaluates
+\cite{mcp2025spec,south2025delegation}; AgentDojo evaluates
 model behavior under prompt injection \cite{debenedetti2024agentdojo} and
 SafeNLIDB inference risk on the model side \cite{liu2026safenlidb};
 provenance-based access control \cite{park2012pbac} and CaMeL's tool-layer
@@ -342,27 +342,23 @@ bounded governed release: within one approved root family on one publication
 epoch, no more than $B_X$ distinct FactIDs of each kind become
 \code{AVAILABLE}, whatever sequence of admitted queries the agent issues.
 Four extraction patterns motivate the three budgets, three of them
-exercised by the evaluation: sweeping a Product page by page, bounded by
-$B_R$ (budget arithmetic in Section~\ref{sec:calibration}, not a measured
-cell); aggregates that read far more base facts
-than a purpose warrants, bounded by $B_D$ (the adaptive trace); probe
-ladders, whose count of distinct settled predicates $B_O$ bounds but whose
-recovery it does not (under the default $B_O=128$ a binary search recovers
-a 64-bit cell in 64 settled probes; $B_Q$ adds 128 refusal bits per task);
-and delegation fan-out,
-bounded by the shared root ledger (the delegated child's refusal). Four
+exercised by the evaluation. Page-by-page sweeps are bounded by $B_R$
+(Section~\ref{sec:calibration}); aggregates that read far more base facts
+than a purpose warrants by $B_D$ (the adaptive trace); delegation fan-out
+by the shared root ledger (the delegated child's refusal). Probe ladders
+$B_O$ bounds in count but not in recovery: under the default $B_O=128$ a
+binary search recovers a 64-bit cell in 64 settled probes, and $B_Q$ adds
+128 refusal bits per task. Four
 boundaries hold at this goal: it counts declared identities, not inference;
-only the Catalog tie-break keys of a page order are order-only (every
-\code{ORDER BY} column must be selected); every approved root and
-publication epoch has fresh capacity, so release across days is bounded by
-the approval workflow, not by BDG; and the settlement decision is two
-data-dependent counter channels. A rejected attempt is a chosen membership
+page order is order-only in the Catalog tie-break keys alone (the
+\code{ORDER BY} rule below); fresh per-root, per-epoch capacity bounds
+cross-day release by the approval workflow, not by BDG; and the settlement
+decision is two data-dependent counter channels. A rejected attempt is a chosen membership
 question over unaccounted facts answered by one bit, charged against $B_Q$
 only and never $B_O$, so rejection capacity is $\sum B_Q$ over the approved
 task tree, not $B_X$ (Section~\ref{sec:online}): under the default route
-($B_O=B_Q=128$) one task can settle 128 distinct predicates and be refused
-128 times, and a $k$-task tree 128 settled predicates in total but $128k$
-refusals; a settled response returns
+($B_O{=}B_Q{=}128$) a $k$-task tree can settle 128 distinct predicates in
+total but take $128k$ refusals; a settled response returns
 the per-dimension charge and the ledger's used and limit counters
 (\code{exposure}, \code{exposure_budget}), so each of at most $B_O$
 successful novel queries reveals $|\Delta_X|$, up to $3\lceil\log_2
@@ -406,12 +402,10 @@ $T$ or any delegated descendant. Then
  \end{aligned}
  \label{eq:publication-binding}
 \end{equation}
-The Catalog transitively binds the grant and FactID environment to that epoch;
-ledger state, replay metadata, result evidence, audit events, and receipts
-carry the corresponding publication and dictionary bindings. Execution,
-settlement, and replay fail closed if they differ. Consequently an active root
-cannot switch publications, even after the next cut becomes active for new
-approvals.
+The Catalog transitively binds the grant and FactID environment to that
+epoch; ledger state, replay metadata, evidence, audits, and receipts carry
+the same bindings, and execution, settlement, and replay fail closed if
+they differ, so an active root cannot switch publications.
 
 \subsection{Facts and Task State}
 
@@ -426,8 +420,9 @@ where $P$ is the signed policy grant over the principal, data products,
 fields, and scopes; $S$ is the immutable publication/snapshot binding from
 Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
 dependency-footprint, and query-outcome ceilings together with the request
-budget $B_Q$ (the maximum number of settled or rejected attempts, an
-exposure parameter because it bounds refusals); and $C$ is the signed set of
+budget $B_Q$ (the maximum number of settled or rejected attempts; a
+rejection consumes one unit plus its admission-reserved rows and database
+time and charges no exposure set); and $C$ is the signed set of
 semantic and execution constraints and row/time guards.  In particular, $C$ binds the effect
 profile and closed QueryPlan language, type/collation versions, semantic-View
 contracts, delegation rules, replay identity, and result handling.  The
@@ -435,28 +430,29 @@ monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
 \emph{not} a component of the approved tuple.
 \end{definition}
 
-The release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
-index.  Its semantic environment is
+The release/dependency algebra treats a FactID as a semantic object (its
+SHA-256 is only a database index); its semantic environment is
 $\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
 version, admitted type domain, timezone, exact deterministic collation
 name/version map, immutable snapshot map, and catalog/lineage digest.  A
 judgment is defined only for an \emph{admissible} $\Pi$: source schemas and
 entity keys are attested, every collatable field has a deterministic collation,
-and volatile expressions are absent.  Let $\nu$ be a catalog-owned source
-namespace (not a view alias), $s$ an immutable snapshot, $e$ a canonical stable
-entity key, $a$ a role-qualified field ID, $\tau\in\mathcal T$, and
+and volatile expressions are absent.  Let $\varpi$ be the versioned
+exposure-profile identifier (Section~\ref{sec:clearance-profile}), $\nu$ a
+catalog-owned source namespace (not a view alias), $s$ an immutable snapshot,
+$e$ a canonical stable entity key, $a$ a role-qualified field ID, $\tau\in\mathcal T$, and
 $C_\tau(v)$ its typed canonical value.  Base identities are
 
 \begin{align}
- f_{row}&=\langle\pi,\nu,s,e\rangle,\\
- f_{cell}&=\langle\pi,\nu,s,e,a,\tau,C_\tau(v)\rangle .
+ f_{row}&=\langle\varpi,\nu,s,e\rangle,\\
+ f_{cell}&=\langle\varpi,\nu,s,e,a,\tau,C_\tau(v)\rangle .
  \label{eq:fact}
 \end{align}
 
 A derived identity is
-$f_d=\langle\pi,\mathcal B,k_o,N_\pi(x),\tau,C_\tau(v),CW(W)\rangle$,
+$f_d=\langle\varpi,\mathcal B,k_o,N_\varpi(x),\tau,C_\tau(v),CW(W)\rangle$,
 where $\mathcal B=\operatorname{sort}\{(\nu,s)\}$ is the relation's snapshot
-bundle, $k_o$ is the canonical output-row entity key, $N_\pi(x)$ erases aliases
+bundle, $k_o$ is the canonical output-row entity key, $N_\varpi(x)$ erases aliases
 and normalizes the supported expression, and
 $W:\facts_{base}\rightharpoonup\mathbb N^+$
 is a finite-support witness multiset (the empty support is allowed); the
@@ -478,7 +474,7 @@ deduplication, let $k_a=\code{PREDICATE_ATOM}$ and define semantic atom
 objects before their physical keys:
 \begin{equation}
  \begin{aligned}
- a_i&=\langle k_a,\pi,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
+ a_i&=\langle k_a,\varpi,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
  A(q)&=\{a_i\mid a_i\in\operatorname{Atomize}(q)\}.
  \end{aligned}
  \label{eq:predicate-atoms}
@@ -491,19 +487,19 @@ Let $h_A$ commit the sorted $\operatorname{FactHash}_O$ values of $A(q)$ and
 $k_c=\code{COMPOSITE_OUTCOME}$. BDG creates one semantic composite object
 \begin{equation}
  \begin{aligned}
- c_q&=\langle k_c,\pi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
+ c_q&=\langle k_c,\varpi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
  \facts_O(q)&=A(q)\cup\{c_q\},\\
  M_O(q)&=\{\operatorname{FactHash}_O(f)\mid f\in\facts_O(q)\}.
  \end{aligned}
  \label{eq:outcome-fact}
 \end{equation}
 Repeated literals and supported rewrites thus reuse atom identities, while
-the composite commits to the normalized query, exact result observation, and
-complete atom set, so every distinct successful query, including every page
-of a paged result, adds one composite and $B_O$ therefore also caps the
-number of distinct successful queries; the Merkle-radix set stores $M_O(q)$, empty results and
-scalar zero remain explicit, and the signed grant bounds literal occurrences,
-unique atoms, and atom payloads before settlement.
+the composite commits to the normalized query, exact result observation,
+and complete atom set, so every distinct successful query (every page
+included) adds one composite and $B_O$ also caps distinct successful
+queries; the Merkle-radix set stores $M_O(q)$, empty results and scalar
+zero stay explicit, and the signed grant bounds literal occurrences, unique
+atoms, and payloads before settlement.
 
 \begin{proposition}[Fact identity well-definedness]
 \label{thm:fact-identity}
@@ -518,9 +514,8 @@ For query $q$ over snapshot $D_s$, the exposure effect
 $\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
 result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
-versioned profile $\pi$.  The latter are the base facts the inductive rules
-below select for successfully derived output rows and cells; they are not
-minimal causal provenance or all physical reads; the admitted language
+versioned profile $\varpi$.  The latter are the base facts the inductive rules
+below select for successfully derived output rows and cells; the admitted language
 requires every \code{ORDER BY} column to be selected, so only the Catalog
 tie-break suffix of Page is order-only and outside this profile.
 $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
@@ -591,14 +586,14 @@ $|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
 \begin{definition}[Profile-relative clearance exactness]
 \label{def:profile-relative-exactness}
-For an approved $T=(P,S,B,C)$, $C$ binds one versioned Exposure Profile $\pi$.
+For an approved $T=(P,S,B,C)$, $C$ binds one versioned Exposure Profile $\varpi$.
 For any admissible $\Pi$ and successful query in the closed language, write
-$\facts_X^\pi(q)$ for the existing component $\facts_X(q,S)$ with its profile
+$\facts_X^\varpi(q)$ for the existing component $\facts_X(q,S)$ with its profile
 binding made explicit. BDG exactly computes the canonical Result, Dependency,
-and Outcome sets $\facts_R^\pi(q),\facts_D^\pi(q),\facts_O^\pi(q)$ and their
+and Outcome sets $\facts_R^\varpi(q),\facts_D^\varpi(q),\facts_O^\varpi(q)$ and their
 componentwise novelty
 \[
- \Delta_T^X(q)=\facts_X^\pi(q)\setminus\accounted_T^X,
+ \Delta_T^X(q)=\facts_X^\varpi(q)\setminus\accounted_T^X,
  \qquad X\in\{R,D,O\}.
 \]
 This definition fixes the scope of the word \emph{exact}: governance
@@ -609,9 +604,14 @@ empirically only as consistency with our reference implementations
 estimates of information content, knowledge, or privacy loss; BDG prevents
 unaccounted governed release under a task-bound, versioned profile.
 \end{definition}
+\emph{Example (cont.).} Under budgets $B_R/B_D/B_O=6/12/7$ the five-row
+episode of Section~\ref{sec:model} ends with ledger totals $(6,12,7)$; a
+next query $\sigma_{dept='T'}$ needs new base and Outcome facts, so its
+$\Delta_T$ no longer fits, and it is refused uncharged---the ledger still
+reads $(6,12,7)$.
 Exactness rests on four accounting obligations, proved for the closed
 language in the supplement (O1--O4): (O1) every selected cell of a successful result
-has its materialized identity in $\facts_R$; (O2) $\facts_D^\pi$ is exactly
+has its materialized identity in $\facts_R$; (O2) $\facts_D^\varpi$ is exactly
 the declared inductive footprint (retained predicate fields, join keys, group
 keys, complete aggregate arguments), excluding rejected rows and non-output
 pages; (O3) the listed rewrites, projection splits, complete page partitions,
@@ -632,7 +632,7 @@ Let $\mathsf{AVAILABLE}(q)$ mean that $q$'s canonical artifact has reached the
 \code{AVAILABLE} state. For every modeled query and $X\in\{R,D,O\}$,
 \[
  \mathsf{AVAILABLE}(q)\Longrightarrow
- \facts_X^\pi(q)\subseteq\accounted_T^X
+ \facts_X^\varpi(q)\subseteq\accounted_T^X
  \ \wedge\ |\accounted_T^X|\leq B_X.
 \]
 \end{property}
@@ -709,7 +709,7 @@ PostgreSQL aggregate result types. Non-associative
 floating SUM, unsupported casts, and overflow are undefined and settle
 nothing; the complete type domain and encoders are supplemental.
 
-\subsection{Annotated Bags and Complete Output Keys}
+\subsection{Annotated-Bag Evaluation and Effect Extraction}
 
 A relation is a typed PostgreSQL bag with unique occurrence keys and optional
 proven total order; rows and cells carry support $S$, positive witness
@@ -721,73 +721,49 @@ and every operator preserves
 \end{equation}
 Same-proof composition unions support and adds multiplicities; alternative
 proofs union support and take pointwise maximum, so alternatives are
-idempotent while join fanout remains visible. Row identity is
-$\operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k)$ with
-$H$ typed, length-delimited, and domain-separated: Scan uses the Catalog
-entity key, unary operators preserve keys, and join, union-distinct, and
-group bind their complete canonical child/class/group identities; derived
-Facts also bind source/snapshot, expression, value, and witness (key
-construction and collision checks are supplemental).
-
-\subsection{Operator Evaluation and Effect Extraction}
+idempotent while join fanout remains visible. Row identity
+$\operatorname{RID}(R,t)$ hashes the canonical schema, snapshot bundle, and
+complete operator-specific key material under a typed, domain-separated
+$H$ (construction and collision checks are supplemental).
 
 Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$: a failed
-premise yields no relation, effect, settlement, or release. A cell carries
-value, type, annotation pair $(S_a,W_a)$, normalized lineage expression, and
-an optional materialized release fact $\rho_a$; every rule constructs each
-output cell explicitly (complete rules, NULL/empty-input cases, and page
-bounds are in the supplement). Union is bag-aware and idempotent only when its typed tuples are proven
+premise yields no relation, effect, settlement, or release; every rule
+constructs each output cell explicitly (complete rules, NULL/empty-input
+cases, and page bounds are in the supplement). Union is bag-aware and idempotent only when its typed tuples are proven
 duplicate-free, grouping/distinct equivalence is \code{IS NOT DISTINCT FROM},
 floating-point \code{SUM} is rejected because the bag fixes no fold order,
 and pagination appends Catalog keys until the order is total; the relation is
 a partial function, not a semantics for arbitrary SQL.
-
-Finally, define materialization and the effect---they are not an implementation
-afterthought:
+Materialization $\operatorname{mat}(R,t,a)$ reuses a cell's pre-existing
+release fact when value, type, bundle, and support or expression/witness
+still validate, and otherwise mints the derived identity; the effect is
 \begin{align}
-\operatorname{new}(R,t,a)&=
- f_d(\mathcal B,t.k,N(x_a),\tau_a,v_a,W_a),\\
-\operatorname{mat}(R,t,a)&=
-\begin{cases}
-\rho_a,&\operatorname{valid}(\rho_a,R,t,a),\\
-\operatorname{new}(R,t,a),&\text{otherwise},
-\end{cases}\\
 \facts_R(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
 \facts_D(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
                 \bigcup_{t\in R,a\in V}S_a(t),\\
 \rieffect_\Pi(e,D,V)&=\operatorname{normalize}
-  \langle\facts_R(R,V),\facts_D(R,V)\rangle.       \label{eq:observe}
+  \langle\facts_R(R,V),\facts_D(R,V)\rangle,       \label{eq:observe}
 \end{align}
-Here $\Pi;D\vdash e\Downarrow R$; $S_r(t)$ is row $t$'s support, the base
-row facts and the predicate, join-key, group-key, and aggregate-argument cells
-its derivation read, and $S_a(t)$ is the support of its cell $a$;
-$\operatorname{valid}$ checks value, type and bundle, plus support for a base
-fact or expression/witness for a derived fact, against the pre-existing
-release fact.
-Thus query bags and witness multiplicity are retained during composition, while
-the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
+where $S_r(t)$ is row $t$'s support (the base row facts and the predicate,
+join-key, group-key, and aggregate-argument cells its derivation read) and
+$S_a(t)$ the support of its cell $a$. Query bags and witness multiplicity
+are retained during composition, while the two base ledgers are sets.
+Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
 visible row of a global aggregate; BDG nevertheless adds the tested predicate
 atoms and one composite outcome.
 
-\begin{proposition}[Representation closure and partial-function semantics]
+\begin{proposition}[Representation closure and dependency determinism]
 \label{thm:representation-closure}
-For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation has
-at most one result.  If $\Pi;D\vdash e\Downarrow R$, $R$ satisfies
-Eq.~\eqref{eq:anninv}, has canonical schema/bundle and unique row keys, and is a
-valid input to every well-typed parent rule.
+For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation
+has at most one result, satisfying Eq.~\eqref{eq:anninv} with canonical
+schema/bundle and unique row keys, valid as input to every well-typed
+parent rule; fixed $\Pi$, $e$, $D$, and visible set $V$ uniquely determine
+$\facts_D$ and $\rieffect_\Pi(e,D,V)$ whenever evaluation succeeds.
 \end{proposition}
-\emph{Proof in the supplement.}
-
-\begin{proposition}[Dependency determinism]
-\label{thm:dependency-determinism}
-Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
-uniquely determine the positive-output dependency-footprint FactSet $\facts_D$, and hence
-$\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
-\end{proposition}
-\emph{Proof in the supplement.}
+\emph{Proofs in the supplement.}
 
 
 \subsection{Conservation Properties}
@@ -796,9 +772,9 @@ The properties below cover only the stated operators and rewrites, not
 arbitrary equivalent SQL; the supplement proves Fact-set normalization and the
 restricted selection--projection invariance the rewrite tests use.
 
-\begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
+\begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\varpi}$]
 \label{def:nf}
-$NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
+$NF_{\Pi,\varpi}$ maps accepted, well-typed inputs to canonical terms under the
 one normal-form profile the task contract binds (rules R1--R6 below);
 equality is syntactic. Its typed digest is the query-semantic component of
 replay/outcome identity, distinct from final-ledger Fact-set
@@ -807,11 +783,11 @@ $\operatorname{normalize}$.
 
 \begin{theorem}[Typed normal-form soundness]
 \label{thm:nf-soundness}
-For admissible $\Pi$, fixed profile $\pi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
+For admissible $\Pi$, fixed profile $\varpi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
 algebra or accepted graph-lowerable SQL fragment, and the same visible field
 set $V$,
 \[
- NF_{\Pi,\pi}(q_1)=NF_{\Pi,\pi}(q_2)\Longrightarrow
+ NF_{\Pi,\varpi}(q_1)=NF_{\Pi,\varpi}(q_2)\Longrightarrow
  \effect_\Pi(q_1,D,V)=\effect_\Pi(q_2,D,V).
 \]
 This is not completeness for arbitrary equivalent SQL: normalization neither
@@ -831,10 +807,10 @@ it, Project preserves it only for an unchanged schema, Scan has none);
 per-rule effect-preservation lemma with these side conditions; RQ2's
 zero-charge guarantee covers exactly R1--R6.
 
-For a fixed approved task, let $\pi_T$ be the normal-form profile bound in
+For a fixed approved task, let $\varpi_T$ be the normal-form profile bound in
 $C$ and define the canonical replay descriptor
 \begin{equation}
- \operatorname{RK}_T(q)=\langle P,S,C,\pi_T,NF_{\Pi,\pi_T}(q),
+ \operatorname{RK}_T(q)=\langle P,S,C,\varpi_T,NF_{\Pi,\varpi_T}(q),
      \operatorname{params}_\Pi(q),\operatorname{encver}\rangle,
  \label{eq:replay-descriptor}
 \end{equation}
@@ -843,12 +819,11 @@ Grant and Catalog; the implementation indexes a digest of this descriptor but
 verifies the bound metadata before accepting a hit. Descriptor equality fixes
 policy, publication, effect/View contracts, typed parameters, and normal form,
 hence all three effect sets, so exact replay has zero novelty; the converse is
-not claimed outside the stated rules. A semantic-View root $v$ compiles to a
-closed core term with a binding $\beta_v$ over root identity, resolved
-expressions, View contract, and predicate context; expansion over the
-accepted acyclic DAG preserves the visible bag and all three effect sets when
-the internal query retains $\beta_v$ (proof in the supplement), while a direct
-terminal query can carry different Outcome FactIDs.
+not claimed outside the stated rules. A semantic-View root compiles to a
+closed core term with a binding $\beta_v$; DAG expansion retaining
+$\beta_v$ preserves the visible bag and all three effect sets (proof in the
+supplement), while a direct terminal query can carry different Outcome
+FactIDs.
 
 \begin{proposition}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
@@ -875,20 +850,16 @@ HAVING), inner equijoin, union-distinct, and page. Online lowering
 admits one product, a connected 2--16-source equi-join graph, or two-branch
 union-distinct, optionally grouped; the SQL-AST path covers the first two and
 the semantic-View path eliminates a bounded nested DAG into them. Union is
-structured-plan only, pagination is one-product only, and ``online'' does not
-mean arbitrary SQL.
-
-\subsection{Canonical Join and Semantic-View Lowering}
-
-For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
-builder, which emits the multi-way join operator and the deterministic binary
-SQL/effect fold; unsupported joins, set trees, and pagination fail closed,
-and callers cannot supply roles, SQL fragments, FactIDs, or provenance. For
-semantic Views, one catalog snapshot checks definitions, interfaces, and
-dependency edges, expands safe acyclic Views to materialized leaves, and
-emits the same core; four digests (root definition, dependency closure,
-canonical plan, public interface) bind into the Grant and query, drift
-detected at recompilation requires a new approval, and execution resolves
+structured-plan only, pagination is one-product only, and ``online'' does
+not mean arbitrary SQL. For joins, the PostgreSQL AST and Catalog types
+feed the canonical $G_J$ builder, which emits the multi-way join operator
+and the deterministic binary SQL/effect fold; unsupported joins, set trees,
+and pagination fail closed, and callers cannot supply roles, SQL fragments,
+FactIDs, or provenance. For semantic Views, one catalog snapshot checks
+definitions, interfaces, and dependency edges, expands safe acyclic Views
+to materialized leaves, and emits the same core; four digests (root
+definition, dependency closure, canonical plan, public interface) bind into
+the Grant and query, drift requires a new approval, and execution resolves
 least-privilege terminal scopes before reservation.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
@@ -907,24 +878,13 @@ Release/Dependency use segmented Roaring bitmaps, Outcome hashes enter an
 exact Merkle-radix set, and invalid handles, manifests, encodings, overflow,
 or truncation fail closed.
 
-\begin{proposition}[Exact bitmap refinement]
-\label{thm:bitmap-refinement}
-For canonical bitmaps $A$ and $B$ in one dictionary segment,
-$\operatorname{Decode}(A\mathbin{\mathrm{OR}}B)=
-\operatorname{Decode}(A)\cup\operatorname{Decode}(B)$,
-$\operatorname{Decode}(A\mathbin{\mathrm{ANDNOT}}B)=
-\operatorname{Decode}(A)\setminus\operatorname{Decode}(B)$, and
-$\operatorname{popcount}(A)=|\operatorname{Decode}(A)|$. For every successful
-query in the closed online algebra, decoding the streamed bitmap components
-yields exactly the release and dependency components of $\effect(q,D_s)$.
-\end{proposition}
-\emph{Argument.} Bijective decoding turns OR, ANDNOT, and popcount into exact
-set operations, and induction over the closed algebra substitutes ordinals
-for singleton facts without changing support or witness commitments
-(supplement).
-
+Decoding is exact: within one dictionary segment, bitmap OR, ANDNOT, and
+popcount correspond to set union, difference, and cardinality, and for
+every successful query in the closed online algebra the streamed bitmap
+components decode to exactly the release and dependency components of
+$\effect(q,D_s)$ (proposition and proof in the supplement).
 For Outcome, hash prefixes route immutable, content-addressed leaves and
-blocks, but membership always compares the full SHA-256 value. Physical
+blocks, but membership always compares the full SHA-256 value; physical
 leaf/block encodings are supplemental.
 
 \begin{proposition}[Exact incremental Outcome-set refinement]
@@ -938,24 +898,23 @@ $C_O\setminus\operatorname{Decode}(K_O)$ exactly. Any changed member, count,
 prefix, chunk, block, or root manifest changes a verified digest except with a
 SHA-256 collision.
 \end{proposition}
-\emph{Argument.} Prefix routing partitions the full-hash universe, so an
-inserted candidate affects only its own partitions; comparison is over all
-256 bits and the Merkle path authenticates reused partitions.
+\emph{Argument in the supplement} (prefix routing partitions the full-hash
+universe; comparison is over all 256 bits).
 
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
 For one successful query (Fig.~\ref{fig:architecture-settlement}b) the
-enforcement layer reauthorizes and reserves resources and looks up semantic
-replay under the signed grant/publication binding; on a miss it executes the
-visible and ordinal statements in one Business-PG snapshot, derives all
+enforcement layer reauthorizes, reserves resources, and looks up semantic
+replay under the signed grant/publication binding. On a miss it executes
+the visible and ordinal statements in one Business-PG snapshot, derives all
 three effects, and stages encrypted Parquet (a hit loads a committed
-observation; staging is never AVAILABLE); one Control-PG transaction then
+observation; staging is never AVAILABLE). One Control-PG transaction then
 computes exact bitmap/full-hash novelty against the root head, rejects any
 $B_X$ excess, CASes all three manifests (conflicts reread and recompute
-every dimension), and settles resources, observation, PENDING intent, audit,
-and the signed receipt; a second transaction co-commits AVAILABLE and
-\code{QUERY_RESULT_CONSUMED} after verifying promotion to the canonical
-object, and only then returns the ID.
+every dimension), and settles resources, observation, PENDING intent,
+audit, and the signed receipt. A second transaction co-commits AVAILABLE
+and \code{QUERY_RESULT_CONSUMED} after verifying promotion to the
+canonical object, and only then returns the ID.
 
 Only root heads are mutable: pre-settlement failure rolls back heads,
 observations, intent, audits, cache, and receipt, while post-settlement
@@ -973,8 +932,8 @@ $\mathsf{Available}\Rightarrow\mathsf{Settled}$, but not conversely.
 Unlike request idempotence, semantic replay binds task/grant, typed normal
 form/parameters, Catalog/schema/publication/dictionaries, and every profile
 and encoding version; a hit skips Business/provenance SQL but still
-reauthorizes, charges resources, audits, receipts, and re-encrypts, any
-mismatch takes the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
+reauthorizes, meters, audits, receipts, and re-encrypts; any mismatch takes
+the novel path, and $P_{e+1}$ roots cannot hit $P_e$ entries.
 
 \subsection{Receipts and Failure Semantics}
 
@@ -988,16 +947,15 @@ ambiguous connector outcomes charge resources but no exposure, and terminal
 replay returns the first status without re-executing.
 
 A rejected attempt returns only the code
-\code{EXPOSURE_BUDGET_EXHAUSTED} (no dimension, count, or row); rejection
-charges no exposure---in particular no Outcome atom---and is recorded as a
-failed query (contributing no set, Definition~\ref{def:task-exposure}) that
-consumes one unit of the request budget $B_Q$ together with the rows and
-database time it \emph{reserved} at admission, not the observed count; the
-client receives only the code \code{EXPOSURE_BUDGET_EXHAUSTED}, and the
+\code{EXPOSURE_BUDGET_EXHAUSTED}---no dimension, count, or row (the
 dimension named in the evaluation tables is the oracle's projection, not a
-response field. So $B_Q$ is an exposure parameter, not a
-resource guard ($B_Q=110$ next to $B_O=18$ in Section~\ref{sec:delegation}
-allows six rejected questions per settled predicate).
+response field); it charges no exposure, in particular no Outcome atom, and
+is recorded as a failed query (contributing no set,
+Definition~\ref{def:task-exposure}) consuming $B_Q$ and its admission
+reservation (Section~\ref{sec:model}). So $B_Q$ is an exposure parameter,
+not a resource guard ($B_Q=110$ next to $B_O=18$ in
+Section~\ref{sec:delegation} allows six rejected questions per settled
+predicate).
 
 \begin{proposition}[Probing bound]
 \label{prop:probing-bound}
@@ -1033,17 +991,21 @@ conservation is evaluated for human-approved trees. A child authorization
 signs both \code{root_task_id} and \code{parent_task_id}. Its human subject, catalog, datasource, schema, and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
 all budget dimensions may only narrow; every execution revalidates the signed
-parent grant and active ancestor chain; View-bound descendants inherit the
-parent's contract set and cannot add or replace a contract.
+parent grant and active ancestor chain; View-bound descendants inherit
+the parent's contracts and cannot add or replace one.
 
-All descendants resolve to one root ledger: if a parent and child request the
-same fact, only the first successful settlement accounts it, revoking the
-root blocks new descendant queries while a terminal request ID stays
+All descendants resolve to one root ledger: if a parent and child request
+the same fact, only the first successful settlement accounts it. Revoking
+the root blocks new descendant queries while a terminal request ID stays
 readable, and creating workers or task nodes cannot create fresh exposure
-capacity; every child grant is itself a human-approved authorization on the
-Catalog's route (the prototype's only mode is manual approval), so the tree's
-size, and the summed request budget of Proposition~\ref{prop:probing-bound},
-is set by approvals, not by the agent. Settlement checks the settling task's own signed ceiling against
+capacity. Every child grant is itself a human-approved authorization on
+the Catalog's route (the prototype's only mode is manual approval), so the
+tree's size, and the summed request budget of
+Proposition~\ref{prop:probing-bound}, is set by approvals, not by the
+agent. \emph{Example (cont.).} A delegated
+child re-issuing the split $\pi_{id}$ of Section~\ref{sec:model} replays at
+$0/0/0$ against the shared ledger; a child attempting $\sigma_{dept='T'}$
+is refused by the same $\Delta_T$ computation. Settlement checks the settling task's own signed ceiling against
 the shared family total, so a child with a lower ceiling adds novel facts only
 while the family total stays within it and otherwise settles only
 zero-novelty replays, as intended: a narrower child must not widen the family.
@@ -1073,7 +1035,8 @@ In every execution of this system, every committed head equals the
 componentwise union of the effects of exactly the queries whose swap
 succeeded and satisfies $|K_X|\le B_X$ for all $X\in\{R,D,O\}$; the
 property is unchanged when $K_X$ is represented by dictionary bitmaps or the
-Merkle-radix set (Propositions~\ref{thm:bitmap-refinement}--\ref{thm:outcome-radix-refinement}).
+Merkle-radix set (Proposition~\ref{thm:outcome-radix-refinement} and the
+supplement's bitmap-refinement proposition).
 \end{property}
 \emph{Argument.} Induct on successful swaps in linearization order: the
 initial head is empty, each successful swap extends the head by exactly the
@@ -1085,26 +1048,49 @@ not a mechanized refinement.
 \subsection{Budget Calibration}
 \label{sec:calibration}
 
-\textbf{Catalog-issued capacity.} The supplement's calibration table separates
-profile units from resource guards and from quantities they do not estimate;
-$B_Q$ belongs with the exposure units because it bounds rejected probes.
-These declarations are neither risk scores nor optimization targets: 1,000
+\textbf{Catalog-issued capacity.} Table~\ref{tab:profile-calibration}
+separates profile units from resource guards and from quantities they do
+not estimate; unit weights enable exact set union, not harm or
+differential-privacy accounting. These declarations are neither risk scores nor optimization targets:
+
+\begin{table}[t]
+\centering
+\caption{Profile calibration boundary.}
+\label{tab:profile-calibration}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{L{0.16\columnwidth}L{0.42\columnwidth}L{0.30\columnwidth}}
+\toprule
+Budget & Governs & Does not represent \\
+\midrule
+$B_R$ & Distinct accounted Result Fact identities selected for publication & Knowledge value or privacy loss \\
+$B_D$ & Distinct profile-declared positive-output Dependency Facts & Minimal causes or all physical reads \\
+$B_O$ & Distinct canonical predicate atoms and query/result composites & Bits, entropy, or DP $\epsilon$ \\
+$B_Q$, rows, DB time & Request and resource availability & Semantic novelty or exposure deduplication \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 1,000
 permits 1,000 declared units, and the bound profile must remain acceptable
 when fully used. $B_O$ bounds distinct successful queries (every page
 settles one composite) plus distinct predicate atoms: unlike the counters
 Section~\ref{sec:introduction} dismisses it charges a repeated outcome once
-and bounds no release size, which $B_R$ and $B_D$ do. A data owner derives
-the profile from purpose and Product: $B_R$ is the detail rows the purpose
-may release times their fields; $B_D$ the largest admitted aggregate's
-footprint (rows times argument fields), which for a full-Product aggregate
-equals the Product's fact count, so $B_D$ then protects only against
-reading further Products or columns; $B_O$ the expected pages plus distinct
-predicates; $B_Q$ a small multiple of $B_O$. The supplement works
-the campaign's bounded profile
-($B_R/B_D/B_O=\FinalVFivePublicationRLSBudgetRelease{}/\FinalVFivePublicationRLSBudgetDependency{}/\FinalVFivePublicationRLSBudgetOutcome{}$;
-$B_D$ refuses at query \FinalVFivePublicationRLSBoundedRefusalIndex{}
-while row and query counters admit everything), the count-probe ladder, and
-a page sweep---a toy department, not a realistic-scale calibration.
+and bounds no release size, which $B_R$ and $B_D$ do. Which dimension binds
+depends on the purpose archetype. \emph{Detail review} (release named
+rows): $B_R$, sized as permitted rows times fields, binds, and $B_D$ tracks
+it. \emph{Single-Product aggregate reporting}: $B_D$ sized to the largest
+admitted aggregate's footprint equals the Product's fact count, so within
+that Product it degenerates and protects only against reading further
+Products or columns; $B_O$ (expected pages plus distinct predicates) is
+then the binding dimension, and the residual per-probe leakage is
+Section~\ref{sec:online}'s quantified channel ($B_Q$ refusal bits, one
+$|\Delta_X|$ per settled probe). \emph{Cross-Product join}: the joined
+footprint exceeds any single Product's, so $B_D$ binds again. In every
+archetype $B_Q$ is a small multiple of $B_O$; the accounting is compliance
+accounting with quantified probe capacity, not extraction resistance. The
+supplement works the campaign's bounded profile (its budgets and refusal
+point: Section~\ref{sec:evaluation}), the count-probe ladder, and a page
+sweep---a toy department, not a realistic-scale calibration.
 
 \section{System Realization}
 \label{sec:system}
@@ -1120,10 +1106,10 @@ same canonical plan or fails closed, so no path executes agent-authored
 text; results use AES-GCM and audits form a hash chain. BDG fronts the
 governed serving tier (lake $\rightarrow$ curated products $\rightarrow$
 immutable publications $\rightarrow$ BDG $\rightarrow$ agent) and replaces
-none of the lake, Catalog, IAM, OA/BPM, object store, RLS/DFC, or audit
-systems (supplement interface table; not a production deployment); OA/BPM
-may impose principal- or tenant-level issuance policies across roots while
-the ledger stays scoped to one root family. Crashes, concurrency, stale
+none of the surrounding lake, Catalog, IAM, OA/BPM, object-store, RLS/DFC,
+or audit systems (supplement interface table; not a production deployment);
+OA/BPM may impose cross-root issuance policies while the ledger stays
+scoped to one root family. Crashes, concurrency, stale
 bindings, replay, and promotion failure are in scope; compromised trusted
 authorities, direct bypass, colluding independent roots, and external-tool
 leakage are not.
@@ -1149,13 +1135,12 @@ maps layers and gaps); among them a randomized root-family test settles
 \VFiveFamilyPropertySeeds{} random delegation trees (up to
 \VFiveFamilyPropertyMaxTasks{} tasks, \VFiveFamilyPropertyNarrowedTasks{}
 of them with ceilings drawn below their parent's) in sequential steps and
-concurrent bursts against the live Control store, checking after every step
-that the committed head equals a separately kept plain-set union in all
-three dimensions and never exceeds the root's or the settling task's
-ceiling, and that every sequential step is admitted or refused exactly as
-the ceiling rule predicts and charged exactly its novelty
-(\VFiveFamilyPropertyRefused{} refusals in all); it drives the settlement
-engine directly, not SQL lowering or the companion statement. We claim bounded
+concurrent bursts against the live Control store, checking after every
+step that the committed head equals a separately kept plain-set union in
+all three dimensions, never exceeds the root's or the settling task's
+ceiling, and matches the ceiling rule's admit/refuse decision and
+exact-novelty charge (\VFiveFamilyPropertyRefused{} refusals in all); it
+drives the settlement engine directly, not SQL lowering. We claim bounded
 model checking plus implementation evidence, not a mechanized refinement.
 
 \section{Evaluation}
@@ -1170,7 +1155,8 @@ archived V4 run is reported only in the supplement), and RQ5 daily
 publication and retained routing
 (RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}); every call
 uses a complete signed profile. Medians and p95 are Type-7
-(linear-interpolation) quantiles over the stated samples; ProvSQL
+(linear-interpolation) quantiles \cite{hyndman1996quantiles} over the
+stated samples; ProvSQL
 provenance capture is the same-host cost reference
 (Section~\ref{sec:attack-provsql}).
 
@@ -1184,7 +1170,8 @@ such oracles cannot detect specification errors or a shared misreading of
 PostgreSQL semantics, so we claim consistency with our oracle rather than
 independent validation, and RQ1's \RQOneCases{} and RQ3's \RQThreeCases{}
 cases are regression evidence, not statistical evidence; one check shares
-nothing with our specification: a pilot-class rerun expands ProvSQL's own
+nothing with our specification: a pilot-class rerun
+(\FinalVFiveProvSQLLeafSamples{} samples) expands ProvSQL's own
 circuit to its base tuples on the paired join cells and finds them equal,
 member by member, to the oracle's \FinalVFiveProvSQLLeafTotalRowFacts{}
 base-row facts, to which BDG's Dependency sets are linked in turn),
@@ -1206,7 +1193,7 @@ and RQ5 are regenerated at the submission commit; the campaign is sealed at
 (\RQTwoExposureCases{} cases, \RQTwoExposureMismatches{} mismatches)
 requires equal Result/Dependency sets and zero bidirectional charge; RQ3
 (\RQThreeCases{} cases, deterministic and as PostgreSQL race tests) covers
-split, page, retry, snapshot identity, joins/unions, delegation, and races;
+split, page, retry, snapshot identity, joins/unions, and delegation;
 RQ5 passes \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks
 across \RQFiveTransitions{} transitions (the campaign's RQ5 cells rebuild
 a \FinalVFivePublicationRQFiveRows{}-row publication in
@@ -1244,15 +1231,16 @@ campaign (\FinalVFivePublicationCampaign{}, commit
 \FinalVFivePublicationScaleNonProfileCells{} Scale and
 \FinalVFivePublicationCompilerNonProfileCells{} Compiler deployment-free
 cells), every one of its \FinalVFivePublicationMeasuredSamples{} measured
-samples passing, with a verified Receipt on every governed arm.
+samples passing (all per-sample invariant and oracle checks; deterministic,
+not statistical), with a verified Receipt on every governed arm;
+compiler-admitted join widths and role counts beyond the measured cells
+stay unmeasured (supplement).
 Table~\ref{tab:baseline-main} gives
 the per-cell medians: across the \FinalVFivePublicationBaselineCells{}
-Baseline cells (sixteen workload/scale pairs, each with a direct and a novel
-cell plus the replay cells the protocol defines for it: ten semantic, nine
-idempotent, seven normalized-rewrite; Table~\ref{tab:baseline-main} shows
-the sixteen pairs) a novel governed query costs
+Baseline cells (sixteen workload/scale pairs with direct, novel, and the
+protocol-defined replay cells) a novel governed query costs
 \FinalVFivePublicationOverheadMin{}--\FinalVFivePublicationOverheadMax{}
-times its direct PostgreSQL equivalent, and that cost follows the total Fact
+times its direct PostgreSQL equivalent. That cost follows the total Fact
 effect the query materializes, not its visible row count: S2/SF10 returns
 \FinalVFivePublicationSTwoRows{} grouped rows over
 \FinalVFivePublicationSTwoDependencyFacts{} dependencies in
@@ -1262,16 +1250,14 @@ effect the query materializes, not its visible row count: S2/SF10 returns
 more per Fact than S2, so Release materialization is at least as expensive
 per Fact as Dependency derivation. Settlement is not where exactness is
 paid: the Scale profile below settles against a million-Fact history in
-\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot samples per
-cell; not publication-class) splits execute-and-derive: the visible and
-companion SQL together take
-\FinalVFiveSubphaseSQLSideMSSOneSFOne{}/\FinalVFiveSubphaseSQLSideMSSTwoSFTen{}/\FinalVFiveSubphaseSQLSideMSSSixHundredKByteSixteen{}~ms
-at S1/SF1, S2/SF10, S6/100k-x16, while single-threaded Go-side ordinal
-consumption and witness merging take
-\FinalVFiveSubphaseGoSidePctSOneSFOne{}/\FinalVFiveSubphaseGoSidePctSTwoSFTen{}/\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
-of the phase (\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
+\FinalVFivePublicationScaleSettleMillionMS{}~ms. A sub-phase pilot (\FinalVFiveSubphaseSamplesSTwoSFTen{} pilot sample per
+cell; not publication-class; supplement table) splits execute-and-derive:
+single-threaded Go-side ordinal consumption and witness merging dominate
+(\FinalVFiveSubphaseGoSidePctSOneSFOne{}--\FinalVFiveSubphaseGoSidePctSSixHundredKByteSixteen\%
+of the phase,
+\FinalVFiveSubphaseMicrosPerFactSTwoSFTen{}--\FinalVFiveSubphaseMicrosPerFactSSixHundredKByteSixteen{}~$\mu$s
 per Fact), so multi-second governed latency suits batch reporting agents,
-not interactive ones (supplement table).
+not interactive ones.
 
 \begin{table}[t]
 \centering
@@ -1315,9 +1301,9 @@ drains in \FinalVFivePublicationConcurrencySerialDrainPFiftyMS{}~ms (serial
 control); a round of 50 under natural contention drains in
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPFiftyMS{}~ms p50 and
 \FinalVFivePublicationConcurrencyFiftyNaturalDrainPNinetyFiveMS{}~ms p95,
-i.e., \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{}
-contending requests per second through one root head, one of which settles
-novel work per round; every generated round met the contention condition (30
+i.e., \FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{}--\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{}
+contending requests per second across the measured widths and modes through
+one root head, one of which settles novel work per round; every generated round met the contention condition (30
 per cell and deployment, none discarded), and the supplement tabulates every
 width and mode. Because every descendant settles on one root head, a task
 tree's settlement throughput is bounded by that head; per-dimension or
@@ -1394,35 +1380,65 @@ whose oracle prefix exceeds a budget (Fig.~\ref{fig:rls-trace})---with
 afterwards, and ended at \FinalVFivePublicationRLSBoundedLedger{}. A control
 step outside the policy rows and the column grant is refused at the column
 under both (supplement), so BDG composes with per-query authorization;
-that RLS admits all \FinalVFivePublicationRLSQueries{}
-queries is definitional (it has no cumulative budget), so the comparison
-shows where a set budget binds, not that a per-query control fails a test
-it could pass. No counter-based arm was executed; the supplement replays
-row and query counters by admission arithmetic as an illustration only (a
-counter's release bound depends on query order, the set ledger's does not).
+RLS admitting every query is definitional (no cumulative budget): the
+comparison shows where a set budget binds. The counter comparators are also \emph{executed}, across three fresh
+deployments that each realized the identical outcome (retained pilot,
+supplement): the same trace under row-, query-, and release-set budgets
+fixed a priori by the same $\lfloor 0.7\,U\rfloor$ recipe per unit
+(unlike the supplement's campaign-derived counter replay, which is
+calibrated to the set ledger's stopping point), in three orders each,
+released the full \FinalVFiveCounterNaiveMinDep{}-fact Dependency union in
+every order; the exact floors capped release at
+\FinalVFiveCounterExactMaxDep{} in every order
+(Table~\ref{tab:counter-executed-main}).
 
-\begin{figure}[t]
+\begin{table}[!t]
+\centering
+\caption{Executed comparator arms (retained pilot, three fresh
+deployments each realizing this table identically; campaign class pilot,
+not the sealed protocol's publication class): queries accepted, first
+refusal step, and final distinct Dependency facts, as
+natural\,/\,shuffled\,/\,novelty-first order. An exposure refusal does
+not archive the task, so a first refusal at step 1 coexists with later
+acceptances; row/query-counter crossings instead truncate and archive
+(supplement).}
+\label{tab:counter-executed-main}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccc}
+\toprule
+Arm & Accepted & First refusal & Distinct Dep. \\
+\midrule
+\FinalVFiveCounterTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\begin{figure}[!t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=0.98\columnwidth, height=0.18\columnwidth, font=\scriptsize,
+\begin{axis}[width=0.98\columnwidth, height=0.26\columnwidth, font=\scriptsize,
   xlabel={query index in the adaptive trace}, ylabel={distinct facts (oracle)},
-  xmin=1, xmax=100, ymin=0, ymax=30, legend pos=north west, legend columns=3,
-  legend style={font=\tiny, draw=none, fill=none}, grid=major, grid style={gray!25}]
-\addplot[blue, thick] coordinates {\FinalVFivePublicationRLSPrefixRelease};
-\addplot[red, thick] coordinates {\FinalVFivePublicationRLSPrefixDependency};
-\addplot[black!60!green, thick] coordinates {\FinalVFivePublicationRLSPrefixOutcome};
+  xmin=1, xmax=100, ymin=0, ymax=30,
+  ytick={0,\FinalVFivePublicationRLSBudgetRelease,\FinalVFivePublicationRLSBudgetDependency,\FinalVFivePublicationRLSBudgetOutcome,30},
+  legend pos=north west, legend columns=3,
+  legend style={font=\scriptsize, draw=none, fill=none}, grid=major, grid style={gray!25}]
+\addplot[blue, thick, mark=o, mark repeat=10, mark size=1.2pt] coordinates {\FinalVFivePublicationRLSPrefixRelease};
+\addplot[red, thick, mark=square*, mark repeat=10, mark size=1.1pt] coordinates {\FinalVFivePublicationRLSPrefixDependency};
+\addplot[black!60!green, thick, mark=triangle*, mark repeat=10, mark size=1.4pt] coordinates {\FinalVFivePublicationRLSPrefixOutcome};
 \legend{Release, Dependency, Outcome}
 \addplot[blue, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetRelease) (100,\FinalVFivePublicationRLSBudgetRelease)};
 \addplot[red, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetDependency) (100,\FinalVFivePublicationRLSBudgetDependency)};
 \addplot[black!60!green, dashed] coordinates {(1,\FinalVFivePublicationRLSBudgetOutcome) (100,\FinalVFivePublicationRLSBudgetOutcome)};
 \draw[gray, thick] (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,0) -- (axis cs:\FinalVFivePublicationRLSBoundedRefusalIndex,30)
-  node[pos=0.85, right, font=\tiny, align=left] {bounded arm\\refuses};
+  node[pos=0.9, right, font=\scriptsize, align=left] {bounded arm\\refuses};
 \end{axis}
 \end{tikzpicture}
 \caption{Distinct governed facts obtained by the adaptive trace by query
-index (separate trace-union oracle; solid) against the bounded arm's
-budgets (dashed); BDG-bounded refuses at the first query whose prefix
-crosses a budget, where the trace stops.}
+index (separate trace-union oracle; solid, marked) against the bounded
+arm's budgets (dashed, at the marked y ticks); BDG-bounded refuses at the
+first query whose prefix crosses a budget, where the trace stops.}
 \label{fig:rls-trace}
 \end{figure}
 
@@ -1471,13 +1487,12 @@ frozen, manifest-proven publications; the closed fragment fails closed on
 richer joins, sets, paging, negation, recursion, and subqueries, and it is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
 admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
-even after rewriting comma joins to explicit joins, stopping first at
+(comma joins rewritten to explicit joins), stopping first at
 subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
 (\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
 reporting queries (four-source star joins with a grouped \code{SUM} lower;
-derived measures such as \code{lo_revenue - lo_supplycost} inside an
-aggregate, \code{OR} filters, and ordering by an aggregate alias do not;
+derived measures, \code{OR} filters, and aggregate-alias ordering do not;
 supplement tables); SQL written by an off-the-shelf LLM assistant from the
 Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
 unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
@@ -1498,9 +1513,7 @@ would need hundreds of gigabytes and hours per build and global aggregate,
 so the evaluated envelope is $10^5$--$10^6$-row Products.
 
 \textbf{Throughput scope.} Same-root settlement serializes on the head
-(\FinalVFivePublicationConcurrencyTenNaturalRequestsPerSecond{} to
-\FinalVFivePublicationConcurrencyFiftyNaturalRequestsPerSecond{} requests/s
-from width 10 to 50); multi-root throughput is unmeasured.
+(Section~\ref{sec:evaluation}); multi-root throughput is unmeasured.
 
 \textbf{Governance and deployment scope.} Profile correctness is trusted:
 BDG validates bindings, supported semantics, and settlement, not policy
@@ -1511,10 +1524,10 @@ no production integration or practitioner study of budget calibration
 \section{Conclusion}
 
 \system provides profile-relative exact accounting of modeled Result,
-Dependency, and Outcome sets within one publication-bound root family, with
-theorems, bounded models, and executable tests behind the scoped claim that
-no governed artifact becomes \code{AVAILABLE} before atomic root-family
-settlement: a release layer that makes an approved policy enforceable as
+Dependency, and Outcome sets within one publication-bound root
+family---theorems, bounded models, and executable tests behind one scoped
+claim: no governed artifact becomes \code{AVAILABLE} before atomic
+root-family settlement. It makes an approved policy enforceable as
 autonomous querying unfolds, without deciding what that policy should be.
 
 \bibliographystyle{IEEEtran}

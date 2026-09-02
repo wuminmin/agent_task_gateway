@@ -122,6 +122,22 @@ experiments:
       scales: [natural, shuffled-v1, novelty-first-v1]
       modes: [release]
       products: [final_v5_rls_unlimited_expense_detail, final_v5_concurrency_expense_detail]
+  # The optimizing-adversary study (docs/p9c) replays two frozen extraction
+  # strategies on the RLS unlimited product under three owner-derived budget
+  # tiers; tier product sets differ by never-queried decoys for routing.
+  adversary:
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [owner]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_orders]
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [tightened]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_lineitem]
+    - workload_id: adversary-extraction-v1
+      scales: [bisection, greedy]
+      modes: [loosened]
+      products: [final_v5_rls_unlimited_expense_detail, provsql_orders, provsql_lineitem]
 
 aliases:
   f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders
@@ -142,5 +158,8 @@ aliases:
   c27e8a1ce21ae1afa80d22a4e4eefa9919106491a4d47e5d15f22e5bbc3a9313: counter-release
   4150e35650c39ab2293f36ad606bd3cf192e5aff67bff1230f8292fed3cffae5: benign-x4
   6cb70ae786fcd0ecc5f52ac8719623b01653da0f197b1508b30bd4f543d72778: counter-exact
+  4a29b3ffc7129007c764e49872cbf4e671313bbbdb456ca8fa9694740cc892e8: adversary-owner
+  f39ec7673d438fe987b3e4dfe473a09a40fe98efb7d197247701f6f3351fb6dd: adversary-tightened
+  68ded13e09bfd6e1a13891855a482ea7e39b08db55e4d82a807a26a758987340: adversary-loosened
   57cd926b3fcbccde9063bcb6e7714cad4334f76df71286d677e9eef0cfe055b8: benign-recipe
   52504d68e0f7fa28a4b3989130c0c8b3f861c0f6d1a86d1b20a3917af81598f6: footprint-unlimited
