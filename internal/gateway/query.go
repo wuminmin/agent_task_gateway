@@ -472,13 +472,6 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 	if err != nil {
 		return nil, sqlLoweringToolError(err)
 	}
-	// P9.D safety gate: the lowerer admits derived arithmetic (D2), but the
-	// online effect-extraction path does not yet account derived Release
-	// cells (D3). Until D3 lands, a plan carrying arithmetic must fail
-	// closed here rather than settle with an incomplete exposure effect.
-	if derivedGate := derivedPlanGate(lowered.Plan); derivedGate != nil {
-		return nil, derivedGate
-	}
 	if lowered.Plan.From != nil && grant.Exposure.ProfileVersion != exposure.ProfileV2 &&
 		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 &&
 		grant.Exposure.ProfileVersion != exposure.ProfileV5 {
@@ -2555,19 +2548,3 @@ func (s *Service) artifactOperationContext(parent context.Context) (context.Cont
 	return context.WithTimeout(context.WithoutCancel(parent), s.artifactOperationTimeout)
 }
 
-// derivedPlanGate refuses plans that carry P9.D derived arithmetic until the
-// exposure accounting for derived Release cells is wired end to end.
-func derivedPlanGate(plan queryplan.QueryPlan) *mcp.ToolError {
-	derivedAggregate := false
-	for _, aggregate := range plan.Aggregates {
-		derivedAggregate = derivedAggregate || aggregate.DerivedArg != nil
-	}
-	if len(plan.Derived) == 0 && !derivedAggregate {
-		return nil
-	}
-	return &mcp.ToolError{Code: apierr.CodeSQLNotLowerable, Message: "派生算术表达式的曝光记账尚未上线", Details: map[string]any{
-		"reason": "PROJECTION_EXPRESSION_UNSUPPORTED", "location": map[string]any{"clause": "SELECT"},
-		"supported_alternative":   "Project approved columns directly; derived-measure accounting is not yet enabled online.",
-		"retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
-	}}
-}
