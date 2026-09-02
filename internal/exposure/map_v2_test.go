@@ -34,7 +34,7 @@ func TestMapV2DerivedValueAndDependencyUnion(t *testing.T) {
 			t.Fatal("derived cell must mint its Release identity at Observe, not carry a base fact")
 		}
 		priceSupport := row.Cells["price"].Support
-		if cell.Support.Cardinality() < priceSupport.Cardinality() {
+		if cell.Support.Len() < priceSupport.Len() {
 			t.Fatal("derived dependency must contain the argument cells' support")
 		}
 	}
@@ -52,7 +52,7 @@ func TestMapV2DerivedValueAndDependencyUnion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if effect.Release.Cardinality() == 0 || effect.Dependency.Cardinality() == 0 {
+	if len(effect.Release) == 0 || effect.Dependency.Len() == 0 {
 		t.Fatal("observed derived relation must carry Release and Dependency facts")
 	}
 }
