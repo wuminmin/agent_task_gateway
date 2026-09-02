@@ -21,6 +21,7 @@ const (
 	NormalFormVersionV4 = "taskgate-query-normal-form-v4"
 	normalFormDomain    = "TASKGATE-QUERY-NORMAL-FORM-V3\x00"
 	normalFormDomainV4  = "TASKGATE-QUERY-NORMAL-FORM-V4\x00"
+	normalFormDomainV5  = "TASKGATE-QUERY-NORMAL-FORM-V5\x00"
 	attestedCollation   = "postgresql-deterministic-exact-v1"
 )
 
@@ -266,7 +267,11 @@ func NormalizeV4(plan QueryPlan, product Product) (NormalForm, error) {
 	if err != nil {
 		return NormalForm{}, err
 	}
-	result.Version = NormalFormVersionV4
+	if result.Version != NormalFormVersionV5 {
+		// Derived arithmetic already lifted the identity to V5; everything
+		// else keeps the frozen V4 clean-cut identity.
+		result.Version = NormalFormVersionV4
+	}
 	result.Profile = exposure.ProfileV5
 	result.Filters = result.Filters[:0]
 	for _, filter := range plan.Filters {
@@ -368,6 +373,9 @@ func (normal NormalForm) Digest() (string, error) {
 	case normal.Version == NormalFormVersion && normal.Profile == "taskgate-exposure-v2":
 	case normal.Version == NormalFormVersionV4 && normal.Profile == exposure.ProfileV5:
 		domain = normalFormDomainV4
+	case normal.Version == NormalFormVersionV5 &&
+		(normal.Profile == exposure.ProfileV5 || normal.Profile == "taskgate-exposure-v2"):
+		domain = normalFormDomainV5
 	default:
 		return "", errors.New("invalid query normal form version/profile pair")
 	}
