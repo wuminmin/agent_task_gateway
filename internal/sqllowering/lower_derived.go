@@ -1,7 +1,6 @@
 package sqllowering
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -132,12 +131,11 @@ func (l *lowerer) lowerDerivedOperand(node *pg_query.Node, location int32, depth
 			"Derived arithmetic admits integer literals only.", "SELECT", location, "",
 			"Use integer literals; floating literals are outside the exact fold profile.")
 	}
-	if nested := node.GetAExpr(); nested != nil {
+	if node.GetAExpr() != nil {
 		tree, childTypes, err := l.buildDerivedNode(node, location, depth+1)
 		if err != nil {
 			return queryplan.ArithOperand{}, nil, err
 		}
-		_ = nested
 		return queryplan.ArithOperand{Nested: tree}, childTypes, nil
 	}
 	return queryplan.ArithOperand{}, nil, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED",
@@ -170,4 +168,3 @@ func applyDerivedType(expr *queryplan.DerivedExpr, sqlType string) {
 	}
 }
 
-var _ = fmt.Sprintf
