@@ -307,7 +307,7 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 			return exposure.Observation{}, err
 		}
 	}
-	derivedSpecs, err := derivedFieldSpecs(context.plan, context.product.SourceNamespace)
+	derivedSpecs, err := derivedFieldSpecs(context.plan, context.product.FactNamespace)
 	if err != nil {
 		return exposure.Observation{}, err
 	}
