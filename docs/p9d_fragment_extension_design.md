@@ -76,3 +76,15 @@ MapV2 由参数格值确定性重算派生值（回避 PG 行对齐），可见�
 含 NULL 行的合法查询会被错误拒绝（差分域即有 three-valued 行）。修正为 NULL 传播：
 任一参数 NULL ⇒ 派生值 NULL（规范 "null"），依赖仍并集参数格（读了才知道是 NULL），
 派生 Release fact 值=null 与 base NULL cell 先例一致；交叉验证两侧 canonical "null" 相等。
+
+## Ordinal(V4/V5) 路径接线蓝图（2026-09-02 精读产出）
+
+通道已存在：ordinal_derivation.go 非分组 visible 输出 cell 无 base fact 时走
+NewDerivedFactV2(bundle, member.key, spec.CanonicalExpression, SQLType, 可见值, witness 承诺) 进 dynamic derived 集
+（commitUngrouped）；聚合输出即此先例。ordinal 语义派生值=PG 可见值（与 V2 路径重算不同——V2 侧的重算交叉验证
+保留为独立防线；ordinal 侧可后续附加重算校验为增强）。接线三件：
+1. queryplan.OrdinalVisibleSpec 加派生参数(Args []OrdinalFieldUse)+singleVisibleSpecs 的 Kind:"derived" 分支
+   （插 Columns 后 Aggregates 前, CanonicalExpression=N_arith, Args=参数列 evidence bindings 的 fieldUse）。
+2. ordinalAggregateSpecs 的 DerivedArg 分支（Args 同上, CanonicalExpression=fn(N_arith), SQLType=AggregateOutputType(fn, exprType)）。
+3. gateway ordinal deriver 的 visible cell 组装处按 Args 并集参数格 witness（找 member.cells 填充点）；
+   normalizeOrdinalProgram 校验面同步。
