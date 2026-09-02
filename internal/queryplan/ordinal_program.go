@@ -1054,6 +1054,15 @@ func ordinalWitnessRules(program OrdinalProgram) []OrdinalWitnessRule {
 	for _, use := range uniquePredicateFieldUses(program.OuterPredicates) {
 		result = append(result, witnessFieldRule(50, "outer_filter", "$row", "$row", sourceAliasForUse(program.Sources, use), use, "add"))
 	}
+	for _, output := range program.Visible {
+		if output.Kind != "derived" {
+			continue
+		}
+		for _, use := range output.Args {
+			result = append(result, witnessFieldRule(55, "derived_cell", output.OutputID, output.CanonicalExpression,
+				sourceAliasForUse(program.Sources, use), use, "add"))
+		}
+	}
 	if len(program.Groups) > 0 || len(program.Aggregates) > 0 {
 		result = append(result, OrdinalWitnessRule{StageOrder: 60, Stage: "group", TargetID: "$group_row", TargetExpression: "$group_row", InputKind: "row",
 			InputExpression: "$row", Multiplicity: 1, Merge: "add"})
@@ -1063,10 +1072,16 @@ func ordinalWitnessRules(program OrdinalProgram) []OrdinalWitnessRule {
 			result = append(result, witnessFieldRule(60, "group_cell", group.Field.FieldID, group.CanonicalExpression, alias, group.Field, "add"))
 		}
 		for _, aggregate := range program.Aggregates {
-			if aggregate.InputKind == "row" {
+			switch aggregate.InputKind {
+			case "row":
 				result = append(result, OrdinalWitnessRule{StageOrder: 70, Stage: "aggregate", TargetID: aggregate.OutputID, TargetExpression: aggregate.CanonicalExpression,
 					InputKind: "row", InputExpression: "$row", Multiplicity: aggregate.WitnessMultiplicity, Merge: "add"})
-			} else {
+			case "derived":
+				for _, use := range aggregate.Args {
+					result = append(result, witnessFieldRule(70, "aggregate", aggregate.OutputID, aggregate.CanonicalExpression,
+						sourceAliasForUse(program.Sources, use), use, "add"))
+				}
+			default:
 				result = append(result, witnessFieldRule(70, "aggregate", aggregate.OutputID, aggregate.CanonicalExpression,
 					sourceAliasForUse(program.Sources, aggregate.Input), aggregate.Input, "add"))
 			}
