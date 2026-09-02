@@ -176,9 +176,18 @@ func alignStoredSemanticColumns(stored *storedQueryResult, desired []string) err
 }
 
 func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
-	columns := make([]string, 0, len(plan.Columns)+len(plan.Aggregates))
+	columns := make([]string, 0, len(plan.Columns)+len(plan.Derived)+len(plan.Aggregates))
 	for _, column := range plan.Columns {
 		columns = append(columns, "column:"+column)
+	}
+	// Derived arithmetic projections sit between plain columns and
+	// aggregates, matching the SQL emission and visible-field order.
+	for _, derived := range plan.Derived {
+		expression, err := queryplan.NormalizeArithmetic(derived.Expr)
+		if err != nil {
+			expression = derived.Alias
+		}
+		columns = append(columns, "derived:"+expression)
 	}
 	occurrences := make(map[string]int, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
