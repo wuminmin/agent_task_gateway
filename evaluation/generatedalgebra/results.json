@@ -10,6 +10,8 @@
   "coverage": {
     "avg": 986,
     "count_distinct": 946,
+    "derived": 177,
+    "derived_nullable": 85,
     "global": 1674,
     "group": 1656,
     "having": 1110,
