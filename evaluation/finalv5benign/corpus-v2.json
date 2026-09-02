@@ -533,15 +533,21 @@
       "products": [
         "final_v5_result_heavy"
       ],
-      "classification": "policy_refused",
-      "policy_code": "SQL_OPERATOR_NOT_ALLOWED",
-      "released_rows": 0,
-      "release_facts": 0,
+      "classification": "released",
+      "released_rows": 5000,
+      "release_facts": 25000,
       "dependency": {
-        "cardinality": 0
+        "cardinality": 25000,
+        "set_sha256": "c2df431806f1d668caa322caa65db962bbe4295f9b273f618f41d8052678ae9d"
       },
-      "evidence_rows": 0,
-      "predicate_atoms": 0
+      "evidence_rows": 5000,
+      "evidence_fields": [
+        "category",
+        "quantity",
+        "row_id",
+        "unit_price"
+      ],
+      "predicate_atoms": 1
     },
     {
       "index": 24,
@@ -680,33 +686,33 @@
     {
       "name": "benign-recipe",
       "multiplier": 1,
-      "max_release_facts": 1907,
+      "max_release_facts": 26907,
       "max_influence_facts": 1450000,
-      "max_outcome_facts": 54,
-      "max_queries": 216
+      "max_outcome_facts": 56,
+      "max_queries": 224
     },
     {
       "name": "benign-x2",
       "multiplier": 2,
-      "max_release_facts": 3814,
+      "max_release_facts": 53814,
       "max_influence_facts": 2900000,
-      "max_outcome_facts": 108,
-      "max_queries": 432
+      "max_outcome_facts": 112,
+      "max_queries": 448
     },
     {
       "name": "benign-x4",
       "multiplier": 4,
-      "max_release_facts": 7628,
+      "max_release_facts": 107628,
       "max_influence_facts": 5800000,
-      "max_outcome_facts": 216,
-      "max_queries": 864
+      "max_outcome_facts": 224,
+      "max_queries": 896
     }
   ],
-  "authorized_statements": 22,
-  "trace_union_dependency_facts": 2421608,
-  "trace_union_dependency_sha256": "cd6bb99bc48baecd5fd4b08f6425d8194534fcfb5452df206bdfec314156ec44",
-  "policy_refused": 6,
+  "authorized_statements": 23,
+  "trace_union_dependency_facts": 2432313,
+  "trace_union_dependency_sha256": "5605427fb7a8f4a93d83720d3a7b6d546bf6ac20bd0e0c1daa33d9f5c8103361",
+  "policy_refused": 5,
   "zero_release": 6,
-  "total_release_facts": 1907,
+  "total_release_facts": 26907,
   "max_dependency_facts": 1450000
 }
