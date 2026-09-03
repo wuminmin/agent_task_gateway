@@ -1574,3 +1574,4 @@ contract SQL executability gate 会误用已含 `final_v5_benchmark` schema 的 
 | P9F-CONDA-TOS run2 RC=127 根因链: 半截 conda 环境缺 sbt→补装被 CondaToSNonInteractiveError 挡(默认频道 ToS 未接受)→tos accept 两频道→三跑(装依赖+run.sh)后台 | DONE(conda-fix.log 实读) | 2026-09-03 | 看守 bvjg3dj4l |
 | P9F-SBT-VERSION run3 RC=1: conda-forge sbt 2.x 要 JDK17 与环境 JDK11 矛盾(2023 工件假设 sbt1); 装官方 sbt 1.9.9 二进制四跑; **违规自查**: sbt tgz 用了 github.com 匿名 curl(违 GitHub 访问规则, 应 gh release download)——已发生记过, 防再犯: 一切 github 资产一律 gh | DONE(错误日志+自查) | 2026-09-03 | 四跑看守待挂 |
 | P9F-CHORUS run4 RC=1: chorus 0.1.3-SNAPSHOT 本地依赖未发布(install.sh 半截跳过 mvn install); chorus 子模块已在盘(pom.xml 在), mvn install -DskipTests+run.sh 五跑后台 | DONE(错误日志) | 2026-09-03 | 看守 b24ypnq11 |
+| P9F-M2-PERM run5: chorus mvn AccessDenied——~/.m2/repository 大片 root 属主(历史 root maven 残留), sudo -n 不可用→旧仓 mv 保留+新建 wmm 属主空仓(依赖重拉); 六跑后台 | DONE(ls -ld 实证) | 2026-09-03 | 看守 bjk9de17v; 门禁0 时间盒余量过半, 再两层失败即评估降级 BDG+DFC |
