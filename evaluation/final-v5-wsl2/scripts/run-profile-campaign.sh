@@ -537,6 +537,7 @@ config_source() {
     counter) printf '%s' evaluation/final-v5-wsl2/config/counter.example.json ;;
     adversary) printf '%s' evaluation/final-v5-wsl2/config/adversary.example.json ;;
     scale7) printf '%s' evaluation/final-v5-wsl2/config/scale7.example.json ;;
+    compare7) printf '%s' evaluation/final-v5-wsl2/config/compare7.example.json ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }
@@ -551,6 +552,7 @@ experiment_command() {
     counter) printf '%s' v5-counter ;;
     adversary) printf '%s' v5-adversary ;;
     scale7) printf '%s' v5-scale7 ;;
+    compare7) printf '%s' v5-compare7 ;;
     *) echo "unknown experiment $1" >&2; return 2 ;;
   esac
 }

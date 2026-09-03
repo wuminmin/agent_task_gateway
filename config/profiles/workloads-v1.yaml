@@ -110,6 +110,13 @@ experiments:
       scales: [sum-ladder]
       modes: [direct, novel, replay]
       products: [final_v5_scale_e7]
+  # The P9.F comparison sequence shares the scale7 closure (identical
+  # closures resolve to one profile), so it adds cells, not a profile.
+  compare7:
+    - workload_id: compare7-sequence-v1
+      scales: [seq-60]
+      modes: [bdg]
+      products: [final_v5_scale_e7]
   # The comparator arms (docs/p8 a) execute the frozen adaptive trace on the
   # RLS unlimited product under four a-priori budgeters; the arms' product
   # sets differ by never-queried decoys so each routes to its own profile.
