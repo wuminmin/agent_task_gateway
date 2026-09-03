@@ -1777,6 +1777,46 @@ across the whole ladder, while accepted unlimited rungs grow to
 footprint derivation, so refusal latency does not scale with the refused
 footprint at these sites.
 
+\subsection{A SUM ladder past $10^7$ Dependency facts in one query}
+\label{sec:scale7-supp}
+
+The P9.E scale point runs a four-rung SUM ladder over a deterministic
+750,000-row sixteen-field publication: six exact aggregates whose
+always-true predicates pull thirteen referenced columns into the
+footprint, fourteen declared facts per surviving row. Three fresh
+deployments execute three arms (ungoverned direct on the same
+materialized view, governed novel on a fresh root per rung, and novel
+followed by a semantic replay); every rung's charge equals its
+closed-form derivation in all nine samples, and the exact scalars match
+the independently recomputed model.
+
+\begin{table}[t]
+\centering
+\caption{Scale ladder (medians over three deployments): rows, declared
+Dependency facts, and per-arm latency.}
+\label{tab:scale7-supp}
+\small
+\begin{tabular}{rrrrr}
+\toprule
+Rows & Dependency facts & Direct (ms) & Novel (ms) & Replay (ms) \\
+\midrule
+\FinalVFiveScaleSevenLadderTableBody
+\bottomrule
+\end{tabular}
+\end{table}
+
+The largest rung settles \FinalVFiveScaleSevenLargestDependency{}
+Dependency facts in a median \FinalVFiveScaleSevenLargestNovelMS{}~ms
+novel execution against \FinalVFiveScaleSevenLargestDirectMS{}~ms
+direct; novel latency grows near-linearly in the declared footprint.
+Semantic replay of the same statements stays near-constant
+(\FinalVFiveScaleSevenLargestReplayMS{}~ms at the largest rung) and
+charges nothing: at this scale the governed replay undercuts even the
+ungoverned direct execution, the crossover the main text's replay
+discussion states. Artifact cost is part of the claim: the publication's
+compiled bundle is 14~GB (about 1.2~KB per declared fact) and compiles
+in 28 minutes at a 21~GB peak; campaign_class stays pilot.
+
 \subsection{An optimizing adversary under owner-derived budgets}
 \label{sec:adversary-supp}
 
