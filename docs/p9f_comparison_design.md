@@ -52,3 +52,17 @@ BDG 侧等价：expense_detail/amount 或 result_heavy/quantity 上同形 range 
 
 口径 1：同宿主同库（容器 PG）上两系统各自执行其可执行形态的 range count，报中位墙钟。
 口径 2：DProvDB 预算耗尽（ε→0 拒答）步序 vs BDG 台账触顶拒绝步序（各自保守先验预算）。
+
+## BDG 侧 driver 定案（2026-09-03）
+
+- 形态：正规 extension experiment `compare7`（scale7 的八处接线 checklist 复用），
+  真部署 pilot 而非 harness hack——框架已验证反而更快，产物可注册。
+- 档位：**复用 result-heavy 档**（无 catalog 改动、无新 profile）：100k 行、
+  benchmark-low 预算 D=3,000,000，range count 每查询足迹数万级 → 约 10-30 唯一查询触顶（可测）。
+- 序列：N=60、重复率 0.5（30 唯一+30 重复），查询空间=单边 range count
+  （row_id <= N / quantity <= Q / sequence_no <= S，适配产品算子 =/<=/in；
+  与 DProvDB RRQ 的双边 range 口径差异如实记录）。种子冻结。
+- 读数：逐步三维台账、接受/预算拒绝步序、重复查询零计费验证；
+  DProvDB 侧读数=其复现产物原样（totalNoOfQueries@budget：Brownian 571 vs aGM 35 @0.4 等）。
+- 对比表主行：固定预算下可回答查询数的机制形状——ε 每查询必耗（复用靠噪声视图折扣）
+  vs 精确集合重复零耗（唯一查询按足迹扣）。不可比声明置首。
