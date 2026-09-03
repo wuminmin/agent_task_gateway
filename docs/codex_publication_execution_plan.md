@@ -1571,3 +1571,4 @@ contract SQL executability gate 会误用已含 `final_v5_benchmark` schema 的 
 | P9F-GATE0-START DProvDB 工件克隆(gh 授权路径), install.sh 走 conda(openjdk11+sbt, WSL 已有 miniconda), 原样 install 后台跑(门禁0=脚本原样复现, 时间盒 1 工作日, 失败降级 BDG+DFC 组合) | 进行中 | 2026-09-03 | 看守 b7ipacyzn |
 | P9F-GATE0-DB install.sh RC=0 为假(psql 缺失建库步空跑, 脚本吞错); dbgen SF1 1.1G 已产, JDBC 钉 localhost:5432; 补法=容器 PG(user link/db tpch, 发布 5432, 挂 dbgen 卷)+DDL_OK+八表灌数后台(scp 脚本, 引号纪律); sbt 构建面待灌数后 run.sh | DONE(实查 log/tbl) | 2026-09-03 | 看守 bvg2ywhov |
 | P9F-GATE0-RUN TPC-H SF1 灌数完成(lineitem 6,001,215=标准值), run.sh 后台发射(sbt 全实验 1-2h) | DONE(行数实证) | 2026-09-03 | 看守 bf9hg3pcr; 门禁0 判据=run.sh RC 0+plot 产物 |
+| P9F-CONDA-TOS run2 RC=127 根因链: 半截 conda 环境缺 sbt→补装被 CondaToSNonInteractiveError 挡(默认频道 ToS 未接受)→tos accept 两频道→三跑(装依赖+run.sh)后台 | DONE(conda-fix.log 实读) | 2026-09-03 | 看守 bvjg3dj4l |
