@@ -323,6 +323,14 @@ func validateProfileCampaignTerminalShape(sample Sample) error {
 		if sample.System != "taskgate" {
 			return errors.New("adversary pass has the wrong system shape")
 		}
+	case "scale7":
+		if sample.TaskGateAcceptanceV3 != nil || sample.Scale7Verification == nil {
+			return errors.New("scale7 pass must use scale7 verification without top-level v3 acceptance")
+		}
+		if sample.System != "taskgate" ||
+			(sample.Mode != "direct" && sample.Mode != "novel" && sample.Mode != "replay") {
+			return errors.New("scale7 pass has the wrong mode/system shape")
+		}
 	default:
 		return errors.New("unknown experiment terminal shape")
 	}

@@ -1604,6 +1604,27 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFiveBenignXTwoAccepted}}{{{benign['arms']['x2']['accepted']}}}",
         rf"\newcommand{{\FinalVFiveBenignXTwoBudgetRefusals}}{{{benign['arms']['x2']['budget_refusals']}}}",
     ])
+    scale7 = pilot.get("scale7")
+    if scale7 is not None:
+        scale7_rows = []
+        for index in sorted(scale7["arms"]["novel"]["rungs"]):
+            novel_rung = scale7["arms"]["novel"]["rungs"][index]
+            direct_rung = scale7["arms"]["direct"]["rungs"][index]
+            replay_rung = scale7["arms"]["replay"]["rungs"][index]
+            replay_ms = replay_rung.get("median_replay_ms")
+            scale7_rows.append(" & ".join([
+                comma(novel_rung["rows"]), comma(novel_rung["dependency_facts"]),
+                decimal(direct_rung["median_client_ms"], 1),
+                decimal(novel_rung["median_client_ms"], 1),
+                decimal(replay_ms, 1) if replay_ms is not None else "--",
+            ]) + r" \\")
+        lines.extend([
+            rf"\newcommand{{\FinalVFiveScaleSevenLargestDependency}}{{{comma(scale7['largest_rung_dependency_facts'])}}}",
+            rf"\newcommand{{\FinalVFiveScaleSevenLargestNovelMS}}{{{decimal(scale7['largest_rung_novel_ms'], 1)}}}",
+            rf"\newcommand{{\FinalVFiveScaleSevenLargestDirectMS}}{{{decimal(scale7['largest_rung_direct_ms'], 1)}}}",
+            rf"\newcommand{{\FinalVFiveScaleSevenLargestReplayMS}}{{{decimal(scale7['largest_rung_replay_ms'], 1)}}}",
+            r"\newcommand{\FinalVFiveScaleSevenLadderTableBody}{%" + "\n" + "\n".join(scale7_rows) + "%\n}",
+        ])
     adversary = pilot.get("adversary")
     if adversary is None:
         raise SystemExit("pilot evidence lacks the optimizing-adversary study")
