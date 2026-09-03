@@ -1,0 +1,639 @@
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-compare7-sequence-corpus-v1",
+  "product": "final_v5_scale_e7",
+  "sequence_seed": 20260903,
+  "recipe_max_dependency_facts": 11500000,
+  "steps": [
+    {
+      "index": 1,
+      "bound": 66191,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 66191\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "798453860946/25",
+        "2190657336",
+        "319197336",
+        "41361517743/1250",
+        "2434172689/10",
+        "3176058"
+      ],
+      "footprint": 926674
+    },
+    {
+      "index": 2,
+      "bound": 30097,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 30097\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "1355550714007/100",
+        "452929753",
+        "150019753",
+        "150410101937/10000",
+        "11198609037/100",
+        "1443711"
+      ],
+      "footprint": 421358
+    },
+    {
+      "index": 3,
+      "bound": 53158,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 53158\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "2553258530059/100",
+        "1412913061",
+        "255013061",
+        "265711965469/10000",
+        "4278417893/20",
+        "2551489"
+      ],
+      "footprint": 744212
+    },
+    {
+      "index": 4,
+      "bound": 13893,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 13893\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "637699679649/100",
+        "96514671",
+        "57584671",
+        "69334979159/10000",
+        "2921295003/100",
+        "666039"
+      ],
+      "footprint": 194502
+    },
+    {
+      "index": 5,
+      "bound": 25704,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25704\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "63176303327/5",
+        "330360660",
+        "116280660",
+        "6422078057/500",
+        "2500359249/25",
+        "1233744"
+      ],
+      "footprint": 359856
+    },
+    {
+      "index": 6,
+      "bound": 34508,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 34508\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "800858703417/50",
+        "595418286",
+        "160178286",
+        "86215837247/5000",
+        "595150342/5",
+        "1655508"
+      ],
+      "footprint": 483112
+    },
+    {
+      "index": 7,
+      "bound": 54858,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 54858\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "2600337159609/100",
+        "1504727511",
+        "261827511",
+        "274187499519/10000",
+        "4424345883/20",
+        "2632018"
+      ],
+      "footprint": 768012
+    },
+    {
+      "index": 8,
+      "bound": 89030,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 89030\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "884259861567/20",
+        "3963214965",
+        "440814965",
+        "89014013897/2000",
+        "34124523711/100",
+        "4272792"
+      ],
+      "footprint": 1246420
+    },
+    {
+      "index": 9,
+      "bound": 10296,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 10296\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "104944480641/25",
+        "53008956",
+        "50048956",
+        "12851238231/2500",
+        "401094837/25",
+        "493627"
+      ],
+      "footprint": 144144
+    },
+    {
+      "index": 10,
+      "bound": 77257,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 77257\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "3797152011107/100",
+        "2984360653",
+        "376370653",
+        "386276828037/10000",
+        "30261216497/100",
+        "3707166"
+      ],
+      "footprint": 1081598
+    },
+    {
+      "index": 11,
+      "bound": 96022,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 96022\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "4650059043507/100",
+        "4610160253",
+        "468180253",
+        "480043136437/10000",
+        "36546832171/100",
+        "4608700"
+      ],
+      "footprint": 1344308
+    },
+    {
+      "index": 12,
+      "repeat_of": 1,
+      "bound": 66191,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 66191\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 926674
+    },
+    {
+      "index": 13,
+      "bound": 86080,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 86080\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "210475544728/5",
+        "3704926240",
+        "418526240",
+        "5379002362/125",
+        "3354622173/10",
+        "4130692"
+      ],
+      "footprint": 1205120
+    },
+    {
+      "index": 14,
+      "repeat_of": 8,
+      "bound": 89030,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 89030\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1246420
+    },
+    {
+      "index": 15,
+      "bound": 47635,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 47635\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "227066323517/10",
+        "1134570430",
+        "229170430",
+        "23813656347/1000",
+        "174845413",
+        "2286124"
+      ],
+      "footprint": 666890
+    },
+    {
+      "index": 16,
+      "repeat_of": 8,
+      "bound": 89030,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 89030\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1246420
+    },
+    {
+      "index": 17,
+      "bound": 1752,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 1752\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "3040159533/25",
+        "1535628",
+        "1535628",
+        "2158696203/2500",
+        "11616039/25",
+        "83823"
+      ],
+      "footprint": 24528
+    },
+    {
+      "index": 18,
+      "repeat_of": 5,
+      "bound": 25704,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25704\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 359856
+    },
+    {
+      "index": 19,
+      "bound": 77416,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 77416\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "949782162971/25",
+        "2996657236",
+        "377537236",
+        "96758917261/2500",
+        "3037407049/10",
+        "3715533"
+      ],
+      "footprint": 1083824
+    },
+    {
+      "index": 20,
+      "repeat_of": 10,
+      "bound": 77257,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 77257\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1081598
+    },
+    {
+      "index": 21,
+      "bound": 64819,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 64819\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "316810683301/10",
+        "2100783790",
+        "311643790",
+        "32406554291/1000",
+        "11933163469/50",
+        "3110461"
+      ],
+      "footprint": 907466
+    },
+    {
+      "index": 22,
+      "repeat_of": 5,
+      "bound": 25704,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25704\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 359856
+    },
+    {
+      "index": 23,
+      "bound": 48718,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 48718\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "2358942532199/100",
+        "1186746121",
+        "238026121",
+        "243524506209/10000",
+        "18178680393/100",
+        "2337588"
+      ],
+      "footprint": 682052
+    },
+    {
+      "index": 24,
+      "repeat_of": 13,
+      "bound": 86080,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 86080\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1205120
+    },
+    {
+      "index": 25,
+      "bound": 74970,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 74970\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "742234031453/20",
+        "2810287935",
+        "362387935",
+        "74963028923/2000",
+        "5746816063/20",
+        "3598087"
+      ],
+      "footprint": 1049580
+    },
+    {
+      "index": 26,
+      "repeat_of": 10,
+      "bound": 77257,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 77257\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1081598
+    },
+    {
+      "index": 27,
+      "bound": 95111,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 95111\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "1149579683001/25",
+        "4523098716",
+        "463108716",
+        "118888856991/2500",
+        "18073766979/50",
+        "4564155"
+      ],
+      "footprint": 1331554
+    },
+    {
+      "index": 28,
+      "repeat_of": 11,
+      "bound": 96022,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 96022\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1344308
+    },
+    {
+      "index": 29,
+      "bound": 25658,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25658\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "1263370963809/100",
+        "329179311",
+        "116019311",
+        "128190061719/10000",
+        "1993065643/20",
+        "1230409"
+      ],
+      "footprint": 359212
+    },
+    {
+      "index": 30,
+      "repeat_of": 7,
+      "bound": 54858,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 54858\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 768012
+    },
+    {
+      "index": 31,
+      "bound": 30152,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 30152\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "339417876783/25",
+        "454586628",
+        "150026628",
+        "37670740953/2500",
+        "5601882841/50",
+        "1446681"
+      ],
+      "footprint": 422128
+    },
+    {
+      "index": 32,
+      "repeat_of": 3,
+      "bound": 53158,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 53158\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 744212
+    },
+    {
+      "index": 33,
+      "bound": 97371,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 97371\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "2369373541507/50",
+        "4740604506",
+        "477214506",
+        "243399654437/5000",
+        "18592651279/50",
+        "4673128"
+      ],
+      "footprint": 1363194
+    },
+    {
+      "index": 34,
+      "repeat_of": 3,
+      "bound": 53158,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 53158\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 744212
+    },
+    {
+      "index": 35,
+      "bound": 61589,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 61589\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "602287749269/20",
+        "1896633255",
+        "301293255",
+        "61592832579/2000",
+        "4594237927/20",
+        "2955999"
+      ],
+      "footprint": 862246
+    },
+    {
+      "index": 36,
+      "repeat_of": 6,
+      "bound": 34508,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 34508\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 483112
+    },
+    {
+      "index": 37,
+      "bound": 27806,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 27806\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "1288491109599/100",
+        "386600721",
+        "130480721",
+        "138966909609/10000",
+        "2213041297/20",
+        "1333632"
+      ],
+      "footprint": 389284
+    },
+    {
+      "index": 38,
+      "repeat_of": 4,
+      "bound": 13893,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 13893\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 194502
+    },
+    {
+      "index": 39,
+      "bound": 67338,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 67338\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "3226748147929/100",
+        "2267236791",
+        "326956791",
+        "336631884639/10000",
+        "24783347133/100",
+        "3231454"
+      ],
+      "footprint": 942732
+    },
+    {
+      "index": 40,
+      "repeat_of": 5,
+      "bound": 25704,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25704\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 359856
+    },
+    {
+      "index": 41,
+      "bound": 7191,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 7191\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "51194030571/25",
+        "25858836",
+        "25858836",
+        "8960008861/2500",
+        "391481349/50",
+        "344622"
+      ],
+      "footprint": 100674
+    },
+    {
+      "index": 42,
+      "repeat_of": 2,
+      "bound": 30097,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 30097\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 421358
+    },
+    {
+      "index": 43,
+      "bound": 88086,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 88086\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "4389277052979/100",
+        "3879615741",
+        "432735741",
+        "440336939189/10000",
+        "1356436785/4",
+        "4227693"
+      ],
+      "footprint": 1233204
+    },
+    {
+      "index": 44,
+      "repeat_of": 33,
+      "bound": 97371,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 97371\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1363194
+    },
+    {
+      "index": 45,
+      "bound": 31659,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 31659\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "142510164043/10",
+        "501161970",
+        "151391970",
+        "15818195613/1000",
+        "2845171939/25",
+        "1518522"
+      ],
+      "footprint": 443226
+    },
+    {
+      "index": 46,
+      "repeat_of": 27,
+      "bound": 95111,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 95111\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1331554
+    },
+    {
+      "index": 47,
+      "bound": 54948,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 54948\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "1301733716547/50",
+        "1509668826",
+        "262268826",
+        "137318239077/5000",
+        "11062026711/50",
+        "2636331"
+      ],
+      "footprint": 769272
+    },
+    {
+      "index": 48,
+      "repeat_of": 5,
+      "bound": 25704,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25704\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 359856
+    },
+    {
+      "index": 49,
+      "bound": 25895,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25895\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "63217465737/5",
+        "335288460",
+        "117388460",
+        "6469756367/500",
+        "1014939933/10",
+        "1242774"
+      ],
+      "footprint": 362530
+    },
+    {
+      "index": 50,
+      "repeat_of": 9,
+      "bound": 10296,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 10296\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 144144
+    },
+    {
+      "index": 51,
+      "repeat_of": 6,
+      "bound": 34508,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 34508\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 483112
+    },
+    {
+      "index": 52,
+      "repeat_of": 47,
+      "bound": 54948,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 54948\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 769272
+    },
+    {
+      "index": 53,
+      "repeat_of": 45,
+      "bound": 31659,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 31659\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 443226
+    },
+    {
+      "index": 54,
+      "repeat_of": 23,
+      "bound": 48718,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 48718\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 682052
+    },
+    {
+      "index": 55,
+      "repeat_of": 37,
+      "bound": 27806,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 27806\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 389284
+    },
+    {
+      "index": 56,
+      "repeat_of": 19,
+      "bound": 77416,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 77416\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1083824
+    },
+    {
+      "index": 57,
+      "repeat_of": 15,
+      "bound": 47635,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 47635\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 666890
+    },
+    {
+      "index": 58,
+      "repeat_of": 23,
+      "bound": 48718,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 48718\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 682052
+    },
+    {
+      "index": 59,
+      "repeat_of": 27,
+      "bound": 95111,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 95111\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 1331554
+    },
+    {
+      "index": 60,
+      "repeat_of": 49,
+      "bound": 25895,
+      "sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_scale_e7\nWHERE row_id \u003c= 25895\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "footprint": 362530
+    }
+  ]
+}
