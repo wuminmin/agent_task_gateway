@@ -241,6 +241,7 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
 
     artifact_runs, baseline_samples, subphase_samples, provsql_leaf_samples = [], [], [], []
     footprint_samples, benign_samples, counter_samples, adversary_samples = [], [], [], []
+    scale7_samples = []
     for entry in manifest["runs"]:
         if entry.get("superseded_by"):
             # A retained run whose measurements a later run of the same family
@@ -264,6 +265,9 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
             continue
         if entry["family"] == "counter":
             counter_samples.extend(_load_profile_pilot(root, entry))
+            continue
+        if entry["family"] == "scale7":
+            scale7_samples.extend(_load_profile_pilot(root, entry))
             continue
         if entry["family"] == "adversary":
             adversary_samples.extend(_load_profile_pilot(root, entry))
@@ -374,7 +378,8 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     adversary = _adversary_stats(adversary_samples) if adversary_samples else None
     return {"subphase": subphase, "provsql_leaves": provsql_leaves, "artifact": artifact_stats,
             "baseline": baseline_stats, "footprint": footprint, "benign": benign, "counter": counter,
-            "adversary": adversary}
+            "adversary": adversary,
+            "scale7": _scale7_stats(scale7_samples) if scale7_samples else None}
 
 # ---------------------------------------------------------------------------
 # The three P8 retained studies (docs/p8): the refused-footprint ladder, the
@@ -452,6 +457,40 @@ def _benign_stats(samples: list[dict]) -> dict:
         "recipe_dependency_budget": recipe["budget_dependency"],
         "union_over_budget_percent": 100.0 * (union - recipe["budget_dependency"]) / recipe["budget_dependency"],
     }
+
+
+def _scale7_stats(samples: list[dict]) -> dict:
+    """Per-arm ladder statistics for the P9.E scale point: rung latencies
+    (client-observed medians across deployments), the exact charged
+    footprints, and the zero-charge replay timings."""
+    arms: dict = {}
+    for sample in samples:
+        if sample.get("experiment_id") != "scale7":
+            raise PilotEvidenceError("scale7 study retained a foreign sample")
+        evidence = sample.get("scale7_verification") or {}
+        rungs = evidence.get("rungs") or []
+        arm = arms.setdefault(sample["mode"], {"rungs": {}})
+        for rung in rungs:
+            slot = arm["rungs"].setdefault(rung["index"], {
+                "rows": rung["rows"],
+                "dependency_facts": rung.get("expected_dependency_facts", 0),
+                "client_ms": [], "replay_ms": []})
+            slot["client_ms"].append(rung["client_ms"])
+            if rung.get("replay_client_ms"):
+                slot["replay_ms"].append(rung["replay_client_ms"])
+    if set(arms) != {"direct", "novel", "replay"}:
+        raise PilotEvidenceError("scale7 study must retain exactly the three arms")
+    for arm in arms.values():
+        for slot in arm["rungs"].values():
+            slot["median_client_ms"] = _median(slot.pop("client_ms"))
+            replays = slot.pop("replay_ms")
+            slot["median_replay_ms"] = _median(replays) if replays else None
+    largest = max(arms["novel"]["rungs"])
+    top = arms["novel"]["rungs"][largest]
+    return {"arms": arms, "largest_rung_dependency_facts": top["dependency_facts"],
+            "largest_rung_novel_ms": top["median_client_ms"],
+            "largest_rung_direct_ms": arms["direct"]["rungs"][largest]["median_client_ms"],
+            "largest_rung_replay_ms": arms["replay"]["rungs"][largest]["median_replay_ms"]}
 
 
 def _adversary_stats(samples: list[dict]) -> dict:
