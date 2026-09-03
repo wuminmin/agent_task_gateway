@@ -164,7 +164,8 @@ func (adapter *scale7Adapter) runLadder(ctx context.Context, operation experimen
 		}
 		return sample
 	}
-	approvedColumns := append([]string{"row_id", "category"}, finalv5scale7.LadderColumns...)
+	approvedColumns := append(append([]string(nil), finalv5scale7.PredicateColumns...),
+		finalv5scale7.LadderColumns...)
 	for _, want := range adapter.manifest.Rungs {
 		created, err := adapter.real.provisionScopedCatalogTask(ctx,
 			fmt.Sprintf("Final V5 scale7 ladder %s %s %s", operation.Mode, want.ID, operation.PairID),
