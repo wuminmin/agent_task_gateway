@@ -452,6 +452,32 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "compare7"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "compare7_verification"
+        ],
+        "properties": {
+          "compare7_verification": {
+            "$ref": "#/properties/compare7_verification/anyOf/0"
+          }
+        }
+      }
     }
   ],
   "required": [
@@ -2375,6 +2401,16 @@
         },
         {
           "$ref": "#/$defs/scale7Verification"
+        }
+      ]
+    },
+    "compare7_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/compare7Verification"
+        },
+        {
+          "$ref": "#/$defs/compare7Verification"
         }
       ]
     }
@@ -6432,6 +6468,113 @@
           }
         },
         "accepted_rungs": {
+          "type": "integer"
+        }
+      }
+    },
+    "compare7Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "bound",
+        "sql_sha256",
+        "accepted",
+        "rejected",
+        "client_ms",
+        "charged_release_facts",
+        "charged_dependency_facts",
+        "charged_outcome_facts",
+        "ledger_dependency"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "repeat_of": {
+          "type": "integer"
+        },
+        "bound": {
+          "type": "integer"
+        },
+        "sql_sha256": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "type": "string"
+        },
+        "client_ms": {
+          "type": "number"
+        },
+        "request_id_hash": {
+          "type": "string"
+        },
+        "charged_release_facts": {
+          "type": "integer"
+        },
+        "charged_dependency_facts": {
+          "type": "integer"
+        },
+        "charged_outcome_facts": {
+          "type": "integer"
+        },
+        "ledger_dependency": {
+          "type": "integer"
+        }
+      }
+    },
+    "compare7Verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_statements",
+        "budget_refusals",
+        "corpus_id",
+        "corpus_sha256",
+        "max_dependency_facts",
+        "product",
+        "repeat_charges",
+        "steps",
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "corpus_id": {
+          "type": "string"
+        },
+        "corpus_sha256": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "max_dependency_facts": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/compare7Step"
+          }
+        },
+        "accepted_statements": {
+          "type": "integer"
+        },
+        "budget_refusals": {
+          "type": "integer"
+        },
+        "first_budget_refusal": {
+          "type": "integer"
+        },
+        "repeat_charges": {
           "type": "integer"
         }
       }

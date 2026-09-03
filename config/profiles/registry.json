@@ -885,11 +885,13 @@
         "final-v5-baseline-low-v1"
       ],
       "workload_cells": [
+        "compare7/compare7-sequence-v1/seq-60/bdg",
         "scale7/scale7-ladder-v1/sum-ladder/direct",
         "scale7/scale7-ladder-v1/sum-ladder/novel",
         "scale7/scale7-ladder-v1/sum-ladder/replay"
       ],
       "experiments": [
+        "compare7",
         "scale7"
       ],
       "catalog_sha256": "e4aa369772d01b6f234af20a1e6b9a43041c2b50ab56a7c09fc8f50691662829",

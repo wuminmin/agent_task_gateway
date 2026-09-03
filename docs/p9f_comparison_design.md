@@ -31,3 +31,38 @@
 
 - 不改 catalog、不触发 binding（比较在各自系统内跑）→ 不等 P9.G。
 - 排期在 pilot-benign-06 注册与 P9.E 预实测门之后；JVM 安装等重 IO 不与测时延 run 并行。
+
+## 门禁 0 通过记录与共同序列草案（2026-09-03）
+
+复现链八层（台账 P9F-* 行，全直接证据）：psql 空跑假 RC/半截 conda 环境/Conda ToS/
+sbt2-JDK11 矛盾（官方 sbt 1.9.9 二进制解）/chorus 未发布/.m2 root 属主/双 main 交互选择
+（无头环境批量入口=runMain edu.Experiments.Experiment）/adult 库缺失。EQW@adult RC=0 44s。
+
+### 共同查询序列（口径 3——重复查询语义，主对比面）
+
+DProvDB 侧：RRQ 任务在 adult.age 上发随机 range count 查询（DP 噪声答案，ε 从预算扣减；
+重复/相似查询由 provenance 表复用已付噪声视图省 ε）。
+BDG 侧等价：expense_detail/amount 或 result_heavy/quantity 上同形 range count
+（count 聚合在片段内 ✓），同 root 重发同语义查询=零计费重放。
+序列：N=50 查询、重复率 50%（25 唯一+25 重复），两侧同序列同种子。
+读数：DProvDB 累计 ε 消耗曲线（重复省多少）vs BDG 三维台账消耗曲线（重复零增）。
+不可比声明置表首：ε 是噪声隐私损耗、BDG 是精确披露计数，比较的是"重复查询的预算折扣机制形状"。
+
+### 口径 1（每查询开销）与口径 2（耗尽轨迹）
+
+口径 1：同宿主同库（容器 PG）上两系统各自执行其可执行形态的 range count，报中位墙钟。
+口径 2：DProvDB 预算耗尽（ε→0 拒答）步序 vs BDG 台账触顶拒绝步序（各自保守先验预算）。
+
+## BDG 侧 driver 定案（2026-09-03）
+
+- 形态：正规 extension experiment `compare7`（scale7 的八处接线 checklist 复用），
+  真部署 pilot 而非 harness hack——框架已验证反而更快，产物可注册。
+- 档位：**复用 result-heavy 档**（无 catalog 改动、无新 profile）：100k 行、
+  benchmark-low 预算 D=3,000,000，range count 每查询足迹数万级 → 约 10-30 唯一查询触顶（可测）。
+- 序列：N=60、重复率 0.5（30 唯一+30 重复），查询空间=单边 range count
+  （row_id <= N / quantity <= Q / sequence_no <= S，适配产品算子 =/<=/in；
+  与 DProvDB RRQ 的双边 range 口径差异如实记录）。种子冻结。
+- 读数：逐步三维台账、接受/预算拒绝步序、重复查询零计费验证；
+  DProvDB 侧读数=其复现产物原样（totalNoOfQueries@budget：Brownian 571 vs aGM 35 @0.4 等）。
+- 对比表主行：固定预算下可回答查询数的机制形状——ε 每查询必耗（复用靠噪声视图折扣）
+  vs 精确集合重复零耗（唯一查询按足迹扣）。不可比声明置首。

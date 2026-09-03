@@ -156,6 +156,16 @@
       "submission_commit": "b5ca71e2cdcf7bff88c72e3018711ae6e578c20e",
       "measured_samples": 18,
       "note": "Optimizing-adversary study (docs/p9c): two frozen extraction strategies (adaptive threshold bisection; greedy distinct-dependency maximization) against the ten-row expense fixture under three owner-derived budget tiers (budgets from the granted purpose, never from the traces), across THREE fresh deployments (six tier/strategy cells x three samples = 18, zero cross-deployment inconsistency). Every cell realized the frozen a-priori table exactly. Headlines: threshold-probe recovery is cleanly bounded by floor(B_O/2) bits (owner 6, tightened 4; loosened B_O=24 completes all 11 probes and recovers the hidden 1910 exactly) because a probe charges a data-independent 2 novel Outcome facts, so refusals after B_O exhaustion leak no data bits; greedy distinct-dependency extraction is capped exactly at B_D in every order tried (owner/loosened 18 = the granted universe, tightened 12 = B_D). The study also pinned live that aggregate Release identity excludes the predicate literal (same-count same-witness thresholds reuse one Release fact)."
+    },
+    {
+      "id": "pilot-scale7-04",
+      "family": "scale7",
+      "pilot_kind": "profile_campaign",
+      "path": "evaluation/final-v5-wsl2/raw/pilot-scale7-04",
+      "campaign_evidence_sha256": "ea1c793a61c3695a5e2d26b95aae2eb10b1d00d09d9b033cfc4867ab37248fab",
+      "samples_sha256": "79c9572f10b62922fb2b1be07edb106743ce7531e9beb149a0256c0ce7d6645a",
+      "submission_commit": "1aeb7b987038fc2e20fc0c1b3d4cfe80174e29c4",
+      "measured_samples": 9
     }
   ]
 }
