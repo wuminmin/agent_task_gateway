@@ -211,7 +211,7 @@ func validateProfileCampaignExperimentGate(campaignClass, experimentID string, s
 
 func profileCampaignExperiment(value string) bool {
 	switch value {
-	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign", "counter", "adversary":
+	case "baseline", "artifact", "scale", "provsql", "rls", "attack", "concurrency", "rq5", "footprint", "benign", "counter", "adversary", "scale7":
 		return true
 	default:
 		return false
