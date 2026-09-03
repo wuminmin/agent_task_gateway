@@ -1817,6 +1817,36 @@ discussion states. Artifact cost is part of the claim: the publication's
 compiled bundle is 14~GB (about 1.2~KB per declared fact) and compiles
 in 28 minutes at a 21~GB peak; \code{campaign\_class} stays pilot.
 
+\subsection{Budget semantics beside a DP provenance system}
+\label{sec:compare7-supp}
+
+DProvDB \cite{zhang2023dprovdb} and BDG guard incomparable quantities: a
+differential-privacy loss over noised views versus an exact count of
+declared released facts. No latency or utility number below ranks one
+system over the other; the comparison is of \emph{budget-mechanism
+shape} on repeated workloads. We reproduced DProvDB's SIGMOD'24 artifact
+end to end on the same host (its four experiment arms, thirteen result
+files, TPC-H SF1 and Adult loaded per its scripts): under one fixed
+privacy budget its provenance-aware mechanism answers up to 571
+range-count queries where a naive Gaussian baseline answers 35 --
+provenance lets it \emph{discount, but not eliminate}, the cost of
+overlapping queries. The BDG side runs a frozen sixty-statement
+range-\code{SUM} sequence (thirty unique, thirty byte-identical repeats)
+against the scale-point Product's a-priori recipe on three fresh
+deployments, which agree exactly: \FinalVFiveCompareAccepted{} of 60
+statements settle (\FinalVFiveCompareUniqueAccepted{} unique,
+\FinalVFiveCompareRepeatsAccepted{} repeats),
+\FinalVFiveCompareBudgetRefusals{} refuse once the release-facts recipe
+is spent, and every repeat charges exactly
+\FinalVFiveCompareRepeatCharges{} facts of any kind. Two shapes emerge:
+repeats are a \emph{discount} under DP provenance and \emph{free} under
+exact set accounting; and nested overlapping ranges advance BDG's
+Dependency ledger only by their set difference (the ledger settles at
+$\max$-bound $\times$ 14 facts), where every DP answer spends budget.
+The dual holds on refusal: DProvDB degrades accuracy as
+$\varepsilon$ thins, BDG refuses exactly and charges nothing for the
+refusal.
+
 \subsection{An optimizing adversary under owner-derived budgets}
 \label{sec:adversary-supp}
 
