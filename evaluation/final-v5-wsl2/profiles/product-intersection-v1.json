@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "record": "taskgate-final-v5-product-intersection-v1",
-  "contracts_version": "final-v5-contracts-v1.12",
+  "contracts_version": "final-v5-contracts-v1.13",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
-  "profile_count": 23,
-  "pair_count": 253,
+  "profile_count": 24,
+  "pair_count": 276,
   "overlapping_pair_count": 6,
   "pairs": [
     {
@@ -194,6 +194,21 @@
     },
     {
       "left_profile_id": "profile-00bc8f7d5633f596",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "rls-unlimited",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_rls_unlimited_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-00bc8f7d5633f596",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "rls-unlimited",
       "right_alias": "counter-exact",
@@ -552,6 +567,21 @@
     },
     {
       "left_profile_id": "profile-0d88c4e9d8b7561b",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "expense-detail",
+      "right_alias": "scale7",
+      "left_products": [
+        "expense_detail"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-0d88c4e9d8b7561b",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "expense-detail",
       "right_alias": "counter-exact",
@@ -885,6 +915,21 @@
     },
     {
       "left_profile_id": "profile-158c6ffcccef2383",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "attack-expense-detail",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_attack_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-158c6ffcccef2383",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "attack-expense-detail",
       "right_alias": "counter-exact",
@@ -1203,6 +1248,21 @@
     },
     {
       "left_profile_id": "profile-18c12d9c4dc04fc5",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "rls-bounded",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_rls_bounded_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-18c12d9c4dc04fc5",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "rls-bounded",
       "right_alias": "counter-exact",
@@ -1495,6 +1555,21 @@
         "final_v5_rls_unlimited_expense_detail",
         "provsql_lineitem",
         "provsql_orders"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-3947f508ef5e9677",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "concurrency-expense-detail",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_concurrency_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
       ],
       "intersection": [],
       "intersection_count": 0,
@@ -1831,6 +1906,27 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-4150e35650c39ab2",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "benign-x4",
+      "right_alias": "scale7",
+      "left_products": [
+        "expense_detail",
+        "expense_summary",
+        "final_v5_attack_expense_detail",
+        "final_v5_result_heavy",
+        "provsql_lineitem",
+        "provsql_nonce",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
       "same_query_live_test_applicable": false
     },
     {
@@ -2207,6 +2303,23 @@
     },
     {
       "left_profile_id": "profile-46b22367d1386567",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "depth4-semantic-view",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_analytics_depth4",
+        "provsql_lineitem",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-46b22367d1386567",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "depth4-semantic-view",
       "right_alias": "counter-exact",
@@ -2495,6 +2608,22 @@
     },
     {
       "left_profile_id": "profile-4a29b3ffc7129007",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "adversary-owner",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_rls_unlimited_expense_detail",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-4a29b3ffc7129007",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "adversary-owner",
       "right_alias": "counter-exact",
@@ -2752,6 +2881,21 @@
     },
     {
       "left_profile_id": "profile-52504d68e0f7fa28",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "footprint-unlimited",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_footprint_unlimited_result_heavy"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-52504d68e0f7fa28",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "footprint-unlimited",
       "right_alias": "counter-exact",
@@ -2973,6 +3117,25 @@
         "provsql_orders"
       ],
       "intersection_count": 2,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-57cd926b3fcbccde",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "benign-recipe",
+      "right_alias": "scale7",
+      "left_products": [
+        "expense_detail",
+        "expense_summary",
+        "final_v5_result_heavy",
+        "provsql_lineitem",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
       "same_query_live_test_applicable": false
     },
     {
@@ -3235,6 +3398,22 @@
     },
     {
       "left_profile_id": "profile-5b48ad2a02c5446d",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "analytics-orders-lineitem",
+      "right_alias": "scale7",
+      "left_products": [
+        "provsql_lineitem",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-5b48ad2a02c5446d",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "analytics-orders-lineitem",
       "right_alias": "counter-exact",
@@ -3434,6 +3613,23 @@
     },
     {
       "left_profile_id": "profile-68ded13e09bfd6e1",
+      "right_profile_id": "profile-69f6a064f1ef18ed",
+      "left_alias": "adversary-loosened",
+      "right_alias": "scale7",
+      "left_products": [
+        "final_v5_rls_unlimited_expense_detail",
+        "provsql_lineitem",
+        "provsql_orders"
+      ],
+      "right_products": [
+        "final_v5_scale_e7"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-68ded13e09bfd6e1",
       "right_profile_id": "profile-6cb70ae786fcd0ec",
       "left_alias": "adversary-loosened",
       "right_alias": "counter-exact",
@@ -3649,6 +3845,184 @@
         "provsql_orders"
       ],
       "intersection_count": 1,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-6cb70ae786fcd0ec",
+      "left_alias": "scale7",
+      "right_alias": "counter-exact",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_attack_expense_detail",
+        "final_v5_rls_unlimited_expense_detail",
+        "provsql_nonce"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "scale7",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-a60a787c64c95451",
+      "left_alias": "scale7",
+      "right_alias": "provsql-nonce-join",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "provsql_lineitem",
+        "provsql_nonce",
+        "provsql_orders"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-a86cd4df5cad6e26",
+      "left_alias": "scale7",
+      "right_alias": "result-heavy",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_result_heavy"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-ac3d38a970ae15e6",
+      "left_alias": "scale7",
+      "right_alias": "footprint-bounded",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_footprint_bounded_result_heavy"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-c1bee5484d41e498",
+      "left_alias": "scale7",
+      "right_alias": "counter-queries",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_attack_expense_detail",
+        "final_v5_rls_unlimited_expense_detail"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-c27e8a1ce21ae1af",
+      "left_alias": "scale7",
+      "right_alias": "counter-release",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_concurrency_expense_detail",
+        "final_v5_rls_unlimited_expense_detail"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-f08342e0b89058a9",
+      "left_alias": "scale7",
+      "right_alias": "benign-x2",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "expense_detail",
+        "expense_summary",
+        "final_v5_result_heavy",
+        "provsql_lineitem",
+        "provsql_nonce",
+        "provsql_orders"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-f39ec7673d438fe9",
+      "left_alias": "scale7",
+      "right_alias": "adversary-tightened",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_rls_unlimited_expense_detail",
+        "provsql_lineitem"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-f441ba765b9a1541",
+      "left_alias": "scale7",
+      "right_alias": "counter-rows",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "final_v5_rls_unlimited_expense_detail",
+        "provsql_nonce"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-69f6a064f1ef18ed",
+      "right_profile_id": "profile-f60ec5752f501da0",
+      "left_alias": "scale7",
+      "right_alias": "analytics-orders",
+      "left_products": [
+        "final_v5_scale_e7"
+      ],
+      "right_products": [
+        "provsql_orders"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
       "same_query_live_test_applicable": false
     },
     {

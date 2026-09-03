@@ -102,6 +102,14 @@ experiments:
       modes: [x4]
       products: [expense_detail, expense_summary, provsql_orders, provsql_lineitem, final_v5_result_heavy,
                  provsql_nonce, final_v5_attack_expense_detail]
+  # The P9.E scale ladder (docs/p9e) runs four SUM-ladder rungs over the
+  # deterministic 750,000-row scale-e7 relation; the largest rung settles
+  # more than 10^7 declared Dependency facts in one admitted query.
+  scale7:
+    - workload_id: scale7-ladder-v1
+      scales: [sum-ladder]
+      modes: [direct, novel, replay]
+      products: [final_v5_scale_e7]
   # The comparator arms (docs/p8 a) execute the frozen adaptive trace on the
   # RLS unlimited product under four a-priori budgeters; the arms' product
   # sets differ by never-queried decoys so each routes to its own profile.
@@ -151,6 +159,7 @@ aliases:
   a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd: result-heavy
   18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d: rls-bounded
   00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a: rls-unlimited
+  69f6a064f1ef18edad6f05548bda938f2367eab999594625bb58d707b406227f: scale7
   f08342e0b89058a93a1fe44cb446282559d2423c56b9b282d31cf7543c52da35: benign-x2
   f441ba765b9a1541b0420c06063d2f2e60c324cdc928cb623d0950476f77acf8: counter-rows
   ac3d38a970ae15e6370195b236dbe25631e6c3afadc9b30a52bf55931657710c: footprint-bounded

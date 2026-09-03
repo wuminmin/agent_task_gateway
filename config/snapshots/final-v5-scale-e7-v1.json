@@ -1,0 +1,175 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "final-v5-scale-e7-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.final_v5_scale_e7",
+  "ordinal_sidecar": "taskgate_ordinal.final_v5_scale_e7_v1",
+  "entity_key_fields": [
+    "row_id"
+  ],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "final_v5.scale_e7",
+    "snapshot": "final-v5-scale-e7-2026-v1",
+    "schema_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "fields": [
+      {
+        "name": "row_id",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "row_id",
+        "canonical_field_id": "final_v5_scale_e7.row_id",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "category",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "category",
+        "canonical_field_id": "final_v5_scale_e7.category",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "amount",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "amount",
+        "canonical_field_id": "final_v5_scale_e7.amount",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "event_date",
+        "sql_type": "date"
+      },
+      {
+        "name": "event_date",
+        "canonical_field_id": "final_v5_scale_e7.event_date",
+        "sql_type": "date"
+      },
+      {
+        "name": "sequence_no",
+        "sql_type": "integer"
+      },
+      {
+        "name": "sequence_no",
+        "canonical_field_id": "final_v5_scale_e7.sequence_no",
+        "sql_type": "integer"
+      },
+      {
+        "name": "approved",
+        "sql_type": "boolean"
+      },
+      {
+        "name": "approved",
+        "canonical_field_id": "final_v5_scale_e7.approved",
+        "sql_type": "boolean"
+      },
+      {
+        "name": "event_timestamp",
+        "sql_type": "timestamp without time zone"
+      },
+      {
+        "name": "event_timestamp",
+        "canonical_field_id": "final_v5_scale_e7.event_timestamp",
+        "sql_type": "timestamp without time zone"
+      },
+      {
+        "name": "description",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "description",
+        "canonical_field_id": "final_v5_scale_e7.description",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "quantity",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "quantity",
+        "canonical_field_id": "final_v5_scale_e7.quantity",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "unit_price",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "unit_price",
+        "canonical_field_id": "final_v5_scale_e7.unit_price",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "tax_amount",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "tax_amount",
+        "canonical_field_id": "final_v5_scale_e7.tax_amount",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "settled_date",
+        "sql_type": "date"
+      },
+      {
+        "name": "settled_date",
+        "canonical_field_id": "final_v5_scale_e7.settled_date",
+        "sql_type": "date"
+      },
+      {
+        "name": "processed_at",
+        "sql_type": "timestamp without time zone"
+      },
+      {
+        "name": "processed_at",
+        "canonical_field_id": "final_v5_scale_e7.processed_at",
+        "sql_type": "timestamp without time zone"
+      },
+      {
+        "name": "region",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "region",
+        "canonical_field_id": "final_v5_scale_e7.region",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "revision",
+        "sql_type": "integer"
+      },
+      {
+        "name": "revision",
+        "canonical_field_id": "final_v5_scale_e7.revision",
+        "sql_type": "integer"
+      },
+      {
+        "name": "active",
+        "sql_type": "boolean"
+      },
+      {
+        "name": "active",
+        "canonical_field_id": "final_v5_scale_e7.active",
+        "sql_type": "boolean"
+      }
+    ],
+    "rows": []
+  }
+}

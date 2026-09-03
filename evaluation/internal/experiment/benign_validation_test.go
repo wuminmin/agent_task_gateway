@@ -55,7 +55,7 @@ func validBenignSample(t *testing.T, mode string) Sample {
 	}
 	evidence.FinalRoot = &ledger
 	return Sample{ExperimentID: "benign", WorkloadID: finalv5benign.TraceWorkloadID,
-		Scale: "27-statements", Mode: mode, System: "taskgate", Status: "pass",
+		Scale: "28-statements", Mode: mode, System: "taskgate", Status: "pass",
 		BenignVerification: evidence}
 }
 

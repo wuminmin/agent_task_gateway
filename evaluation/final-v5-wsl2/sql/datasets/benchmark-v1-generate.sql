@@ -88,6 +88,60 @@ SELECT row_id,
        (row_id % 7) <> 0
 FROM generate_series(1, 100000) AS generated(row_id);
 
+-- P9.E scale point: the 750,000-row sixteen-field relation lets one
+-- admitted SUM-ladder query settle a Dependency footprint above 10^7
+-- declared facts (fourteen facts per surviving row: the base-row fact
+-- plus thirteen referenced columns); same formulas as result_heavy with
+-- only the row-count bound changed. The snapshot compiler holds the whole
+-- relation in memory (~18KB/row measured), so the row count must respect
+-- its 22g ceiling.
+CREATE TABLE final_v5_benchmark.scale_e7 (
+    row_id bigint PRIMARY KEY CHECK (row_id BETWEEN 1 AND 750000),
+    category text COLLATE "en_US.utf8" NOT NULL,
+    amount numeric NOT NULL,
+    event_date date NOT NULL,
+    sequence_no integer NOT NULL,
+    approved boolean NOT NULL,
+    event_timestamp timestamp without time zone NOT NULL,
+    description text COLLATE "en_US.utf8" NOT NULL,
+    quantity bigint NOT NULL,
+    unit_price numeric NOT NULL,
+    tax_amount numeric NOT NULL,
+    settled_date date NOT NULL,
+    processed_at timestamp without time zone NOT NULL,
+    region text COLLATE "en_US.utf8" NOT NULL,
+    revision integer NOT NULL,
+    active boolean NOT NULL
+);
+
+INSERT INTO final_v5_benchmark.scale_e7(
+    row_id, category, amount, event_date, sequence_no, approved,
+    event_timestamp, description, quantity, unit_price, tax_amount,
+    settled_date, processed_at, region, revision, active
+)
+SELECT row_id,
+       (ARRAY['alpha','beta','gamma','delta'])[((row_id - 1) % 4) + 1],
+       ((row_id::bigint * 7919) % 100000000)::numeric / 100,
+       date '2020-01-01' + ((row_id - 1) % 3653)::integer,
+       (row_id % 1000000)::integer,
+       (row_id % 3) <> 0,
+       timestamp '2020-01-01 00:00:00'
+           + ((row_id - 1) * interval '1 second')
+           + (((row_id - 1) % 1000) * interval '1 microsecond'),
+       'artifact-row-' || row_id::text,
+       1 + ((row_id - 1) % 10000),
+       ((row_id::bigint * 104729) % 10000000)::numeric / 10000,
+       CASE WHEN (row_id % 11) = 0 THEN -1 ELSE 1 END
+           * (((row_id::bigint * 37) % 1000000)::numeric / 100),
+       date '2020-01-01' + ((row_id - 1 + 31) % 3653)::integer,
+       timestamp '2020-01-01 12:00:00' + ((row_id - 1) * interval '1 minute'),
+       (ARRAY['north','south','east','west','central'])[((row_id - 1) % 5) + 1],
+       ((row_id - 1) % 97)::integer,
+       (row_id % 7) <> 0
+FROM generate_series(1, 750000) AS generated(row_id);
+
+ANALYZE final_v5_benchmark.scale_e7;
+
 ANALYZE final_v5_benchmark.exposure_scale;
 ANALYZE final_v5_benchmark.result_heavy;
 
@@ -106,6 +160,15 @@ FROM final_v5_benchmark.result_heavy;
 
 CREATE UNIQUE INDEX final_v5_result_heavy_row_id_idx
     ON reporting.final_v5_result_heavy(row_id);
+
+CREATE MATERIALIZED VIEW reporting.final_v5_scale_e7 AS
+SELECT row_id, category, amount, event_date, sequence_no, approved,
+       event_timestamp, description, quantity, unit_price, tax_amount,
+       settled_date, processed_at, region, revision, active
+FROM final_v5_benchmark.scale_e7;
+
+CREATE UNIQUE INDEX final_v5_scale_e7_row_id_idx
+    ON reporting.final_v5_scale_e7(row_id);
 
 -- Four semantic layers: fixed filter/projection -> connected join ->
 -- aggregate -> root projection. No filter is permitted above layer 3.
@@ -147,6 +210,9 @@ BEGIN
     IF (SELECT count(*) FROM final_v5_benchmark.result_heavy) <> 100000 THEN
         RAISE EXCEPTION 'result-heavy row count is not 100000';
     END IF;
+    IF (SELECT count(*) FROM final_v5_benchmark.scale_e7) <> 750000 THEN
+        RAISE EXCEPTION 'scale-e7 row count is not 750000';
+    END IF;
     IF (SELECT count(*) FROM reporting.final_v5_analytics_depth4_l1) <> 25000 THEN
         RAISE EXCEPTION 'depth-4 layer-1 row count is not 25000';
     END IF;
@@ -164,10 +230,16 @@ CREATE TRIGGER reject_frozen_result_heavy_mutation
 BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON final_v5_benchmark.result_heavy
 FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
 
+CREATE TRIGGER reject_frozen_scale_e7_mutation
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON final_v5_benchmark.scale_e7
+FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
+
 COMMENT ON MATERIALIZED VIEW reporting.final_v5_exposure_scale IS
     'Immutable source relation for Final-V5 publication final-v5-exposure-scale-v1.';
 COMMENT ON MATERIALIZED VIEW reporting.final_v5_result_heavy IS
     'Immutable source relation for Final-V5 publication final-v5-result-heavy-v1.';
+COMMENT ON MATERIALIZED VIEW reporting.final_v5_scale_e7 IS
+    'Immutable source relation for Final-V5 publication final-v5-scale-e7-v1.';
 COMMENT ON VIEW reporting.final_v5_analytics_depth4 IS
     'Final-V5 four-layer semantic Product root; live View-contract digests must be generated before freeze.';
 
@@ -179,8 +251,10 @@ REVOKE ALL ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy
 
 ALTER TABLE final_v5_benchmark.exposure_scale OWNER TO taskgate_snapshot_owner;
 ALTER TABLE final_v5_benchmark.result_heavy OWNER TO taskgate_snapshot_owner;
+ALTER TABLE final_v5_benchmark.scale_e7 OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.final_v5_exposure_scale OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.final_v5_result_heavy OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.final_v5_scale_e7 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l1 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l2 OWNER TO taskgate_snapshot_owner;
 ALTER VIEW reporting.final_v5_analytics_depth4_l3 OWNER TO taskgate_snapshot_owner;
@@ -190,7 +264,7 @@ ALTER SCHEMA final_v5_benchmark OWNER TO taskgate_snapshot_owner;
 DO $reader_grants$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gateway_reader') THEN
-        EXECUTE 'GRANT SELECT ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy, reporting.final_v5_analytics_depth4_l1, reporting.final_v5_analytics_depth4_l2, reporting.final_v5_analytics_depth4_l3, reporting.final_v5_analytics_depth4 TO gateway_reader';
+        EXECUTE 'GRANT SELECT ON reporting.final_v5_exposure_scale, reporting.final_v5_result_heavy, reporting.final_v5_scale_e7, reporting.final_v5_analytics_depth4_l1, reporting.final_v5_analytics_depth4_l2, reporting.final_v5_analytics_depth4_l3, reporting.final_v5_analytics_depth4 TO gateway_reader';
     END IF;
 END
 $reader_grants$;

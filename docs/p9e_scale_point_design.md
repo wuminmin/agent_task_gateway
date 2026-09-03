@@ -44,3 +44,25 @@ B 仍可先行（不等 P9.G）。
 2. 1e6 预实测门（单部署 pilot）→ 三风险数字落台账 → 裁决 A 续/转 B。
 3. A：profile 定点 → pilot-scale-01（阶梯全格）→ 注册 → 宏 → 论文 §Evaluation 规模段重写。
 4. catalog 改动汇入 P9-SIGN-HOLD，等 P9.G 一次签署升发表级。
+
+## T3 架构定案（2026-09-02，实查驱动）
+
+- Baseline/Scale/Artifact 的 cell 集来自封存契约索引（workloads-v1.yaml 头注释），不可扩展 → E 走
+  **扩展实验模式**（footprint/benign 同型）：experiment `scale7`，workload `scale7-ladder-v1`。
+- **阶梯全用 SUM 聚合**（修正原全列投影设想）：可见输出 1 行，依赖= rows+cells；
+  梯级 rows ∈ {62500, 156250, 312500, 625000} → 依赖 {1.06e6, 2.66e6, 5.31e6, 10.63e6}。
+  聚合形态使 novel artifact 保持字节级小，时延由 execute+derive+settlement 的 1e7 依赖主导——正是主张对象。
+- modes: [direct, novel, semantic_replay]；单产品 final_v5_scale_e7 → 1 个新 profile（24 档）。
+- 预算保守先验（推导，不拟合）：D = 11,000,000（1e7 梯级依赖 + 6% 余量）；R = 100（聚合 release 每查询
+  约 2 facts × 阶梯与重试）；O = 40（语句+atoms）；Q = 160 = 4×O。
+- 语料包 evaluation/finalv5scale7/（仿 finalv5footprint）：4 rungs × {direct_sql, logical SQL,
+  expected_scalars(big.Rat 闭式), dependency SetCommitment(外排流哈希, ~2 分钟构建)}。
+- 样本量：novel@1e7 线性外推 ~110s/样本；TASKGATE_PILOT_SAMPLES 严谨档 3 部署×5 样本 → 单 pilot ~75 分钟。
+- 时延基线对照（M1）：direct 臂即同宿主直查对照。
+
+## 预实测门风险 3 的实测值（2026-09-02，memcg OOM 直接证据）
+
+snapshot-index 编译器全内存装箱（rowsByEntity map + any 值，bundle.go:844）：
+1.25M 行 × 16 列实测 anon-rss ≈ 16.7 GB（~13 KB/行），16g 限为边际态（三次险过一次被杀）。
+专属 mem_limit 提至 22g（宿主 29G，phase-1 编译器串行）。当前架构行数上限 ≈ 2M；
+更大规模点需要编译器流式化（列字典外排），列为 P9.E 后续工程债，不在本轮做。

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
-  "contract_release": "final-v5-contracts-v1.12",
+  "contract_release": "final-v5-contracts-v1.13",
   "max_hot_limit_bytes": 1073741824,
   "max_hot_limit_scope": "per Catalog-bound Gateway instance HOT limit",
   "profiles": [
@@ -842,6 +842,66 @@
         }
       ],
       "total_hot_bytes": 117623914,
+      "max_hot_limit_bytes": 1073741824,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-69f6a064f1ef18ed",
+      "alias": "scale7",
+      "closure": {
+        "products": [
+          "final_v5_scale_e7"
+        ],
+        "publications": [
+          "final-v5-scale-e7-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category"
+        ],
+        "closure_sha256": "69f6a064f1ef18edad6f05548bda938f2367eab999594625bb58d707b406227f"
+      },
+      "status": {
+        "closure_complete": true,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
+        "targeted_validation_passed": false,
+        "unresolved_reasons": [
+          {
+            "state": "targeted_validation_passed",
+            "code": "targeted_run_not_executed",
+            "detail": "no targeted non-publication run has executed this profile's cells"
+          }
+        ]
+      },
+      "routable": false,
+      "targeted_run_eligible": true,
+      "budget_profiles": [
+        "final-v5-baseline-low-v1"
+      ],
+      "workload_cells": [
+        "scale7/scale7-ladder-v1/sum-ladder/direct",
+        "scale7/scale7-ladder-v1/sum-ladder/novel",
+        "scale7/scale7-ladder-v1/sum-ladder/replay"
+      ],
+      "experiments": [
+        "scale7"
+      ],
+      "catalog_sha256": "e4aa369772d01b6f234af20a1e6b9a43041c2b50ab56a7c09fc8f50691662829",
+      "catalog_path": "config/profiles/scale7.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "final-v5-scale-e7-v1",
+          "hot_index_digest": "a0561285b8f8a71c5354af301b78345c30f0291897a4eb72a148e6afd8211504",
+          "bytes": 951013033
+        }
+      ],
+      "total_hot_bytes": 951013033,
       "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true

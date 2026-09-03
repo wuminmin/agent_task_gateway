@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-scale7-ladder-corpus-v1",
+  "source_namespace": "final_v5.scale_e7",
+  "snapshot": "final-v5-scale-e7-2026-v1",
+  "dataset_rows": 750000,
+  "max_dependency_facts": 11500000,
+  "max_release_facts": 100,
+  "max_outcome_facts": 80,
+  "max_queries": 160,
+  "rungs": [
+    {
+      "index": 1,
+      "id": "rung-01-75000rows",
+      "rows": 75000,
+      "columns": [
+        "amount",
+        "sequence_no",
+        "quantity",
+        "unit_price",
+        "tax_amount",
+        "revision"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_benchmark.scale_e7\nWHERE row_id \u003c= 75000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "37139844625",
+        "2812537500",
+        "362537500",
+        "149963935/4",
+        "14376333553/50",
+        "3599259"
+      ],
+      "dependency": {
+        "cardinality": 1050000,
+        "set_sha256": "f4c2148572e4cee72e33a4e3c4516efe2823ba8d85d7d0c7ac0cf149899cc8e3"
+      },
+      "release": {
+        "cardinality": 6,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 14
+    },
+    {
+      "index": 2,
+      "id": "rung-02-187500rows",
+      "rows": 187500,
+      "columns": [
+        "amount",
+        "sequence_no",
+        "quantity",
+        "unit_price",
+        "tax_amount",
+        "revision"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_benchmark.scale_e7\nWHERE row_id \u003c= 187500\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "185872285625/2",
+        "17578218750",
+        "928218750",
+        "749985175/8",
+        "3802681113/5",
+        "8999952"
+      ],
+      "dependency": {
+        "cardinality": 2625000,
+        "set_sha256": "5b150f600368ddfe896094fb48ed23ac573764584585beb39178d7ccb6bbfbea"
+      },
+      "release": {
+        "cardinality": 6,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 14
+    },
+    {
+      "index": 3,
+      "id": "rung-03-375000rows",
+      "rows": 375000,
+      "columns": [
+        "amount",
+        "sequence_no",
+        "quantity",
+        "unit_price",
+        "tax_amount",
+        "revision"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_benchmark.scale_e7\nWHERE row_id \u003c= 375000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "186162723125",
+        "70312687500",
+        "1862687500",
+        "750023675/4",
+        "15219242617/10",
+        "17999905"
+      ],
+      "dependency": {
+        "cardinality": 5250000,
+        "set_sha256": "6618b20bc50bbd6c1b84af854b78bf7f8032eb09e1c2a0f30fe183f31765dca1"
+      },
+      "release": {
+        "cardinality": 6,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 14
+    },
+    {
+      "index": 4,
+      "id": "rung-04-750000rows",
+      "rows": 750000,
+      "columns": [
+        "amount",
+        "sequence_no",
+        "quantity",
+        "unit_price",
+        "tax_amount",
+        "revision"
+      ],
+      "direct_sql": "SELECT sum(amount) AS total_amount,\n       sum(sequence_no) AS total_sequence_no,\n       sum(quantity) AS total_quantity,\n       sum(unit_price) AS total_unit_price,\n       sum(tax_amount) AS total_tax_amount,\n       sum(revision) AS total_revision\nFROM final_v5_benchmark.scale_e7\nWHERE row_id \u003c= 750000\n  AND category IN ('alpha', 'beta', 'gamma', 'delta')\n  AND region IN ('north', 'south', 'east', 'west', 'central')\n  AND event_date \u003c= '2031-12-31'\n  AND settled_date \u003c= '2031-12-31'\n  AND event_timestamp \u003c= '2031-12-31 00:00:00'\n  AND processed_at \u003c= '2031-12-31 00:00:00';",
+      "expected_scalars": [
+        "373490196250",
+        "281250375000",
+        "3750375000",
+        "750046675/2",
+        "152362039803/50",
+        "35999814"
+      ],
+      "dependency": {
+        "cardinality": 10500000,
+        "set_sha256": "cda7385ef77d4d2212161d45b0ef0c9c699a5b08b1f3be3931f733265a081402"
+      },
+      "release": {
+        "cardinality": 6,
+        "set_sha256": ""
+      },
+      "expected_predicate_atoms": 14
+    }
+  ]
+}

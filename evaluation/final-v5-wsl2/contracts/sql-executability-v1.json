@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "record": "taskgate-final-v5-contract-sql-executability-v1",
-  "contract_release": "final-v5-contracts-v1.12",
-  "contract_index_sha256": "82d6c0e4866ce4d9d41ac6f4285a590050bef4b5b46308eedd538c45e248dbe5",
+  "contract_release": "final-v5-contracts-v1.13",
+  "contract_index_sha256": "3483b50930e951a9fabf7aaaa3032e5e6af6772a585d949072c7c67e68b13d8f",
   "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "postgresql_server_version_num": "160014",
   "checked_artifacts": [
     {
       "kind": "catalog_candidate",
       "path": "catalog/benchmark-contract-v1.yaml",
-      "sha256": "ce6d130263a9c343a2e8b297964a11401fe85c453622ba1dcd820560a9ae8253",
+      "sha256": "171db552e0c9d0a7f66cd18e161338b23e32b5be5fbddbd5e9c9af0787fffb30",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",
@@ -295,7 +295,7 @@
     {
       "kind": "dataset_generator",
       "path": "sql/datasets/benchmark-v1-generate.sql",
-      "sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+      "sha256": "f23ff70fda780bfb1a65f91a3e785dc5b4a990f076e3dea971e240bdae47f1a3",
       "check_type": "live_generate",
       "rendered_cells": 0,
       "parse_status": "pass",

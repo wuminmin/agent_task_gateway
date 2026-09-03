@@ -31,7 +31,10 @@ const (
 	SidecarVersion       = "taskgate-ordinal-sidecar-ndjson-v1"
 	maxJSONDocumentBytes = 4 << 20
 	maxSidecarLineBytes  = 64 << 20
-	maxPublishedBytes    = uint64(2 << 30)
+	// Raised from 2 GiB for the P9.E scale publication: the 750k-row COLD
+	// artifact carries ~1.2e7 canonical values. Compiler and loader share
+	// this constant, so both sides move together.
+	maxPublishedBytes    = uint64(16 << 30)
 	maxHotPublishedBytes = uint64(1024 << 20)
 )
 
@@ -1151,7 +1154,8 @@ type countingWriter struct {
 
 func (w *countingWriter) Write(payload []byte) (int, error) {
 	if w.limit <= 0 || int64(len(payload)) > w.limit-w.written {
-		return 0, errPublishedSizeLimit
+		return 0, fmt.Errorf("%w: %d bytes written, %d requested, limit %d",
+			errPublishedSizeLimit, w.written, len(payload), w.limit)
 	}
 	written, err := w.writer.Write(payload)
 	if written < 0 || written > len(payload) {

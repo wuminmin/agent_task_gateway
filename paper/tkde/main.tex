@@ -72,14 +72,13 @@ ledger is settled atomically before any result becomes retrievable. The
 guarantee is bounded \emph{release}: within one root family and publication
 epoch no more than the approved number of distinct declared facts of each
 kind becomes available, whatever admitted sequence the agent issues; it does
-not bound inference from answered or refused predicates. Accounting is
-exact with respect to the declared rules, a property we verify as
-consistency with our own reference implementations (plus one third-party
-base-tuple check); it covers a closed
-reporting fragment (connected equijoins, grouping, bounded unions, nested
-Views) whose coverage of agent-written reporting SQL is limited
-(\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
-statements lower unedited). Immutable ordinals, compressed
+not bound inference from answered or refused predicates. Accounting is exact
+with respect to the declared rules---verified as consistency with our
+reference implementations plus one third-party base-tuple check---over a
+closed reporting fragment (connected equijoins, grouping, bounded unions,
+nested Views, derived-cell arithmetic) that admits
+\AgentWorkloadLowerablePct\% of \AgentWorkloadQueries{} LLM-written
+reporting statements unedited. Immutable ordinals, compressed
 bitmaps, and a Merkle-radix set make novelty exact at $10^6$ facts. A sealed
 single-host campaign (\FinalVFivePublicationMeasuredSamples{} samples)
 charges every scripted decomposition exactly once, keeps an adaptive trace
@@ -254,10 +253,9 @@ fragment---one-Product and connected equijoin queries (two- and
 three-source joins evaluated end to end; up to 16 roles admitted by the
 compiler), two-branch
 union, grouping with HAVING and the admitted aggregates (COUNT, COUNT
-DISTINCT, SUM, MIN, MAX, exact AVG), into which bounded nested Views
-flatten, and single-Product exact-typed binary arithmetic projections
-($+$, $-$, $\times$) settled as derived cells; no scalar functions,
-division, OR, subqueries, or outer joins
+DISTINCT, SUM, MIN, MAX, exact AVG), plus single-Product exact
+$\{+,-,\times\}$ projections settled as derived cells, into which bounded
+nested Views flatten; no scalar functions, division, OR, subqueries, or outer joins
 (Section~\ref{sec:limits} measures the consequence); (3)
 profile-relative novelty, exact by the declared rules and verified as
 consistent with our reference implementation, and
@@ -1485,44 +1483,40 @@ governance units, not bits; BDG omits rejected rows, non-output
 groups/pages, rank-only inputs, correlations, background knowledge, and
 physical reads, and provides neither minimal causality nor differential
 privacy (channels and fresh capacity: Section~\ref{sec:model}). \textbf{Query and identity scope.} Evidence uses
-frozen, manifest-proven publications; the closed fragment fails closed on
-richer joins, sets, paging, negation, recursion, and subqueries, and it is a
+frozen, manifest-proven publications; the closed fragment is a
 reporting-Product fragment, not ad-hoc analytics: the production lowerer
 admits \TPCHLowerableExplicitJoin{} of the \TPCHQueries{} TPC-H templates
-(comma joins rewritten to explicit joins), stopping first at
-subqueries (\TPCHSubqueryQueries{}), arithmetic in aggregates or projections
-(\TPCHArithmeticQueries{}), and multi-product \code{LIMIT}, and
+(comma joins rewritten to explicit joins; first rejections: subqueries
+\TPCHSubqueryQueries{}, arithmetic \TPCHArithmeticQueries{}, multi-product
+\code{LIMIT}), and
 \SSBLowerableExplicitJoin{} of the \SSBQueries{} Star Schema Benchmark
-reporting queries (four-source star joins with a grouped \code{SUM} lower;
-multi-source derived measures, \code{OR} filters, and aggregate-alias
-ordering do not;
-supplement tables); SQL written by an off-the-shelf LLM assistant from the
-Product sheet alone for \AgentWorkloadQueries{} reporting questions lowers
-unedited in \AgentWorkloadLowerable{} cases (\AgentWorkloadLowerablePct\%);
+reporting queries (star joins with grouped \code{SUM} lower; multi-source
+measures, \code{OR}, and alias ordering do not; supplement tables);
+LLM-written SQL from the Product sheet alone lowers unedited in
+\AgentWorkloadLowerable{} of \AgentWorkloadQueries{} cases
+(\AgentWorkloadLowerablePct\%);
 the rest stop first at scalar functions, division or a subquery inside
 arithmetic, non-literal comparisons, \code{BETWEEN}/\code{LIKE}, \code{OR},
-\code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING},
-\code{SELECT *}, exact \code{AVG}, \code{COUNT(DISTINCT)}, and
-single-Product $\{+,-,\times\}$ arithmetic projections (settled as derived
-cells) are now admitted; non-literal comparisons, \code{OR}, and outer
-joins need new rules (two-cell atoms, disjunctive witnesses,
-null-extended rows; supplement table). Materialized Views are opaque leaves; stable keys and publications
-are trusted declarations; View drift is checked at request, approval, and
-execution.
+\code{LEFT JOIN}, or \code{LIMIT} over a join. \code{HAVING}, \code{SELECT *},
+exact \code{AVG}, \code{COUNT(DISTINCT)}, and single-Product
+$\{+,-,\times\}$ projections are now admitted; non-literal comparisons,
+\code{OR}, and outer joins need new rules (two-cell atoms, disjunctive
+witnesses, null-extended rows; supplement table). Materialized Views are
+opaque leaves; stable keys and publications are trusted declarations, with
+View drift checked at request, approval, and execution.
 
 \textbf{Applicability envelope.} Publication artifacts cost
 \RQFiveBytesPerFact{}~B and \RQFiveBuildMicrosPerFact{}~$\mu$s per Fact
 (RQ5 Day~0) plus derivation microseconds per Fact; a $10^9$-Fact Product
 would need hundreds of gigabytes and hours per build and global aggregate,
-so the evaluated envelope is $10^5$--$10^6$-row Products.
+so the evaluated envelope is $10^5$--$10^6$-row Products. Same-root
+settlement serializes on the head (Section~\ref{sec:evaluation});
+multi-root throughput is unmeasured.
 
-\textbf{Throughput scope.} Same-root settlement serializes on the head
-(Section~\ref{sec:evaluation}); multi-root throughput is unmeasured.
-
-\textbf{Governance and deployment scope.} Profile correctness is trusted:
-BDG validates bindings, supported semantics, and settlement, not policy
-appropriateness; its single database path and demo approval adapter offer
-no production integration or practitioner study of budget calibration
+\textbf{Governance and deployment scope.} Profile correctness is
+trusted---BDG validates bindings, semantics, and settlement, not policy
+appropriateness---and the single database path and demo approval adapter
+offer no production integration or budget-calibration study
 \cite{tonnarelli2026dataproductmcp}.
 
 \section{Conclusion}

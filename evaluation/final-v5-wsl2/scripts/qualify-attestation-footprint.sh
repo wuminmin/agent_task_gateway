@@ -88,12 +88,12 @@ echo "== ${QUALIFICATION_ID}: fresh deployment ${project}"
 # exit code instead, so a real failure is still caught.
 phase1_services=(business-postgres control-postgres oa-demo
   result-object-store result-object-store-init
-  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy
+  snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy snapshot-index-scale-e7
   snapshot-sidecar-install final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_healthy=(business-postgres control-postgres oa-demo
   result-object-store final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_jobs=(result-object-store-init snapshot-index-detail snapshot-index-summary
-  snapshot-index-result-heavy snapshot-sidecar-install)
+  snapshot-index-result-heavy snapshot-index-scale-e7 snapshot-sidecar-install)
 
 retain_failure() {
   "${compose[@]}" ps --all >>"$outdir/compose-up.log" 2>&1 || true
@@ -118,16 +118,22 @@ for service in "${phase1_healthy[@]}"; do
 done
 
 for service in "${phase1_jobs[@]}"; do
-  for attempt in $(seq 1 180); do
+  for attempt in $(seq 1 1800); do
     container="$("${compose[@]}" ps -aq "$service")"
-    running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || echo true)"
-    if [[ "$running" == false ]]; then
+    state="$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo pending)"
+    # A job stuck in "created" was never scheduled (its dependency chain
+    # outlived the compose-up wait); re-issue up so compose starts it once
+    # the dependency completes, and only "exited" counts as done.
+    if [[ "$state" == created && $((attempt % 15)) == 0 ]]; then
+      "${compose[@]}" up -d --no-recreate "$service" >/dev/null 2>&1 || true
+    fi
+    if [[ "$state" == exited ]]; then
       code="$(docker inspect --format '{{.State.ExitCode}}' "$container")"
       [[ "$code" == 0 ]] || {
         echo "$service exited $code" >&2; retain_failure; exit 1; }
       break
     fi
-    [[ "$attempt" == 180 ]] && { echo "$service never completed" >&2; retain_failure; exit 1; }
+    [[ "$attempt" == 1800 ]] && { echo "$service never completed" >&2; retain_failure; exit 1; }
     sleep 2
   done
 done

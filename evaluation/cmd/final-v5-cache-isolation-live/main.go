@@ -851,12 +851,20 @@ func (client *mcpClient) call(ctx context.Context, tool string, arguments, outpu
 	var result struct {
 		IsError    bool            `json:"isError"`
 		Structured json.RawMessage `json:"structuredContent"`
+		Content    json.RawMessage `json:"content"`
 	}
 	if err := json.Unmarshal(rpc.Result, &result); err != nil {
 		return err
 	}
 	if result.IsError {
-		return errors.New("MCP tool returned an error")
+		detail := string(result.Structured)
+		if detail == "" {
+			detail = string(result.Content)
+		}
+		if len(detail) > 600 {
+			detail = detail[:600]
+		}
+		return fmt.Errorf("MCP tool returned an error: %s", detail)
 	}
 	if len(result.Structured) == 0 {
 		return errors.New("MCP tool omitted structured content")
