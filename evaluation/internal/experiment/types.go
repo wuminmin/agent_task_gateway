@@ -553,6 +553,7 @@ type Sample struct {
 	FootprintVerification     *FootprintVerificationEvidence    `json:"footprint_verification,omitempty"`
 	BenignVerification        *BenignVerificationEvidence       `json:"benign_verification,omitempty"`
 	Scale7Verification        *Scale7VerificationEvidence       `json:"scale7_verification,omitempty"`
+	Compare7Verification      *Compare7VerificationEvidence     `json:"compare7_verification,omitempty"`
 	CounterVerification       *CounterVerificationEvidence      `json:"counter_verification,omitempty"`
 	AdversaryVerification     *AdversaryVerificationEvidence    `json:"adversary_verification,omitempty"`
 	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
@@ -2006,6 +2007,41 @@ type FootprintVerificationEvidence struct {
 	Rungs                     []FootprintRungEvidence `json:"rungs"`
 	AcceptedRungs             int                     `json:"accepted_rungs"`
 	RefusedRungs              int                     `json:"refused_rungs"`
+}
+
+// Compare7StepEvidence is one statement of the P9.F comparison sequence:
+// identity bound to the frozen finalv5compare corpus, the observed
+// accept/refuse outcome, and the ledger deltas. Refusal positions are
+// recorded evidence; the study reads the exhaustion trajectory from here.
+type Compare7StepEvidence struct {
+	Index                  int     `json:"index"`
+	RepeatOf               int     `json:"repeat_of,omitempty"`
+	Bound                  int64   `json:"bound"`
+	SQLSHA256              string  `json:"sql_sha256"`
+	Accepted               bool    `json:"accepted"`
+	Rejected               bool    `json:"rejected"`
+	ObservedErrorCode      string  `json:"observed_error_code,omitempty"`
+	ClientMS               float64 `json:"client_ms"`
+	RequestIDHash          string  `json:"request_id_hash,omitempty"`
+	ChargedReleaseFacts    int64   `json:"charged_release_facts"`
+	ChargedDependencyFacts int64   `json:"charged_dependency_facts"`
+	ChargedOutcomeFacts    int64   `json:"charged_outcome_facts"`
+	LedgerDependency       int64   `json:"ledger_dependency"`
+}
+
+// Compare7VerificationEvidence binds a comparison sample to the frozen
+// sequence corpus.
+type Compare7VerificationEvidence struct {
+	Version            string                 `json:"version"`
+	CorpusID           string                 `json:"corpus_id"`
+	CorpusSHA256       string                 `json:"corpus_sha256"`
+	Product            string                 `json:"product"`
+	MaxDependencyFacts int64                  `json:"max_dependency_facts"`
+	Steps              []Compare7StepEvidence `json:"steps"`
+	AcceptedStatements int                    `json:"accepted_statements"`
+	BudgetRefusals     int                    `json:"budget_refusals"`
+	FirstBudgetRefusal int                    `json:"first_budget_refusal,omitempty"`
+	RepeatCharges      int64                  `json:"repeat_charges"`
 }
 
 // Scale7RungEvidence is one SUM-ladder execution of the P9.E scale point:
